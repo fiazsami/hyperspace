@@ -12,3 +12,6 @@ CVS
 .svn
 Hyperspace.xcodeproj/project.xcworkspace/xcuserdata
 Hyperspace.xcodeproj/xcuserdata
+
+# Build tree for the tests workflow in .github/workflows/
+.ci-build/
