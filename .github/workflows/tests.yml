@@ -1,0 +1,53 @@
+# Builds and runs this submodule's test suite on every pull request.
+#
+# This is a smoke test, NOT the coverage gate. The gate lives in the
+# screen-savers superproject -- tools/coverage.sh plus coverage/<name>.json --
+# and cannot run here: the superproject is private, and it is where the source
+# list, the include paths and the ratchet baseline live. A PR in this repo
+# therefore cannot tell you whether coverage held. It can tell you the suite
+# still compiles and still passes, which is the part a reviewer of this repo
+# would otherwise have no way to check at all.
+#
+# The build recipe below duplicates a little of that config by necessity. If the
+# two ever disagree, coverage/<name>.json in the superproject is the authority
+# and this file is the thing that is wrong.
+#
+# The job is named "tests" because that string is the check context required by
+# branch protection on master. Renaming the job silently disables the gate.
+
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+jobs:
+  tests:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and run the test suite
+        run: |
+          set -euo pipefail
+          OUT=.ci-build
+          rm -rf "$OUT"; mkdir -p "$OUT"
+          INC=(-I. -Itests)
+          SOURCES=()
+          for dir in rsMath Implicit Rgbhsl util tests; do
+            while IFS= read -r f; do SOURCES+=("$f"); done < <(find "$dir" -type f \( -name "*.cpp" -o -name "*.cc" -o -name "*.cxx" -o -name "*.c" -o -name "*.m" -o -name "*.mm" \) | sort)
+          done
+          [ ${#SOURCES[@]} -gt 0 ] || { echo "no sources found" >&2; exit 1; }
+          n=0
+          for src in "${SOURCES[@]}"; do
+            n=$((n + 1))
+            case "$src" in
+              *.m)  xcrun clang   -x objective-c              "${INC[@]}" -c "$src" -o "$OUT/$n.o" ;;
+              *.mm) xcrun clang++ -x objective-c++ -std=c++17 "${INC[@]}" -c "$src" -o "$OUT/$n.o" ;;
+              *.c)  xcrun clang                               "${INC[@]}" -c "$src" -o "$OUT/$n.o" ;;
+              *)    xcrun clang++ -std=c++17                  "${INC[@]}" -c "$src" -o "$OUT/$n.o" ;;
+            esac
+          done
+          xcrun clang++ "$OUT"/*.o -framework OpenGL -o "$OUT/tests"
+          "$OUT/tests"
