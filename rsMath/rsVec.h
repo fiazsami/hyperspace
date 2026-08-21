@@ -68,5 +68,15 @@ public:
 };
 
 
+// Generic vector math on bare float[3], defined in rsVec.cpp. These had
+// external linkage but no declaration, so nothing outside that translation unit
+// could name them -- which is also why coverage triage classified them
+// b:hidden. Declaring them changes no behaviour and no linkage.
+float rsLength(float *xyz);
+float rsNormalize(float *xyz);
+float rsDot(float *xyz1, float *xyz2);
+void rsCross(float *xyz1, float *xyz2, float *xyzOut);
+void rsScaleVec(float *xyz, float scale);
+
 
 #endif
