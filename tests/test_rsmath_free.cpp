@@ -151,19 +151,31 @@ TEST(inv_sqrtf_is_the_reciprocal_of_the_square_root)
 {
     /* Under __SSE__, rsInvSqrtf is _mm_rsqrt_ss -- a hardware reciprocal
      * *approximation*, not an exact computation, with a documented maximum
-     * relative error of 1.5 * 2^-12 (~3.7e-4). That is looser than the
+     * relative error of 1.5 * 2^-12 (~3.66e-4). That is looser than the
      * global kTol, so on an SSE build (x86) the tight tolerance would flake
      * against a correct implementation. The non-SSE path is exact
-     * (1.0f / sqrtf(x)), so kTol still applies there. */
+     * (1.0f / sqrtf(x)), so kTol still applies there.
+     *
+     * The bound is RELATIVE, so the allowance has to scale with the expected
+     * value -- a single absolute tolerance is wrong in both directions. An
+     * earlier version of this test used a flat 4e-4f, which is too TIGHT for
+     * the 0.25f case (expected 2.0, so a conforming rsqrtss may be off by
+     * 2.0 * 3.66e-4 = 7.3e-4 and fail) and needlessly loose for the 4.0f case
+     * (expected 0.5, where the real bound is 1.8e-4). kRelErr below is applied
+     * to each expected magnitude instead. */
 #ifdef __SSE__
-    const float kInvSqrtTol = 4e-4f;
+    const float kRelErr = 3.7e-4f;   /* just above 1.5 * 2^-12 */
 #else
-    const float kInvSqrtTol = kTol;
+    const float kRelErr = 0.0f;      /* exact path; kTol alone covers it */
 #endif
-    CHECK_NEAR(rsInvSqrtf(4.0f), 0.5f, kInvSqrtTol);
-    CHECK_NEAR(rsInvSqrtf(2.0f), 1.0f / sqrtf(2.0f), kInvSqrtTol);
-    CHECK_NEAR(rsInvSqrtf(0.25f), 2.0f, kInvSqrtTol);
-    CHECK_NEAR(rsInvSqrtf(1.0f), 1.0f, kInvSqrtTol);
+#define INV_SQRT_TOL(expected) (kTol + kRelErr * fabsf(expected))
+
+    CHECK_NEAR(rsInvSqrtf(4.0f), 0.5f, INV_SQRT_TOL(0.5f));
+    CHECK_NEAR(rsInvSqrtf(2.0f), 1.0f / sqrtf(2.0f), INV_SQRT_TOL(1.0f / sqrtf(2.0f)));
+    CHECK_NEAR(rsInvSqrtf(0.25f), 2.0f, INV_SQRT_TOL(2.0f));
+    CHECK_NEAR(rsInvSqrtf(1.0f), 1.0f, INV_SQRT_TOL(1.0f));
+
+#undef INV_SQRT_TOL
 }
 
 /* --- rsCosf / rsSinf --------------------------------------------------------
