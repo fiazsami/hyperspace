@@ -51,3 +51,59 @@ jobs:
           done
           xcrun clang++ "$OUT"/*.o -framework OpenGL -o "$OUT/tests"
           "$OUT/tests"
+
+      # The suite above compiles with clang and never opens the Xcode project, so
+      # until this step existed a completely broken Release build stayed green.
+      # That is not hypothetical: every target once failed on the removed
+      # libarclite and it went unnoticed through the whole of phase 1, because
+      # nothing in CI had ever built a screen saver. Phase 2 touches the project
+      # on every commit, so the gap mattered more from here on.
+      #
+      # Deliberately passes no signing overrides. The project signs ad-hoc, and a
+      # runner has no certificate -- so a green run here is the evidence that the
+      # committed settings build for someone who is not the author.
+      #
+      # Both configurations. Debug carries the same signing keys and is the first
+      # build a new contributor runs, so leaving it unbuilt would put the half of
+      # the change with no prior art in the half with no test.
+      #
+      # Building is not enough on its own, which review caught: the distinction
+      # this project argues for -- explicit "-" seals the bundle, an emptied key
+      # yields an unsealed linker-signed one -- produces ** BUILD SUCCEEDED **
+      # either way. Only the signature tells them apart, so assert it.
+      - name: Build and verify the saver
+        run: |
+          set -euo pipefail
+
+          # A team ID in the project file, in either spelling. DEVELOPMENT_TEAM is
+          # the build setting; DevelopmentTeam is what Xcode writes under
+          # TargetAttributes -- and this repo shipped one there, which a grep for
+          # the first spelling missed entirely while every other check passed.
+          # Only "" is permitted.
+          #
+          # This lives here as well as in the superproject's commit hook because
+          # the two catch different things: the hook sees commits made through
+          # that harness, CI sees whatever actually arrives on a branch.
+          if grep -nE '(DEVELOPMENT_TEAM|DevelopmentTeam)[[:space:]]*=' \
+               Hyperspace.xcodeproj/project.pbxproj | grep -vE '=[[:space:]]*"";'; then
+            echo "::error::project.pbxproj carries a non-empty development team (shown above)"
+            exit 1
+          fi
+
+          verify() {
+            echo "verifying $1"
+            # Catches the regression this project's signing argument is about:
+            # an emptied CODE_SIGN_IDENTITY still prints ** BUILD SUCCEEDED **
+            # but leaves the bundle unsealed and linker-signed. Verified by
+            # building it both ways -- only this call tells them apart.
+            codesign --verify --strict --verbose=4 "$1"
+            codesign -dv "$1" 2>&1 | grep -q "^Sealed Resources" || {
+              echo "::error::$1 has no sealed resources -- signing regressed to linker-signed"
+              exit 1
+            }
+          }
+
+          for configuration in Release Debug; do
+            xcodebuild -project Hyperspace.xcodeproj -target Hyperspace -configuration "$configuration" build
+            verify "build/$configuration/Hyperspace.saver"
+          done
