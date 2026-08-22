@@ -137,6 +137,51 @@ TEST(rand_float_stays_inside_the_closed_range)
         CHECK_NEAR(rsRandf(0.0f), 0.0f, kTol);
 }
 
+/* --- rsSqrtf / rsInvSqrtf -------------------------------------------------- */
+
+TEST(sqrtf_matches_the_standard_library)
+{
+    CHECK_NEAR(rsSqrtf(4.0f), 2.0f, kTol);
+    CHECK_NEAR(rsSqrtf(2.0f), sqrtf(2.0f), kTol);
+    CHECK_NEAR(rsSqrtf(0.25f), 0.5f, kTol);
+    CHECK_NEAR(rsSqrtf(0.0f), 0.0f, kTol);
+}
+
+TEST(inv_sqrtf_is_the_reciprocal_of_the_square_root)
+{
+    CHECK_NEAR(rsInvSqrtf(4.0f), 0.5f, kTol);
+    CHECK_NEAR(rsInvSqrtf(2.0f), 1.0f / sqrtf(2.0f), kTol);
+    CHECK_NEAR(rsInvSqrtf(0.25f), 2.0f, kTol);
+    CHECK_NEAR(rsInvSqrtf(1.0f), 1.0f, kTol);
+}
+
+/* --- rsCosf / rsSinf --------------------------------------------------------
+ *
+ * Both are table lookups (rsTrigonometry.h) with a linear interpolation term
+ * between adjacent entries -- the table alone only has 256-step resolution.
+ * Sampling at a multiple of the table's step (2*pi/256) would leave the
+ * lookup's fractional multiplier at exactly zero, so the interpolation term
+ * would drop out of the expression whether or not it dropped out of the
+ * source: deleting it, or scaling it by any factor, would still leave the
+ * suite green. 0.31 radians falls mid-bucket, where the un-interpolated
+ * error against cosf/sinf is close to 5e-3 -- comfortably outside the
+ * tolerance below, while the interpolated approximation's own error stays
+ * under 1e-4. */
+
+TEST(cosf_interpolates_between_table_entries)
+{
+    CHECK_NEAR(rsCosf(0.31f), cosf(0.31f), 5e-4f);
+    CHECK_NEAR(rsCosf(-0.31f), cosf(-0.31f), 5e-4f);
+    CHECK_NEAR(rsCosf(1.0f), cosf(1.0f), 5e-4f);
+}
+
+TEST(sinf_interpolates_between_table_entries)
+{
+    CHECK_NEAR(rsSinf(0.31f), sinf(0.31f), 5e-4f);
+    CHECK_NEAR(rsSinf(0.4f), sinf(0.4f), 5e-4f);
+    CHECK_NEAR(rsSinf(1.2f), sinf(1.2f), 5e-4f);
+}
+
 TEST(rand_helpers_are_reproducible_from_a_seed)
 {
     /* Both wrap rand(), so seeding fixes the sequence. This is what makes them
