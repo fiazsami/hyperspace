@@ -137,6 +137,74 @@ TEST(rand_float_stays_inside_the_closed_range)
         CHECK_NEAR(rsRandf(0.0f), 0.0f, kTol);
 }
 
+/* --- rsSqrtf / rsInvSqrtf -------------------------------------------------- */
+
+TEST(sqrtf_matches_the_standard_library)
+{
+    CHECK_NEAR(rsSqrtf(4.0f), 2.0f, kTol);
+    CHECK_NEAR(rsSqrtf(2.0f), sqrtf(2.0f), kTol);
+    CHECK_NEAR(rsSqrtf(0.25f), 0.5f, kTol);
+    CHECK_NEAR(rsSqrtf(0.0f), 0.0f, kTol);
+}
+
+TEST(inv_sqrtf_is_the_reciprocal_of_the_square_root)
+{
+    /* Under __SSE__, rsInvSqrtf is _mm_rsqrt_ss -- a hardware reciprocal
+     * *approximation*, not an exact computation, with a documented maximum
+     * relative error of 1.5 * 2^-12 (~3.66e-4). That is looser than the
+     * global kTol, so on an SSE build (x86) the tight tolerance would flake
+     * against a correct implementation. The non-SSE path is exact
+     * (1.0f / sqrtf(x)), so kTol still applies there.
+     *
+     * The bound is RELATIVE, so the allowance has to scale with the expected
+     * value -- a single absolute tolerance is wrong in both directions. An
+     * earlier version of this test used a flat 4e-4f, which is too TIGHT for
+     * the 0.25f case (expected 2.0, so a conforming rsqrtss may be off by
+     * 2.0 * 3.66e-4 = 7.3e-4 and fail) and needlessly loose for the 4.0f case
+     * (expected 0.5, where the real bound is 1.8e-4). kRelErr below is applied
+     * to each expected magnitude instead. */
+#ifdef __SSE__
+    const float kRelErr = 3.7e-4f;   /* just above 1.5 * 2^-12 */
+#else
+    const float kRelErr = 0.0f;      /* exact path; kTol alone covers it */
+#endif
+#define INV_SQRT_TOL(expected) (kTol + kRelErr * fabsf(expected))
+
+    CHECK_NEAR(rsInvSqrtf(4.0f), 0.5f, INV_SQRT_TOL(0.5f));
+    CHECK_NEAR(rsInvSqrtf(2.0f), 1.0f / sqrtf(2.0f), INV_SQRT_TOL(1.0f / sqrtf(2.0f)));
+    CHECK_NEAR(rsInvSqrtf(0.25f), 2.0f, INV_SQRT_TOL(2.0f));
+    CHECK_NEAR(rsInvSqrtf(1.0f), 1.0f, INV_SQRT_TOL(1.0f));
+
+#undef INV_SQRT_TOL
+}
+
+/* --- rsCosf / rsSinf --------------------------------------------------------
+ *
+ * Both are table lookups (rsTrigonometry.h) with a linear interpolation term
+ * between adjacent entries -- the table alone only has 256-step resolution.
+ * Sampling at a multiple of the table's step (2*pi/256) would leave the
+ * lookup's fractional multiplier at exactly zero, so the interpolation term
+ * would drop out of the expression whether or not it dropped out of the
+ * source: deleting it, or scaling it by any factor, would still leave the
+ * suite green. 0.31 radians falls mid-bucket, where the un-interpolated
+ * error against cosf/sinf is close to 5e-3 -- comfortably outside the
+ * tolerance below, while the interpolated approximation's own error stays
+ * under 1e-4. */
+
+TEST(cosf_interpolates_between_table_entries)
+{
+    CHECK_NEAR(rsCosf(0.31f), cosf(0.31f), 5e-4f);
+    CHECK_NEAR(rsCosf(-0.31f), cosf(-0.31f), 5e-4f);
+    CHECK_NEAR(rsCosf(1.0f), cosf(1.0f), 5e-4f);
+}
+
+TEST(sinf_interpolates_between_table_entries)
+{
+    CHECK_NEAR(rsSinf(0.31f), sinf(0.31f), 5e-4f);
+    CHECK_NEAR(rsSinf(0.4f), sinf(0.4f), 5e-4f);
+    CHECK_NEAR(rsSinf(1.2f), sinf(1.2f), 5e-4f);
+}
+
 TEST(rand_helpers_are_reproducible_from_a_seed)
 {
     /* Both wrap rand(), so seeding fixes the sequence. This is what makes them
