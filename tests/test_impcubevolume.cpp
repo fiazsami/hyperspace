@@ -721,7 +721,7 @@ TEST(impcubevolume_a_field_below_the_threshold_emits_nothing)
 }
 
 /* ------------------------------------------------------------------------
- * The crawl overloads, part two (ss-c49).
+ * The crawl overloads, part two (ss-c49, ss-qsv).
  *
  * Everything above drives makeSurface(), makeSurface(eye) and the simplest
  * path through makeSurface(cpv): one seed at the centre of a ball, on a field
@@ -738,6 +738,7 @@ TEST(impcubevolume_a_field_below_the_threshold_emits_nothing)
  *     from an exhaustive scan and says WHICH component it reached;
  *   - a ball too big for its volume, so the surface cuts all six faces and
  *     crawling from the sides has something to find that no seed points to;
+ *   - seeds outside the volume entirely, which is what ss-qsv is about.
  *
  * The assertions stay relational for the reason the header gives: a count
  * pins a run, a relation pins the behaviour.
@@ -755,7 +756,141 @@ bool sameVertexSet(std::vector<Vertex> a, std::vector<Vertex> b)
     return a == b;
 }
 
+/* Two disjoint balls of radius kClampRadius at +-kClampCentre along one axis.
+ *
+ * The radius and the centre are not free. The volume spans [-4, 4] along the
+ * tested axis, so cube 0 covers [-4, -3.75] and cube w-1 covers [3.75, 4]; a
+ * ball at -3.0 with R = 0.9 reaches -3.9, which puts the SURFACE inside cube 0
+ * and nothing else. That is what makes a seed clamped to the near face land on
+ * a cube whose corner mask is mixed, so the crawl starts immediately rather
+ * than walking, and it makes the two ends of the axis symmetric -- which
+ * matters because the two crawl overloads step in opposite directions when a
+ * seed lands inside solid material (++i in makeSurface(cpv), --i in the
+ * four-argument one). */
+struct AxisBalls {
+    float r2;
+    float centre;
+    int axis;
+};
+
+float axisBallField(float *p, void *context)
+{
+    const AxisBalls *b = (const AxisBalls *)context;
+    const float along = p[b->axis];
+    const float o1 = p[(b->axis + 1) % 3];
+    const float o2 = p[(b->axis + 2) % 3];
+    const float dPos = along - b->centre;
+    const float dNeg = along + b->centre;
+    const float a = 1.0f + b->r2 - (dPos * dPos + o1 * o1 + o2 * o2);
+    const float c = 1.0f + b->r2 - (dNeg * dNeg + o1 * o1 + o2 * o2);
+    return a > c ? a : c;
+}
+
+const float kClampRadius = 0.9f;
+const float kClampCentre = 3.0f;
+const unsigned int kClampCubes = 32;  /* along the tested axis only: [-4, 4] */
+const float kClampHalfExtent = 0.5f * float(kClampCubes) * kCubeWidth;
+
+void configureAxisBalls(impCubeVolume &volume, AxisBalls &field, int axis)
+{
+    field.r2 = kClampRadius * kClampRadius;
+    field.centre = kClampCentre;
+    field.axis = axis;
+
+    unsigned int dim[3] = {kCubes, kCubes, kCubes};
+    dim[axis] = kClampCubes;
+
+    volume.function = axisBallField;
+    volume.contextInfoForFunction = &field;
+    volume.init(dim[0], dim[1], dim[2], kCubeWidth);
+    volume.setSurfaceValue(kSurfaceValue);
+}
+
+impCrawlPointVector seedOnAxis(int axis, float along)
+{
+    float p[3] = {0.0f, 0.0f, 0.0f};
+    p[axis] = along;
+    impCrawlPointVector cpv;
+    cpv.push_back(impCrawlPoint(p[0], p[1], p[2]));
+    return cpv;
+}
+
+/* ss-qsv, one axis at a time.
+ *
+ * makeSurface(cpv) converts a crawl point to a grid index and clamps it into
+ * the volume. It declared those indices 'unsigned int' and then tested
+ * 'if(i < 0)', which is not a branch an unsigned value can take: a crawl point
+ * left of the volume produced a negative int, wrapped to a huge unsigned,
+ * passed the 'i >= int(w)' test underneath and clamped to w-1. The seed
+ * started on the face OPPOSITE the one it asked for.
+ *
+ * Two balls make that visible rather than merely absent. A seed off the -x end
+ * must find the -x ball; under the defect it finds the +x one, so the case
+ * fails by finding the wrong component and not by finding nothing -- which is
+ * the difference between a test that says "the clamp is broken" and one that
+ * says "something returned zero".
+ *
+ * The reference is another seed rather than a count: whatever the near ball
+ * tessellates to, a point outside the volume and a point just inside it are
+ * asking for the same cube and must get the same surface. */
+void checkOutOfVolumeSeedsClampToTheNearFace(int axis)
+{
+    impCubeVolume volume;
+    AxisBalls field;
+    configureAxisBalls(volume, field, axis);
+
+    volume.makeSurface();
+    const unsigned int exhaustive = volume.getSurface()->getVertexCount();
+    CHECK(exhaustive > 0);
+
+    /* Inside cube 0 along the tested axis, and outside the ball -- the cube
+     * straddles the surface, which is the whole point of the geometry. */
+    impCrawlPointVector justInside =
+        seedOnAxis(axis, -(kClampHalfExtent - 0.5f * kCubeWidth));
+    volume.makeSurface(justInside);
+    const std::vector<Vertex> nearFromInside = collectVertices(volume.getSurface());
+
+    /* Far enough out that the wrapped index is unmistakably huge, not merely
+     * off by one. */
+    impCrawlPointVector wellBeforeIt = seedOnAxis(axis, -10.0f * kClampHalfExtent);
+    volume.makeSurface(wellBeforeIt);
+    const std::vector<Vertex> nearFromOutside = collectVertices(volume.getSurface());
+
+    impCrawlPointVector wellPastIt = seedOnAxis(axis, 10.0f * kClampHalfExtent);
+    volume.makeSurface(wellPastIt);
+    const std::vector<Vertex> farFromOutside = collectVertices(volume.getSurface());
+
+    /* Each seed reaches one of two mirror-image components. */
+    CHECK(nearFromInside.size() > 0);
+    CHECK(nearFromInside.size() * 2 == exhaustive);
+    CHECK(farFromOutside.size() * 2 == exhaustive);
+
+    /* Clamping to the near face: outside and just-inside ask for the same
+     * cube, so they must agree exactly. */
+    CHECK(sameVertexSet(nearFromOutside, nearFromInside));
+
+    /* And it is a real discrimination, not two seeds landing on one surface:
+     * the far end is a different component. This is the assertion the
+     * unsigned index fails. */
+    CHECK(!sameVertexSet(farFromOutside, nearFromInside));
+}
+
 }  // namespace
+
+TEST(impcubevolume_a_crawl_point_off_the_x_end_clamps_to_the_near_face)
+{
+    checkOutOfVolumeSeedsClampToTheNearFace(0);
+}
+
+TEST(impcubevolume_a_crawl_point_off_the_y_end_clamps_to_the_near_face)
+{
+    checkOutOfVolumeSeedsClampToTheNearFace(1);
+}
+
+TEST(impcubevolume_a_crawl_point_off_the_z_end_clamps_to_the_near_face)
+{
+    checkOutOfVolumeSeedsClampToTheNearFace(2);
+}
 
 /* A seed in empty space reaches nothing, and does not spoil a seed that does.
  *
