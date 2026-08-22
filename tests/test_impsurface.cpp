@@ -18,7 +18,9 @@
  *
  * What is deliberately NOT here:
  *
- *   impSurface's own mutators (addVertex, addIndex, addTriStripLength).
+ *   impSurface's own mutators -- addVertex and addIndex. addTriStripLength was
+ *   listed here too until ss-3c8, and no longer belongs: it is not deliberately
+ *   untested, it is absent from the build. See below.
  *
  *   OVERTAKEN BY ss-or3 -- read the next paragraph before trusting this one.
  *   As written, the reason was that every byte they write goes into private
@@ -32,8 +34,8 @@
  *   and addIndex are now fully covered through them by
  *   test_impcubevolume.cpp. They are bucket A.
  *
- *   addTriStripLength is not covered either, because it is no longer
- *   COMPILED. ss-3c8 found its declaration and definition guarded '#ifdef
+ *   addTriStripLength is not covered and not uncovered, because it is no
+ *   longer COMPILED. ss-3c8 found its declaration and definition guarded '#ifdef
  *   USE_TRIANGLE_STRIPS' while every call site uses '#if'; the macro is
  *   #defined as 0, so #ifdef was true and #if was false, and the function
  *   went into the binary with no caller anywhere. Both guards are '#if' now,
