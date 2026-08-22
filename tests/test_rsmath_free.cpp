@@ -149,10 +149,21 @@ TEST(sqrtf_matches_the_standard_library)
 
 TEST(inv_sqrtf_is_the_reciprocal_of_the_square_root)
 {
-    CHECK_NEAR(rsInvSqrtf(4.0f), 0.5f, kTol);
-    CHECK_NEAR(rsInvSqrtf(2.0f), 1.0f / sqrtf(2.0f), kTol);
-    CHECK_NEAR(rsInvSqrtf(0.25f), 2.0f, kTol);
-    CHECK_NEAR(rsInvSqrtf(1.0f), 1.0f, kTol);
+    /* Under __SSE__, rsInvSqrtf is _mm_rsqrt_ss -- a hardware reciprocal
+     * *approximation*, not an exact computation, with a documented maximum
+     * relative error of 1.5 * 2^-12 (~3.7e-4). That is looser than the
+     * global kTol, so on an SSE build (x86) the tight tolerance would flake
+     * against a correct implementation. The non-SSE path is exact
+     * (1.0f / sqrtf(x)), so kTol still applies there. */
+#ifdef __SSE__
+    const float kInvSqrtTol = 4e-4f;
+#else
+    const float kInvSqrtTol = kTol;
+#endif
+    CHECK_NEAR(rsInvSqrtf(4.0f), 0.5f, kInvSqrtTol);
+    CHECK_NEAR(rsInvSqrtf(2.0f), 1.0f / sqrtf(2.0f), kInvSqrtTol);
+    CHECK_NEAR(rsInvSqrtf(0.25f), 2.0f, kInvSqrtTol);
+    CHECK_NEAR(rsInvSqrtf(1.0f), 1.0f, kInvSqrtTol);
 }
 
 /* --- rsCosf / rsSinf --------------------------------------------------------

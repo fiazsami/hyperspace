@@ -928,17 +928,41 @@ TEST(quat_fromEuler_matches_the_hpr_formula_for_a_single_axis)
     CHECK_NEAR(q[3], cosf(RS_PIo2 * 0.5f), kTol);
 }
 
-TEST(quat_fromEuler_combines_all_three_axes)
+TEST(quat_fromEuler_combines_yaw_and_pitch_with_roll_zero)
 {
-    /* All three angles nonzero, which is what exercises every cross term in
-     * the formula instead of leaving most of them multiplied by a zero
-     * sine. */
+    /* Yaw and pitch nonzero, but roll is still zero here, so sr == 0 and
+     * cr == 1: every term carrying sr vanishes and this case cannot tell
+     * the sr-bearing half of the formula from a version with those terms
+     * dropped or sign-flipped. See
+     * quat_fromEuler_combines_all_three_axes_with_distinct_angles below for
+     * the case that pins those terms. */
     rsQuat q;
     q.fromEuler(RS_PIo2, RS_PIo2, 0.0f);
     CHECK_NEAR(q[0], -0.5f, 1e-4f);
     CHECK_NEAR(q[1], 0.5f, 1e-4f);
     CHECK_NEAR(q[2], 0.5f, 1e-4f);
     CHECK_NEAR(q[3], 0.5f, 1e-4f);
+}
+
+TEST(quat_fromEuler_combines_all_three_axes_with_distinct_angles)
+{
+    /* yaw, pitch and roll all nonzero and pairwise distinct (0.6, 0.4,
+     * 0.9), so sr != 0 and every cross term in the formula actually
+     * contributes -- unlike the roll-zero case above, where sr == 0 kills
+     * every term that carries it. Expected values are the half-angle
+     * formula worked by hand:
+     *   cy=cos(0.3) sy=sin(0.3) cp=cos(0.2) sp=sin(0.2)
+     *   cr=cos(0.45) sr=sin(0.45)
+     *   q3 = cr*cp*cy + sr*sp*sy
+     *   q0 = sr*cp*cy - cr*sp*sy
+     *   q1 = cr*sp*cy + sr*cp*sy
+     *   q2 = cr*cp*sy - sr*sp*cy */
+    rsQuat q;
+    q.fromEuler(0.6f, 0.4f, 0.9f);
+    CHECK_NEAR(q[0], 0.3543894f, 1e-4f);
+    CHECK_NEAR(q[1], 0.2968802f, 1e-4f);
+    CHECK_NEAR(q[2], 0.1782413f, 1e-4f);
+    CHECK_NEAR(q[3], 0.8686198f, 1e-4f);
 }
 
 TEST(quat_preMult_and_postMult_differ_by_multiplication_order)

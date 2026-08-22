@@ -49,16 +49,19 @@ void makeIdentity(float *m)
     m[0] = m[5] = m[10] = m[15] = 1.0f;
 }
 
-/* Same matrix as test_imp_primitives.cpp's makeCoupledMatrix: every one of
- * the nine linear-part entries of the resulting invtrmat is distinct and
- * neither 0 nor 1, so a formula that reads the wrong index produces a
+/* Same matrix as test_imp_primitives.cpp's makeCoupledMatrix. Its 3x3
+ * linear part is deliberately non-symmetric (m[4] != m[1], m[8] != m[2],
+ * m[9] != m[6]) -- see that file's comment for why a symmetric block
+ * leaves the transpose step in impShape::setMatrix() unpinned. Every one
+ * of the nine linear-part entries of the resulting invtrmat is distinct
+ * and neither 0 nor 1, so a formula that reads the wrong index produces a
  * visibly different result rather than coincidentally matching. */
 void makeCoupledMatrix(float *m)
 {
     makeIdentity(m);
     m[0] = 2.0f;  m[1] = 1.0f;  m[2] = 1.0f;
-    m[4] = 1.0f;  m[5] = 3.0f;  m[6] = 1.0f;
-    m[8] = 1.0f;  m[9] = 1.0f;  m[10] = 4.0f;
+    m[4] = 1.5f;  m[5] = 3.0f;  m[6] = 1.0f;
+    m[8] = -1.5f; m[9] = 1.0f;  m[10] = 4.0f;
     m[12] = 1.0f; m[13] = 2.0f; m[14] = 3.0f;
 }
 
@@ -229,12 +232,17 @@ TEST(knot_value_pins_matrix_rotation_and_shear)
     makeCoupledMatrix(m);
     k.setMatrix(m);
 
-    /* Same (tx,ty,tz) = (0.235294, 0.117647, 0.411765) as
-     * test_imp_primitives.cpp's coupled-matrix fixtures at position (2,3,5).
-     * With the default radius1=1, radius2=0.5, coils=3, twists=2, calling
-     * the real value() offline gives 0.089546. */
+    /* Same (tx,ty,tz) = (0.756098, -0.024390, 0.317073) as
+     * test_imp_primitives.cpp's coupled-matrix fixtures at position (2,3,5)
+     * -- tx,ty,tz are elementary matrix arithmetic and were re-derived by
+     * hand alongside that file's. value() itself, though, runs those
+     * through rsSqrtf/rsAtan2f/rsCosf/rsSinf's table-based approximations
+     * (see the file comment above), so its output isn't reasonably
+     * hand-derivable to float precision; with the default radius1=1,
+     * radius2=0.5, coils=3, twists=2, calling the real, unmutated value()
+     * offline gives 0.6780169. */
     float pos[3] = {2.0f, 3.0f, 5.0f};
-    CHECK_NEAR(k.value(pos), 0.089546f, 1e-4f);
+    CHECK_NEAR(k.value(pos), 0.6780169f, 1e-4f);
 }
 
 /* --- impKnot::center ----------------------------------------------------------

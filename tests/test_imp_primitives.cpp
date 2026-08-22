@@ -48,19 +48,30 @@ void makeIdentity(float *m)
     m[0] = m[5] = m[10] = m[15] = 1.0f;
 }
 
-/* A symmetric 3x3 shear/scale block plus a full translation. Every one of
- * the nine linear-part entries (invtrmat[0,1,2,4,5,6,8,9,10]) that comes out
- * of inverting and transposing this is distinct and neither 0 nor 1
- * (computed independently: {0.647059, -0.176471, -0.117647, -0.176471,
- * 0.411765, -0.058824, -0.117647, -0.058824, 0.294118}), so a formula that
- * reads the wrong index produces a visibly different result rather than
+/* A non-symmetric 3x3 shear/scale block plus a full translation. The block
+ * is deliberately *not* symmetric (m[4] != m[1], m[8] != m[2], m[9] !=
+ * m[6]): an earlier version of this fixture used the symmetric block
+ * [[2,1,1],[1,3,1],[1,1,4]], which made invtrmat's linear part symmetric
+ * too and left the transpose step in impShape::setMatrix() -- and the
+ * index each value()'s tx/ty/tz reads -- unpinned (a verbatim
+ * invtrmat[k]=invmat[k] copy, or reading invtrmat[4]/[8] where tx should
+ * read [1]/[2], both coincidentally matched the transposed value). Every
+ * one of the nine linear-part entries of the resulting invtrmat (computed
+ * independently, by hand, from the adjugate of this block divided by its
+ * determinant of 41/2 -- see the fractions below) is distinct and neither
+ * 0 nor 1:
+ * invtrmat[0..2]  = { 22/41, -15/41,  12/41}
+ * invtrmat[4..6]  = { -6/41,  19/41,  -7/41}
+ * invtrmat[8..10] = { -4/41,  -1/41,   9/41}
+ * so a formula that reads the wrong index, or a setMatrix() that copies
+ * instead of transposing, produces a visibly different result rather than
  * coincidentally matching. */
 void makeCoupledMatrix(float *m)
 {
     makeIdentity(m);
     m[0] = 2.0f;  m[1] = 1.0f;  m[2] = 1.0f;
-    m[4] = 1.0f;  m[5] = 3.0f;  m[6] = 1.0f;
-    m[8] = 1.0f;  m[9] = 1.0f;  m[10] = 4.0f;
+    m[4] = 1.5f;  m[5] = 3.0f;  m[6] = 1.0f;
+    m[8] = -1.5f; m[9] = 1.0f;  m[10] = 4.0f;
     m[12] = 1.0f; m[13] = 2.0f; m[14] = 3.0f;
 }
 
@@ -154,14 +165,13 @@ TEST(hexahedron_value_pins_matrix_rotation_and_shear)
     h.setMatrix(m);
 
     /* Independently derived by replaying setMatrix's own invertMatrix() and
-     * value()'s formula: at position (2,3,5), (tx,ty,tz) = (0.235294,
-     * 0.117647, 0.411765), giving (xx,yy,zz) = (18.0299, 71.7317, 5.8945)
-     * and value = min = zz. Every term in tx, ty and tz depends on a
-     * distinct invtrmat entry, so reading the wrong one moves this result by
-     * more than kTol -- min(xx,yy,zz) jumps to ~1.28 if tx's y/z
-     * coefficients are swapped for ty's. */
+     * value()'s formula: at position (2,3,5), (tx,ty,tz) = (31/41, -1/41,
+     * 13/41) = (0.756098, -0.024390, 0.317073), giving (xx,yy,zz) =
+     * (1.74891, 1439.09, 9.93686) and value = min = xx. Every term in tx, ty
+     * and tz depends on a distinct invtrmat entry, so reading the wrong one
+     * moves this result by more than kTol. */
     float pos[3] = {2.0f, 3.0f, 5.0f};
-    CHECK_NEAR(h.value(pos), 5.894483f, 1e-3f);
+    CHECK_NEAR(h.value(pos), 1.748914f, 1e-3f);
 }
 
 /* --- impEllipsoid::value ---------------------------------------------------- */
@@ -190,9 +200,9 @@ TEST(ellipsoid_value_pins_matrix_rotation_and_shear)
     e.setMatrix(m);
 
     /* Same (tx,ty,tz) as the hexahedron coupling case above:
-     * 0.01 / (0.235294^2 + 0.117647^2 + 0.411765^2 + kMinDivisor). */
+     * 0.01 / (0.756098^2 + 0.024390^2 + 0.317073^2 + kMinDivisor). */
     float pos[3] = {2.0f, 3.0f, 5.0f};
-    CHECK_NEAR(e.value(pos), 0.0418665f, 1e-5f);
+    CHECK_NEAR(e.value(pos), 0.0148607f, 1e-5f);
 }
 
 /* --- impSphere::value -------------------------------------------------------
@@ -261,11 +271,11 @@ TEST(torus_value_pins_matrix_rotation_and_shear)
     makeCoupledMatrix(m);
     t.setMatrix(m);
 
-    /* Same (tx,ty,tz) as above; temp = sqrt(0.235294^2 + 0.117647^2) -
-     * 1 = -0.736933 (default radius 1), value = 0.01 / (temp^2 + tz^2 +
+    /* Same (tx,ty,tz) as above; temp = sqrt(0.756098^2 + 0.024390^2) -
+     * 1 = -0.243509 (default radius 1), value = 0.01 / (temp^2 + tz^2 +
      * kMinDivisor). */
     float pos[3] = {2.0f, 3.0f, 5.0f};
-    CHECK_NEAR(t.value(pos), 0.0140307f, 1e-5f);
+    CHECK_NEAR(t.value(pos), 0.0625265f, 1e-5f);
 }
 
 /* --- impTorus::center -------------------------------------------------------- */
@@ -354,11 +364,11 @@ TEST(capsule_value_pins_matrix_rotation_and_shear)
     makeCoupledMatrix(m);
     c.setMatrix(m);
 
-    /* Same (tx,ty,tz) as above; |tz|=0.411765 is within the default length
+    /* Same (tx,ty,tz) as above; |tz|=0.317073 is within the default length
      * of 1, so sz clamps to zero and only tx, ty contribute:
-     * 0.01 / (0.235294^2 + 0.117647^2 + kMinDivisor). */
+     * 0.01 / (0.756098^2 + 0.024390^2 + kMinDivisor). */
     float pos[3] = {2.0f, 3.0f, 5.0f};
-    CHECK_NEAR(c.value(pos), 0.1442915f, 1e-5f);
+    CHECK_NEAR(c.value(pos), 0.0174710f, 1e-5f);
 }
 
 /* --- impRoundedHexahedron::value and impRoundedHexahedron() -----------------
@@ -412,11 +422,10 @@ TEST(roundedHexahedron_value_pins_matrix_rotation_and_shear)
     rh.setMatrix(m);
 
     /* Default width=height=length=1. At position (5,5,5), (tx,ty,tz) =
-     * (1.823529, 0.411765, -0.058824): only |tx| clears its extent
-     * (1.823529-1=0.823529), y and z clamp to zero, so value = 0.01 /
-     * (0.823529^2 + kMinDivisor). Reading tx from the wrong invtrmat
-     * indices moves it to ~2.705882, which moves this result by orders of
-     * magnitude. */
+     * (1.634146, 0.463415, -0.024390): only |tx| clears its extent
+     * (1.634146-1=0.634146), y and z clamp to zero, so value = 0.01 /
+     * (0.634146^2 + kMinDivisor). Reading tx from the wrong invtrmat
+     * indices moves it well outside this tolerance. */
     float pos[3] = {5.0f, 5.0f, 5.0f};
-    CHECK_NEAR(rh.value(pos), 0.0147427f, 1e-5f);
+    CHECK_NEAR(rh.value(pos), 0.0248607f, 1e-5f);
 }
