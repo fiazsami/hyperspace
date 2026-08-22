@@ -719,3 +719,368 @@ TEST(impcubevolume_a_field_below_the_threshold_emits_nothing)
     CHECK(volume.getSurface()->getVertexCount() == 0);
     CHECK(volume.getSurface()->getIndexCount() == 0);
 }
+
+/* ------------------------------------------------------------------------
+ * The crawl overloads, part two (ss-c49).
+ *
+ * Everything above drives makeSurface(), makeSurface(eye) and the simplest
+ * path through makeSurface(cpv): one seed at the centre of a ball, on a field
+ * whose surface is nowhere near the edge of the volume. That is one walk
+ * through a function full of conditionals, and it left three of them almost
+ * entirely unreached -- the four-argument makeSurface(eye, cpv) at 0 regions
+ * covered, crawl_sort at 0, and every crawlfromsides branch in both crawl
+ * overloads.
+ *
+ * The fixtures below are chosen to make each of those the only thing that can
+ * explain the result:
+ *
+ *   - two balls straddling one axis, so a single seed distinguishes a crawl
+ *     from an exhaustive scan and says WHICH component it reached;
+ *   - a ball too big for its volume, so the surface cuts all six faces and
+ *     crawling from the sides has something to find that no seed points to;
+ *
+ * The assertions stay relational for the reason the header gives: a count
+ * pins a run, a relation pins the behaviour.
+ * ---------------------------------------------------------------------- */
+
+namespace {
+
+/* Set comparison over emitted vertices. Taken by value because both sides are
+ * sorted into a canonical order first, and the caller's order usually still
+ * matters to the case that is comparing them. */
+bool sameVertexSet(std::vector<Vertex> a, std::vector<Vertex> b)
+{
+    std::sort(a.begin(), a.end());
+    std::sort(b.begin(), b.end());
+    return a == b;
+}
+
+}  // namespace
+
+/* A seed in empty space reaches nothing, and does not spoil a seed that does.
+ *
+ * makeSurface's crawl has two escapes side by side: mask == 255 means the seed
+ * is outside the solid and there is nothing to walk towards, mask == 0 means
+ * it is buried inside and the code steps to an adjacent cube and tries again.
+ * Transposing them is a one-line mistake and the branch that says so was
+ * unreached -- every seed in the suite until now was inside a ball.
+ *
+ * The second assertion is what makes this discriminating rather than
+ * decorative: with the escapes swapped, the empty-space seed walks +x out of
+ * the void, finds the ball, and returns a full surface where zero was
+ * expected. */
+TEST(impcubevolume_a_seed_in_empty_space_finds_nothing)
+{
+    impCubeVolume volume;
+    float r2;
+    configureSphere(volume, r2);
+
+    impCrawlPointVector centre;
+    centre.push_back(impCrawlPoint(0.0f, 0.0f, 0.0f));
+    volume.makeSurface(centre);
+    const std::vector<Vertex> fromCentre = collectVertices(volume.getSurface());
+    CHECK(fromCentre.size() > 0);
+
+    /* Inside the volume, well outside the R = 1 ball: every corner of this
+     * cube is below the threshold, so the mask is 255. */
+    impCrawlPointVector void_;
+    void_.push_back(impCrawlPoint(-1.9f, 0.0f, 0.0f));
+    volume.makeSurface(void_);
+    CHECK(volume.getSurface()->getVertexCount() == 0);
+
+    impCrawlPointVector both;
+    both.push_back(impCrawlPoint(-1.9f, 0.0f, 0.0f));
+    both.push_back(impCrawlPoint(0.0f, 0.0f, 0.0f));
+    volume.makeSurface(both);
+    CHECK(sameVertexSet(collectVertices(volume.getSurface()), fromCentre));
+}
+
+/* Where the crawl starts inside a component does not change what it finds.
+ *
+ * The suite's only crawl seed until now was the exact centre of a ball, which
+ * walks one fixed path out to the surface and then follows one fixed
+ * traversal. Four seeds -- the centre and three points close under the surface
+ * on different axes -- enter the traversal at four different cubes. A crawl
+ * that has lost a direction, or whose done-marking depends on visit order,
+ * gives four different answers; a correct one gives the same surface every
+ * time, because the component is the component. */
+TEST(impcubevolume_the_crawl_is_independent_of_where_in_the_component_it_starts)
+{
+    impCubeVolume volume;
+    float r2;
+    configureSphere(volume, r2);
+
+    const float seeds[4][3] = {
+        {0.0f, 0.0f, 0.0f},
+        {0.9f, 0.0f, 0.0f},
+        {0.0f, 0.9f, 0.0f},
+        {0.0f, 0.0f, -0.9f},
+    };
+
+    std::vector<Vertex> reference;
+    for (int s = 0; s < 4; s++) {
+        impCrawlPointVector cpv;
+        cpv.push_back(impCrawlPoint(seeds[s][0], seeds[s][1], seeds[s][2]));
+        volume.makeSurface(cpv);
+        const std::vector<Vertex> found = collectVertices(volume.getSurface());
+        CHECK(found.size() > 0);
+        if (s == 0)
+            reference = found;
+        else
+            CHECK(sameVertexSet(found, reference));
+    }
+}
+
+/* The four-argument overload is a crawl, not an exhaustive scan with a sort
+ * bolted on.
+ *
+ * Exactly the claim the two-argument crawl case above makes, made again
+ * against the overload that owns crawl_sort -- and it is not redundant,
+ * because they are separate code with a separate traversal. Two disjoint balls
+ * are the only configuration where the difference is observable at all: on one
+ * connected surface a crawl and a scan agree exactly. The fixture's disjointness
+ * is a condition on kRadius versus field.centre, as the two-argument case
+ * explains at more length. */
+TEST(impcubevolume_the_sorted_crawl_visits_only_the_component_it_is_seeded_from)
+{
+    TwoSpheres field;
+    field.r2 = float(kR2);
+    field.centre = 2.0f;
+
+    impCubeVolume volume;
+    volume.function = twoSphereField;
+    volume.contextInfoForFunction = &field;
+    volume.init(kCubes * 2, kCubes, kCubes, kCubeWidth);
+    volume.setSurfaceValue(kSurfaceValue);
+
+    volume.makeSurface(0.0f, 0.0f, 10.0f);
+    const unsigned int exhaustive = volume.getSurface()->getVertexCount();
+    CHECK(exhaustive > 0);
+
+    impCrawlPointVector oneSeed;
+    oneSeed.push_back(impCrawlPoint(field.centre, 0.0f, 0.0f));
+    volume.makeSurface(0.0f, 0.0f, 10.0f, oneSeed);
+    const unsigned int fromOne = volume.getSurface()->getVertexCount();
+
+    impCrawlPointVector bothSeeds;
+    bothSeeds.push_back(impCrawlPoint(field.centre, 0.0f, 0.0f));
+    bothSeeds.push_back(impCrawlPoint(-field.centre, 0.0f, 0.0f));
+    volume.makeSurface(0.0f, 0.0f, 10.0f, bothSeeds);
+    const unsigned int fromBoth = volume.getSurface()->getVertexCount();
+
+    impCrawlPointVector noSeeds;
+    volume.makeSurface(0.0f, 0.0f, 10.0f, noSeeds);
+    const unsigned int fromNone = volume.getSurface()->getVertexCount();
+
+    CHECK(fromOne * 2 == exhaustive);
+    CHECK(fromBoth == exhaustive);
+    CHECK(fromNone == 0);
+}
+
+/* Adding an eyepoint to a crawl reorders it and changes nothing else.
+ *
+ * The same contract the exhaustive sort case states, for the other sorted
+ * path. Both halves are needed for the same reason: set equality alone passes
+ * a sort that quietly became a no-op, and a difference in order alone passes a
+ * sort that corrupted the geometry.
+ *
+ * THE ORDER HALF COMPARES TWO EYEPOINTS, NOT SORTED AGAINST UNSORTED, and the
+ * kill-check is why. An earlier draft compared makeSurface(cpv) with
+ * makeSurface(eye, cpv) and asserted the arrays differed -- which they do even
+ * with the sort deleted, because the two overloads step in opposite directions
+ * when a seed lands inside solid material. makeSurface(cpv) walks ++i and
+ * enters the traversal on the +x side of the ball; the four-argument overload
+ * walks --i and enters on the -x side. So the emission orders differ for a
+ * reason that has nothing to do with sorting, and commenting out
+ * sortableCubes.sort() left that draft GREEN. The asymmetry between the two
+ * overloads is ss-raf; this case only has to stop relying on it.
+ *
+ * Two eyepoints on opposite sides of the same surface, through the same
+ * overload, leave the sort as the only thing that can separate them: delete it
+ * and the two runs are identical.
+ *
+ * Measured: not one of the 294 vertices holds its index between the two
+ * eyepoints, so the permutation is total and the margin below has room to
+ * spare. */
+TEST(impcubevolume_sorting_the_crawl_permutes_it_without_changing_it)
+{
+    impCubeVolume volume;
+    float r2;
+    configureSphere(volume, r2);
+
+    impCrawlPointVector seed;
+    seed.push_back(impCrawlPoint(0.0f, 0.0f, 0.0f));
+
+    volume.makeSurface(seed);
+    const std::vector<Vertex> unsorted = collectVertices(volume.getSurface());
+    CHECK(unsorted.size() > 0);
+
+    volume.makeSurface(0.0f, 0.0f, 10.0f, seed);
+    const std::vector<Vertex> nearSide = collectVertices(volume.getSurface());
+
+    volume.makeSurface(0.0f, 0.0f, -10.0f, seed);
+    const std::vector<Vertex> farSide = collectVertices(volume.getSurface());
+
+    /* Changes nothing: whichever way it is ordered, it is the same surface the
+     * unsorted crawl produced. */
+    CHECK(nearSide.size() == unsorted.size());
+    CHECK(farSide.size() == unsorted.size());
+    CHECK(sameVertexSet(nearSide, unsorted));
+    CHECK(sameVertexSet(farSide, unsorted));
+
+    /* Reorders it: and the eyepoint is what decides the order. */
+    unsigned int unmoved = 0;
+    for (unsigned int i = 0; i < nearSide.size() && i < farSide.size(); i++)
+        if (nearSide[i] == farSide[i]) unmoved++;
+    CHECK(unmoved < nearSide.size() / 2);
+}
+
+namespace {
+
+/* Mean squared distance from an eyepoint over a contiguous slice of the
+ * emitted vertices. Vertices are appended the first time an edge is crossed,
+ * so their order IS the order the cubes were polygonized in, which is what the
+ * sort rearranges. */
+double meanDepth(const std::vector<Vertex> &v, size_t first, size_t last, const float *eye)
+{
+    double total = 0.0;
+    for (size_t i = first; i < last; i++) {
+        const double dx = double(v[i].data[3]) - eye[0];
+        const double dy = double(v[i].data[4]) - eye[1];
+        const double dz = double(v[i].data[5]) - eye[2];
+        total += dx * dx + dy * dy + dz * dz;
+    }
+    return total / double(last - first);
+}
+
+}  // namespace
+
+/* The eyepoint sort emits NEAR geometry first.
+ *
+ * Stated as a characterization and not as an endorsement. impCubeVolume.h says
+ * an eyepoint means "you want to sort the surface so that transparent surfaces
+ * will be drawn back-to-front", and back-to-front is far-first; sortableCube's
+ * operator< compares depth and std::list::sort is ascending, so what the code
+ * actually emits is near-first. Both sorted overloads agree with each other
+ * and disagree with the header. That is ss-en3 and is deliberately not fixed
+ * here -- a test wave is the wrong place to change what a renderer draws, and
+ * pinning the current direction is what makes the fix visible when it comes.
+ *
+ * Asserted as a comparison between the two ends of the array and repeated with
+ * the eyepoint on the far side, so it is the eyepoint that decides the order
+ * and not something about the sphere. A quarter at each end rather than half
+ * and half: the middle of a sorted sphere is where the depths bunch up, and
+ * excluding it is what gives the margin below its room. */
+TEST(impcubevolume_the_eyepoint_sort_emits_near_geometry_first)
+{
+    impCubeVolume volume;
+    float r2;
+    configureSphere(volume, r2);
+
+    impCrawlPointVector seed;
+    seed.push_back(impCrawlPoint(0.0f, 0.0f, 0.0f));
+
+    const float eyes[2][3] = {{0.0f, 0.0f, 10.0f}, {0.0f, 0.0f, -10.0f}};
+
+    for (int e = 0; e < 2; e++) {
+        volume.makeSurface(eyes[e][0], eyes[e][1], eyes[e][2], seed);
+        const std::vector<Vertex> v = collectVertices(volume.getSurface());
+        CHECK(v.size() >= 8);
+        const size_t quarter = v.size() / 4;
+
+        const double near_ = meanDepth(v, 0, quarter, eyes[e]);
+        const double far_ = meanDepth(v, v.size() - quarter, v.size(), eyes[e]);
+
+        /* A 10% separation, against a measured 86.3 versus 115.7. Wide enough
+         * that a different tessellation does not trip it, narrow enough that
+         * an unsorted array -- where the two ends differ by a few percent at
+         * most -- cannot pass. */
+        CHECK(near_ * 1.1 < far_);
+    }
+}
+
+namespace {
+
+/* A ball too big for the volume that holds it: R = 2.5 in a volume spanning
+ * [-2, 2], so the isosurface cuts all six faces. Nothing in the suite until
+ * now had a surface that touched the boundary at all -- the header says so
+ * explicitly, and that was the right call for the geometry cases. It is also
+ * the reason every crawlfromsides branch was unreached: the side scans look
+ * for boundary corners that are INSIDE the solid, and a ball floating in the
+ * middle of its volume has none. */
+const float kOversizeRadius = 2.5f;
+
+void configureOversizeSphere(impCubeVolume &volume, float &r2Storage)
+{
+    r2Storage = kOversizeRadius * kOversizeRadius;
+    volume.function = sphereField;
+    volume.contextInfoForFunction = &r2Storage;
+    volume.init(kCubes, kCubes, kCubes, kCubeWidth);
+    volume.setSurfaceValue(kSurfaceValue);
+}
+
+}  // namespace
+
+/* Crawling from the sides finds a surface no crawl point points to.
+ *
+ * This is what setCrawlFromSides is for: geometry that enters the volume from
+ * outside, where the saver has no seed to offer because it does not know where
+ * the surface came in. The case is stated as the contrast, with the same field
+ * and the same empty crawl point list throughout -- off finds nothing, on
+ * finds everything the exhaustive scan does. Neither half means much alone:
+ * "on finds 984 vertices" would pass a crawlfromsides that had quietly become
+ * an exhaustive scan, and "off finds nothing" is already known.
+ *
+ * Set equality with the exhaustive scan, not just a count. The side scans walk
+ * a checkerboard of boundary corners and rely on the crawl to spread from each
+ * one, so "reached every cube the scan reaches" is exactly the property at
+ * risk and exactly what a count would fail to state. */
+TEST(impcubevolume_crawling_from_the_sides_finds_a_surface_no_seed_points_to)
+{
+    impCubeVolume volume;
+    float r2;
+    configureOversizeSphere(volume, r2);
+
+    volume.makeSurface();
+    const std::vector<Vertex> exhaustive = collectVertices(volume.getSurface());
+    CHECK(exhaustive.size() > 0);
+
+    impCrawlPointVector noSeeds;
+
+    volume.makeSurface(noSeeds);
+    CHECK(volume.getSurface()->getVertexCount() == 0);
+
+    volume.setCrawlFromSides(true);
+    volume.makeSurface(noSeeds);
+    const std::vector<Vertex> fromSides = collectVertices(volume.getSurface());
+
+    CHECK(fromSides.size() == exhaustive.size());
+    CHECK(sameVertexSet(fromSides, exhaustive));
+}
+
+/* The same, for the overload that sorts. The two crawlfromsides blocks are
+ * separate code -- one calls crawl_nosort and the other crawl_sort, and the
+ * ss-c49 measurement had both at zero regions covered -- so a case against one
+ * says nothing about the other. */
+TEST(impcubevolume_the_sorted_crawl_also_crawls_from_the_sides)
+{
+    impCubeVolume volume;
+    float r2;
+    configureOversizeSphere(volume, r2);
+
+    volume.makeSurface();
+    const std::vector<Vertex> exhaustive = collectVertices(volume.getSurface());
+    CHECK(exhaustive.size() > 0);
+
+    impCrawlPointVector noSeeds;
+
+    volume.makeSurface(0.0f, 0.0f, 10.0f, noSeeds);
+    CHECK(volume.getSurface()->getVertexCount() == 0);
+
+    volume.setCrawlFromSides(true);
+    volume.makeSurface(0.0f, 0.0f, 10.0f, noSeeds);
+    const std::vector<Vertex> fromSides = collectVertices(volume.getSurface());
+
+    CHECK(fromSides.size() == exhaustive.size());
+    CHECK(sameVertexSet(fromSides, exhaustive));
+}
