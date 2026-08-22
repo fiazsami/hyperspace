@@ -65,10 +65,13 @@ impSurface::impSurface(){
 	indices.resize(0);
 	vertex_data_size = sizeof(float) * 6;
 
-	if(mUseVBOs){
-		glGenBuffers(1, &vbo_array_id);
-		glGenBuffers(1, &vbo_index_id);
-	}
+	// Buffer names are generated on the first draw(), not here.  glGenBuffers
+	// needs a current GL context and a constructor has no way to require one,
+	// so calling it here made every impSurface -- and every impCubeVolume,
+	// which owns one -- unconstructible outside a renderer.  0 is never a
+	// valid buffer name, so it doubles as "not generated yet".
+	vbo_array_id = 0;
+	vbo_index_id = 0;
 }
 
 
@@ -77,7 +80,10 @@ impSurface::~impSurface(){
 	indices.resize(0);
 	vertices.resize(0);
 
-	if(mUseVBOs){
+	// vbo_array_id is 0 on a surface that was never drawn, and deleting name 0
+	// is a no-op by the spec -- but only if a context is current, which for a
+	// never-drawn surface is exactly what is not guaranteed.
+	if(mUseVBOs && vbo_array_id != 0){
 		glDeleteBuffers(1, &vbo_array_id);
 		glDeleteBuffers(1, &vbo_index_id);
 	}
@@ -175,6 +181,14 @@ void impSurface::draw(){
 
 	// Draw using Vertex Buffer Objects
 	if(mUseVBOs){
+		// Deferred from the constructor, which cannot guarantee a context.
+		// Every read of either id is below this point, so the surface behaves
+		// exactly as it did when they were generated at construction.
+		if(vbo_array_id == 0){
+			glGenBuffers(1, &vbo_array_id);
+			glGenBuffers(1, &vbo_index_id);
+		}
+
 #if USE_TRIANGLE_STRIPS
 		if(mCompile){
 			if(vbo_index_offsets.size() < triStripLengths.size())
