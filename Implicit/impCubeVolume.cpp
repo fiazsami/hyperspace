@@ -235,7 +235,13 @@ void impCubeVolume::makeSurface(float eyex, float eyey, float eyez){
 
 
 void impCubeVolume::makeSurface(impCrawlPointVector &cpv){
-	unsigned int i, j, k;
+	// int, not unsigned int -- matching the four-argument overload, which has
+	// always had it right. The clamps under each crawl point test 'if(i < 0)',
+	// which is dead code for an unsigned index: a crawl point left of the
+	// volume computes a negative int, wraps to a huge unsigned, passes
+	// 'i >= int(w)' and clamps to w-1 -- the OPPOSITE face from the one it
+	// asked for. See ss-qsv.
+	int i, j, k;
 	bool crawlpointexit;
 	unsigned int mask;
 
@@ -281,7 +287,7 @@ void impCubeVolume::makeSurface(impCrawlPointVector &cpv){
 					if(mask == 0){  // this cube is inside volume
 						cubes[ci].cube_frame = frame;
 						++i;  // step to an adjacent cube and start over
-						if(i >= w)  // escape if you step outside of volume
+						if(i >= int(w))  // escape if you step outside of volume
 							crawlpointexit = true;
 					}
 					else{
