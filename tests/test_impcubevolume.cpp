@@ -552,14 +552,37 @@ TEST(impcubevolume_surface_value_selects_the_radius)
  * constructor used not to initialise `frame` at all, so a storage slot holding
  * 0xFFFF wrapped to 0 on the first makeSurface and every edge reported a cache
  * hit before anything had been cached: addVertexToSurface took the early
- * return, pushed an uninitialised x_vertex_index, and never called addVertex.
- * The surface came back with a full index array over ZERO vertices.
+ * return, pushed cubes[index].x_vertex_index, and never called addVertex. The
+ * surface came back with a full index array over ZERO vertices.
+ *
+ * Those indices were all 0 rather than garbage -- cubedata is an aggregate
+ * with no user-provided constructor, so cubes.resize() value-initialises it,
+ * even across a clear() that leaves poisoned capacity behind. Index 0 is out
+ * of range for an empty vertex array all the same. An earlier version of this
+ * comment called them uninitialised, which was wrong, and the review that
+ * caught it is also why the area case above range-checks before it
+ * dereferences.
  *
  * Reproducing that needs the storage to be hostile on purpose. Placement-new
  * over a buffer of 0xFF makes the old failure deterministic instead of a
  * 1-in-65536 flake, and with the fix in place the whole case is ordinary
  * defined behaviour -- the constructor writes `frame` before anything reads
  * it.
+ *
+ * WHAT THIS CASE DOES AND DOES NOT PIN, because the kill-check moved under it.
+ * It no longer discriminates the constructor's `frame = 0;` on its own:
+ * removing that line alone leaves the suite green, because advanceFrame()
+ * covers the same ground. 0xFFFF is the only dangerous starting value -- every
+ * other one increments to something no cubedata counter holds -- and 0xFFFF
+ * increments to 0, which is exactly the wrap advanceFrame() now handles by
+ * re-zeroing and restarting at 1.
+ *
+ * So `frame = 0;` is belt-and-braces relative to the wrap handler, kept
+ * because leaning on a wrap to double as construction-time initialisation is
+ * a coupling nobody should have to notice. What this case still pins, and what
+ * actually matters, is that construction over hostile storage yields a correct
+ * surface: removing BOTH the constructor line and the wrap handling fails it.
+ * Verified all three ways.
  *
  * This is the one case here that is not about geometry. It is here rather than
  * in test_impsurface.cpp because the counter belongs to impCubeVolume and the
@@ -599,6 +622,67 @@ TEST(impcubevolume_survives_construction_over_poisoned_storage)
     }
 
     volume->~impCubeVolume();
+}
+
+/* The generation counter survives its own wrap (ss-ma1, second half).
+ *
+ * Initialising `frame` fixes the first frame. It does not fix the 65536th.
+ * `frame` is an unsigned short and init() zeroes every cubedata *_frame to 0,
+ * so when the counter wraps back to 0 it collides with "not touched since
+ * init" all over again -- once every 65536 calls, roughly every 18 minutes at
+ * 60fps.
+ *
+ * A static field hides this completely, which is why the first attempt at this
+ * case found nothing: the same edges are crossed every frame, so no cube the
+ * crawl visits still carries 0. The collision needs the surface to reach a
+ * cube for the FIRST time on the wrapping frame. So the volume runs 65535
+ * times around a small sphere, and the sphere then grows on exactly the call
+ * that wraps.
+ *
+ * Measured before the fix, and it is not a subtle corruption: the crawl seed
+ * itself reads as already-done, crawl_nosort returns immediately, and the
+ * surface comes back with ZERO vertices where it should have 294. One frame in
+ * every 65536, the object disappears.
+ *
+ * The expected count comes from a freshly-constructed volume rather than a
+ * literal, so this stays a relation between two runs of the same code rather
+ * than a golden number. */
+TEST(impcubevolume_survives_the_generation_counter_wrapping)
+{
+    const float smallR2 = 0.0625f;  /* R = 0.25 */
+    float bigR2 = float(kR2);       /* R = 1.0, needs cubes the small one never touches */
+
+    impCrawlPointVector seed;
+    seed.push_back(impCrawlPoint(0.0f, 0.0f, 0.0f));
+
+    /* What the big sphere looks like with no history behind it. */
+    unsigned int expected;
+    {
+        impCubeVolume fresh;
+        fresh.function = sphereField;
+        fresh.contextInfoForFunction = &bigR2;
+        fresh.init(kCubes, kCubes, kCubes, kCubeWidth);
+        fresh.setSurfaceValue(kSurfaceValue);
+        fresh.makeSurface(seed);
+        expected = fresh.getSurface()->getVertexCount();
+        CHECK(expected > 0);
+    }
+
+    float small = smallR2;
+    impCubeVolume volume;
+    volume.function = sphereField;
+    volume.contextInfoForFunction = &small;
+    volume.init(kCubes, kCubes, kCubes, kCubeWidth);
+    volume.setSurfaceValue(kSurfaceValue);
+
+    /* frame is 0 after construction and call k leaves it at k, so call 65536
+     * is the one that wraps. Run 65535 first. */
+    for (long i = 0; i < 65535; i++) volume.makeSurface(seed);
+
+    volume.contextInfoForFunction = &bigR2;
+    volume.makeSurface(seed);
+
+    CHECK(volume.getSurface()->getVertexCount() == expected);
 }
 
 /* A field that never reaches the threshold has no isosurface, and the pipeline

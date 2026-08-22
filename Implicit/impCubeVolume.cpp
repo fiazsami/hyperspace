@@ -97,18 +97,19 @@ void impCubeVolume::init(unsigned int width, unsigned int height, unsigned int l
 				cubes[index].x_vertex_frame = 0;
 				cubes[index].y_vertex_frame = 0;
 				cubes[index].z_vertex_frame = 0;
-				// Read on the cache-hit path and previously never written, so
-				// a stale generation counter handed addIndex whatever was in
-				// the slot. Zeroing them does not make that path correct, but
-				// it keeps a future counter bug in range of the vertex array
-				// instead of out of it (ss-ma1).
+				// Belt-and-braces over the vector's own value-initialisation.
+				// cubedata is an aggregate with no user-provided constructor,
+				// so cubes.resize() zero-initialises all three already --
+				// verified, including across a clear() + resize() that reuses
+				// poisoned capacity. An earlier version of this comment said
+				// they were "previously never written", which was wrong: the
+				// ss-ma1 symptom was addIndex(0) against an empty vertex
+				// array, not an out-of-range garbage index.
 				//
-				// Deliberately unfalsifiable, and checked to be: deleting
-				// these three lines changes no observable behaviour, because
-				// with `frame` initialised the cache-hit path only fires after
-				// something has written them. No test can distinguish it and
-				// none is claimed. Kept because the cost is three stores in a
-				// loop that already does five.
+				// So these stores are provably dead today, and deliberately
+				// so. They are kept only to state the invariant locally, at a
+				// cost of three stores in a loop that already does five. No
+				// test can distinguish them and none is claimed.
 				cubes[index].x_vertex_index = 0;
 				cubes[index].y_vertex_index = 0;
 				cubes[index].z_vertex_index = 0;
@@ -118,10 +119,43 @@ void impCubeVolume::init(unsigned int width, unsigned int height, unsigned int l
 }
 
 
+// Advance the generation counter, re-zeroing the per-cube counters if it wraps.
+//
+// frame is an unsigned short and init() sets every cubedata *_frame to 0, so
+// frame == 0 is indistinguishable from "not touched since init". Initialising
+// frame in the constructor (ss-ma1) makes the FIRST frame safe -- it is 1
+// before anything reads it -- but the collision returns every 65536 calls,
+// which at 60fps is roughly every 18 minutes of screen-saver runtime. On that
+// frame a cube not visited since init reads as already-done: crawl_nosort
+// returns early and the surface is truncated, while addVertexToSurface takes
+// the false cache-hit branch on edges that were never crossed.
+//
+// Re-zeroing on the wrap costs one pass over the cubes once every 65536 calls
+// and removes the collision rather than moving it. Widening the counters would
+// also work and would cost two bytes per cube on all five of them -- around
+// 3.5MB at the 70x70x70 volume Helios uses, to defer a problem instead of
+// fixing it.
+void impCubeVolume::advanceFrame(){
+	++frame;
+	if(frame != 0)
+		return;
+
+	for(unsigned int i=0; i<cubes.size(); ++i){
+		cubes[i].cube_frame = 0;
+		cubes[i].corner_frame = 0;
+		cubes[i].x_vertex_frame = 0;
+		cubes[i].y_vertex_frame = 0;
+		cubes[i].z_vertex_frame = 0;
+	}
+	// 1, not 0: every counter above now reads "not touched since init", so
+	// starting at 0 would collide with all of them immediately.
+	frame = 1;
+}
+
 void impCubeVolume::makeSurface(){
 	unsigned int i, j, k;
 
-	frame ++;
+	advanceFrame();
 
 	surface->reset();
 	
@@ -152,7 +186,7 @@ void impCubeVolume::makeSurface(){
 void impCubeVolume::makeSurface(float eyex, float eyey, float eyez){
 	unsigned int i, j, k;
 
-	frame ++;
+	advanceFrame();
 
 	surface->reset();
 
@@ -205,7 +239,7 @@ void impCubeVolume::makeSurface(impCrawlPointVector &cpv){
 	bool crawlpointexit;
 	unsigned int mask;
 
-	frame ++;
+	advanceFrame();
 
 	surface->reset();
 
@@ -374,7 +408,7 @@ void impCubeVolume::makeSurface(float eyex, float eyey, float eyez, impCrawlPoin
 	bool crawlpointexit;
 	unsigned int mask;
 
-	frame ++;
+	advanceFrame();
 
 	surface->reset();
 
