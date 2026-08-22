@@ -30,9 +30,16 @@
  *   to impSurface -- getVertexCount, getVertex, getIndexCount, getIndex --
  *   precisely so impCubeVolume's output could be asserted on, and addVertex
  *   and addIndex are now fully covered through them by
- *   test_impcubevolume.cpp. They are bucket A. Only addTriStripLength is
- *   still uncovered, and for a different reason again: USE_TRIANGLE_STRIPS is
- *   0, so nothing calls it and nothing reads what it writes.
+ *   test_impcubevolume.cpp. They are bucket A.
+ *
+ *   addTriStripLength is not covered either, because it is no longer
+ *   COMPILED. ss-3c8 found its declaration and definition guarded '#ifdef
+ *   USE_TRIANGLE_STRIPS' while every call site uses '#if'; the macro is
+ *   #defined as 0, so #ifdef was true and #if was false, and the function
+ *   went into the binary with no caller anywhere. Both guards are '#if' now,
+ *   so it is neither covered nor uncovered -- it is absent, and out of the
+ *   coverage denominator entirely. Set USE_TRIANGLE_STRIPS to 1 and it comes
+ *   back, compiled and measured, along with the paths that call it.
  *
  *   The geometry itself -- makeSurface, polygonize, crawl_sort and the rest.
  *   DONE, by ss-or3, in test_impcubevolume.cpp: an analytic sphere field, a
