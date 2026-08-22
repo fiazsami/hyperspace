@@ -134,6 +134,8 @@ private:
 	// Same as above, but store the cubes containing surface for sorting later
 	inline void crawl_sort(unsigned int x, unsigned int y, unsigned int z);
 
+	void advanceFrame();
+
 	inline void polygonize(unsigned int index);
 
 	inline void findcornervalues(unsigned int x, unsigned int y, unsigned int z);
