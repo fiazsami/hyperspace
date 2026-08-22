@@ -249,3 +249,101 @@ TEST(rgb2hsl_saturation_uses_the_raw_channel_not_the_normalised_one)
     CHECK_NEAR(l, 0.5f, kTol);
     CHECK_NEAR(s, 0.5f, kTol);
 }
+
+TEST(hsl2rgb_covers_the_full_blue_some_red_sextant)
+{
+    /* The one sextant the earlier cases missed: 2/3 <= h < 5/6, where blue is
+     * full and red is ramping up from the previous (full-blue, some-green)
+     * zone. h = 0.75 sits at its midpoint, so r = (h - 0.666667) * 6 = 0.5. */
+    float r = 0.0f, g = 0.0f, b = 0.0f;
+    hsl2rgb(0.75f, 1.0f, 1.0f, r, g, b);
+    CHECK_NEAR(r, 0.5f, kTol);
+    CHECK_NEAR(g, 0.0f, kTol);
+    CHECK_NEAR(b, 1.0f, kTol);
+}
+
+/* --- hslTween -------------------------------------------------------------
+ *
+ * Six cases below correspond to the six paths through hslTween's hue switch:
+ * forward/backward, each split into the "no wrap needed" branch, and the
+ * branch that computes the going-the-short-way-round value and then either
+ * does or does not need the wraparound correction. Saturation and luminosity
+ * are plain linear interpolation with no branches, so any one case exercises
+ * those lines; they're still checked in every case since they're free. */
+
+TEST(hslTween_forward_direct_when_second_hue_is_ahead)
+{
+    /* direction = 0, h2 >= h1: straight interpolation, no wheel-wrap logic
+     * touched at all. */
+    float outh = -1.0f, outs = -1.0f, outl = -1.0f;
+    hslTween(0.2f, 0.3f, 0.4f, 0.6f, 0.7f, 0.8f, 0.25f, 0, outh, outs, outl);
+    CHECK_NEAR(outh, 0.3f, kTol);
+    CHECK_NEAR(outs, 0.4f, kTol);
+    CHECK_NEAR(outl, 0.5f, kTol);
+}
+
+TEST(hslTween_forward_short_way_round_without_crossing_zero)
+{
+    /* direction = 0, h2 < h1: takes the going-round path, but the result
+     * stays <= 1.0 so the `outh -= 1.0f` correction must not fire. */
+    float outh = -1.0f, outs = 0.0f, outl = 0.0f;
+    hslTween(0.9f, 0.0f, 0.0f, 0.1f, 0.0f, 0.0f, 0.05f, 0, outh, outs, outl);
+    CHECK_NEAR(outh, 0.91f, kTol);
+}
+
+TEST(hslTween_forward_short_way_round_wraps_past_one)
+{
+    /* Same path as above, but with enough tween that the raw result exceeds
+     * 1.0 and the wraparound subtraction has to fire. */
+    float outh = -1.0f, outs = 0.0f, outl = 0.0f;
+    hslTween(0.9f, 0.0f, 0.0f, 0.1f, 0.0f, 0.0f, 0.9f, 0, outh, outs, outl);
+    CHECK_NEAR(outh, 0.08f, kTol);
+}
+
+TEST(hslTween_backward_direct_when_first_hue_is_ahead)
+{
+    /* direction = 1, h1 >= h2: straight interpolation the other way. */
+    float outh = -1.0f, outs = -1.0f, outl = -1.0f;
+    hslTween(0.7f, 0.6f, 0.5f, 0.3f, 0.2f, 0.1f, 0.25f, 1, outh, outs, outl);
+    CHECK_NEAR(outh, 0.6f, kTol);
+    CHECK_NEAR(outs, 0.5f, kTol);
+    CHECK_NEAR(outl, 0.4f, kTol);
+}
+
+TEST(hslTween_backward_short_way_round_without_crossing_zero)
+{
+    /* direction = 1, h1 < h2: going-round path, staying >= 0.0 so the
+     * `outh += 1.0f` correction must not fire. */
+    float outh = -1.0f, outs = 0.0f, outl = 0.0f;
+    hslTween(0.1f, 0.0f, 0.0f, 0.9f, 0.0f, 0.0f, 0.05f, 1, outh, outs, outl);
+    CHECK_NEAR(outh, 0.09f, kTol);
+}
+
+TEST(hslTween_backward_short_way_round_wraps_past_zero)
+{
+    /* Same path as above, but enough tween that the raw result goes negative
+     * and the wraparound addition has to fire. */
+    float outh = -1.0f, outs = 0.0f, outl = 0.0f;
+    hslTween(0.1f, 0.0f, 0.0f, 0.9f, 0.0f, 0.0f, 0.9f, 1, outh, outs, outl);
+    CHECK_NEAR(outh, 0.92f, kTol);
+}
+
+/* --- rgbTween --------------------------------------------------------------
+ *
+ * A thin composition of rgb2hsl -> hslTween -> hsl2rgb with no branches of
+ * its own, so one call exercises its single region. Inputs are chosen fully
+ * saturated at full luminosity in adjacent huezones (0 and 1) specifically so
+ * the rgb2hsl bugs pinned above (ss-4z1, ss-wrt) don't contaminate the
+ * expected value -- those only bite in huezones 2 and 3, or below full
+ * saturation/luminosity. */
+
+TEST(rgbTween_composes_rgb2hsl_hslTween_and_hsl2rgb)
+{
+    /* Red (h = 0) tweened 30% forward toward green (h = 1/3) lands at
+     * h = 0.1, still in hsl2rgb's first sextant: full red, g = 0.6, no blue. */
+    float r = -1.0f, g = -1.0f, b = -1.0f;
+    rgbTween(1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.3f, 0, r, g, b);
+    CHECK_NEAR(r, 1.0f, 1e-3f);
+    CHECK_NEAR(g, 0.6f, 1e-3f);
+    CHECK_NEAR(b, 0.0f, 1e-3f);
+}
