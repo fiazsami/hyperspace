@@ -80,7 +80,12 @@ public:
 	void reset();
 
 	// Add data to surface
-#ifdef USE_TRIANGLE_STRIPS
+	// #if, not #ifdef. USE_TRIANGLE_STRIPS is #defined as 0, so #ifdef is true
+	// and #ifdef would compile this function in while every call site -- which
+	// all use #if -- compiles out. The result was a function that existed in
+	// the binary, could never be called, and sat in the coverage denominator
+	// as three permanently uncoverable regions. See ss-3c8.
+#if USE_TRIANGLE_STRIPS
 	void addTriStripLength(unsigned char length);
 #endif
 	void addIndex(unsigned int index);

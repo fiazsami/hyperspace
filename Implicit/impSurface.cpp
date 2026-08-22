@@ -136,7 +136,7 @@ void impSurface::reset(){
 }
 
 
-#ifdef USE_TRIANGLE_STRIPS
+#if USE_TRIANGLE_STRIPS
 void impSurface::addTriStripLength(unsigned char length){
 	// make more tristrip storage if necessary
 	const size_t tslsize(triStripLengths.size());
