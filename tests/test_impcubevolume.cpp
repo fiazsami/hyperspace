@@ -635,9 +635,16 @@ TEST(impcubevolume_survives_construction_over_poisoned_storage)
  * A static field hides this completely, which is why the first attempt at this
  * case found nothing: the same edges are crossed every frame, so no cube the
  * crawl visits still carries 0. The collision needs the surface to reach a
- * cube for the FIRST time on the wrapping frame. So the volume runs 65535
- * times around a small sphere, and the sphere then grows on exactly the call
- * that wraps.
+ * cube for the FIRST time on the wrapping frame. So the volume runs one full
+ * period minus one around a small sphere, and the sphere then grows on exactly
+ * the call that wraps.
+ *
+ * The period comes from impCubeVolume::framePeriod(), not from a literal.
+ * advanceFrame() names widening the counters as a live alternative to
+ * re-zeroing, and a case counting to a hard-coded 65535 would then never reach
+ * a wrap: it would pass while exercising nothing, and the only symptom would be
+ * a coverage drop somebody attributes to a regression. Deriving it means a
+ * change to the counter's type changes this case with it.
  *
  * Measured before the fix, and it is not a subtle corruption: the crawl seed
  * itself reads as already-done, crawl_nosort returns immediately, and the
@@ -675,9 +682,18 @@ TEST(impcubevolume_survives_the_generation_counter_wrapping)
     volume.init(kCubes, kCubes, kCubes, kCubeWidth);
     volume.setSurfaceValue(kSurfaceValue);
 
-    /* frame is 0 after construction and call k leaves it at k, so call 65536
-     * is the one that wraps. Run 65535 first. */
-    for (long i = 0; i < 65535; i++) volume.makeSurface(seed);
+    /* frame is 0 after construction and call k leaves it at k, so call
+     * framePeriod() is the one that wraps. Run one short of it first. */
+    const unsigned long period = impCubeVolume::framePeriod();
+
+    /* If the counter is ever widened, driving it to its wrap stops being
+     * feasible in a unit test -- and this case must SAY so rather than quietly
+     * pass having tested nothing. Failing here is the signal to whoever
+     * widened it that the wrap now needs a different kind of test. */
+    CHECK(period <= 65536);
+    if (period > 65536) return;
+
+    for (unsigned long i = 0; i + 1 < period; i++) volume.makeSurface(seed);
 
     volume.contextInfoForFunction = &bigR2;
     volume.makeSurface(seed);

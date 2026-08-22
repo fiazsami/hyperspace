@@ -136,6 +136,23 @@ private:
 
 	void advanceFrame();
 
+public:
+	// The generation counter's period -- the number of makeSurface calls that
+	// return `frame` to the value init() leaves the per-cube counters at.
+	//
+	// Exposed for one reason: the test that drives the volume to its wrap
+	// (ss-ma1) must not hard-code the counter's width. advanceFrame()'s comment
+	// names widening these counters as a live alternative to re-zeroing, and a
+	// test counting to a literal 65535 would then never reach a wrap and would
+	// pass while exercising nothing -- an undiscriminating path created by a
+	// change made somewhere else entirely.
+	//
+	// Derived from the member's own type, so changing that type changes this
+	// with it.
+	static unsigned long framePeriod(){return 1UL << (8 * sizeof(frame));}
+
+private:
+
 	inline void polygonize(unsigned int index);
 
 	inline void findcornervalues(unsigned int x, unsigned int y, unsigned int z);
