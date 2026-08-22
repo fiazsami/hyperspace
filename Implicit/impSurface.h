@@ -88,6 +88,26 @@ public:
 
 	void draw();
 	//void draw_wireframe();
+
+	// Read-only access to the geometry that draw() consumes. Added so that
+	// impCubeVolume's output can be asserted on without a GL context (ss-or3);
+	// nothing in the renderer calls these.
+	//
+	// The counts come from the offsets, NOT from vertices.size() or
+	// indices.size(). Both vectors are grown a thousand elements at a time and
+	// never shrunk, so their size() is the allocation and the tail of it is
+	// stale data from an earlier frame or uninitialised memory.
+	unsigned int getVertexCount() const {return vertex_offset / 6;}
+	unsigned int getIndexCount() const {return index_offset;}
+
+	// Six floats per vertex: normal in [0..2], position in [3..5]. That is the
+	// order draw() feeds to glNormalPointer and glVertexPointer, and the order
+	// addVertex documents for its argument.
+	// data() rather than &vertices[i * 6]: a surface that emitted nothing has an
+	// empty vector, and indexing one is undefined even when the result is never
+	// read. Callers still must not read past getVertexCount().
+	const float* getVertex(unsigned int i) const {return vertices.data() + i * 6;}
+	unsigned int getIndex(unsigned int i) const {return indices[i];}
 };
 
 
