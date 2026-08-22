@@ -272,6 +272,29 @@ TEST(knot_center_combines_the_radius_sum_along_local_x_with_position)
     CHECK_NEAR(c[2], 30.0f, kTol);
 }
 
+TEST(knot_center_reads_each_axis_from_its_own_mat_column_entry)
+{
+    impKnot k;
+    float m[16];
+    makeCoupledMatrix(m);
+    k.setMatrix(m);
+
+    /* center() reads mat directly, not invtrmat, and both cases above used
+     * an identity matrix, where mat[0]=1 and mat[1]=mat[2]=0 -- so c[1] and
+     * c[2] never distinguished mat[1]/mat[2] from any other zero entry, and
+     * reading position[1] from mat[4] instead of mat[1] would have gone
+     * unnoticed. With the coupled matrix (mat[0]=2, mat[1]=1, mat[2]=1,
+     * mat[12..14]=(1,2,3)) and the default radius1+radius2=1.5: c =
+     * mat[0..2]*1.5 + mat[12..14] = (2*1.5+1, 1*1.5+2, 1*1.5+3) =
+     * (4, 3.5, 4.5). Reading c[1] from mat[4]=1.5 instead of mat[1]=1 would
+     * give 4.25 instead of 3.5. */
+    float c[3];
+    k.center(c);
+    CHECK_NEAR(c[0], 4.0f, kTol);
+    CHECK_NEAR(c[1], 3.5f, kTol);
+    CHECK_NEAR(c[2], 4.5f, kTol);
+}
+
 /* --- impKnot::addCrawlPoint ---------------------------------------------------
  *
  * Places one crawl point per coil, evenly spaced around the tube's local
@@ -323,4 +346,29 @@ TEST(knot_addCrawlPoint_appends_rather_than_replaces)
     /* The second batch repeats the same pattern as the first. */
     CHECK_NEAR(cpv[3].position[0], cpv[0].position[0], kTol);
     CHECK_NEAR(cpv[3].position[2], cpv[0].position[2], kTol);
+}
+
+TEST(knot_addCrawlPoint_reads_each_axis_from_its_own_mat_column_entry)
+{
+    impKnot k;
+    float m[16];
+    makeCoupledMatrix(m);
+    k.setMatrix(m);
+
+    /* addCrawlPoint() reads mat directly (mat[0..2], mat[8..10] and
+     * mat[12..14]), not invtrmat, and the identity-matrix fixture above
+     * never distinguished mat[8] from mat[2] -- both are zero -- nor does
+     * i=0 (angle 0, z=0) exercise the z coefficients at all. With the
+     * coupled matrix and the default coils=3, i=1's angle is 2*pi/3: x =
+     * radius1 + cos(2*pi/3)*radius2 = 1 + (-0.5)*0.5 = 0.75, z =
+     * sin(2*pi/3)*radius2 = 0.433013. position[0] = mat[0]*x + mat[8]*z +
+     * mat[12] = 2*0.75 + (-1.5)*0.433013 + 1 = 1.850481. Reading mat[2]=1
+     * instead of mat[8]=-1.5 here would give 2.933013 instead. */
+    impCrawlPointVector cpv;
+    k.addCrawlPoint(cpv);
+
+    CHECK(cpv.size() == 3);
+    CHECK_NEAR(cpv[1].position[0], 1.850481f, 1e-4f);
+    CHECK_NEAR(cpv[1].position[1], 3.183013f, 1e-4f);
+    CHECK_NEAR(cpv[1].position[2], 5.482051f, 1e-4f);
 }
