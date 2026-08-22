@@ -51,3 +51,16 @@ jobs:
           done
           xcrun clang++ "$OUT"/*.o -framework OpenGL -o "$OUT/tests"
           "$OUT/tests"
+
+      # The suite above compiles with clang and never opens the Xcode project, so
+      # until this step existed a completely broken Release build stayed green.
+      # That is not hypothetical: every target once failed on the removed
+      # libarclite and it went unnoticed through the whole of phase 1, because
+      # nothing in CI had ever built a screen saver. Phase 2 touches the project
+      # on every commit, so the gap mattered more from here on.
+      #
+      # Deliberately passes no signing overrides. The project signs ad-hoc, and a
+      # runner has no certificate -- so a green run here is the evidence that the
+      # committed settings build for someone who is not the author.
+      - name: Build the Release target
+        run: xcodebuild -project Hyperspace.xcodeproj -target Hyperspace -configuration Release build
