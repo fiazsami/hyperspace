@@ -35,6 +35,14 @@ impCubeVolume::impCubeVolume(){
 			crawlDirections[i][j] = cubeTables.crawlDirections[i][j];
 	}
 
+	// frame is the generation counter the per-edge vertex cache compares
+	// against, and init() zeroes every cubedata *_frame field to 0. Leaving
+	// this one uninitialised meant a storage slot holding 0xFFFF wrapped to 0
+	// on the first makeSurface, so every edge reported a cache hit before
+	// anything had been cached -- the surface came back with a full index
+	// array over zero vertices. See ss-ma1.
+	frame = 0;
+
 	surface = new impSurface;
 	init(4, 4, 4, 0.2f);
 	surfacevalue = 0.5f;
@@ -89,6 +97,21 @@ void impCubeVolume::init(unsigned int width, unsigned int height, unsigned int l
 				cubes[index].x_vertex_frame = 0;
 				cubes[index].y_vertex_frame = 0;
 				cubes[index].z_vertex_frame = 0;
+				// Read on the cache-hit path and previously never written, so
+				// a stale generation counter handed addIndex whatever was in
+				// the slot. Zeroing them does not make that path correct, but
+				// it keeps a future counter bug in range of the vertex array
+				// instead of out of it (ss-ma1).
+				//
+				// Deliberately unfalsifiable, and checked to be: deleting
+				// these three lines changes no observable behaviour, because
+				// with `frame` initialised the cache-hit path only fires after
+				// something has written them. No test can distinguish it and
+				// none is claimed. Kept because the cost is three stores in a
+				// loop that already does five.
+				cubes[index].x_vertex_index = 0;
+				cubes[index].y_vertex_index = 0;
+				cubes[index].z_vertex_index = 0;
 			}
 		}
 	}

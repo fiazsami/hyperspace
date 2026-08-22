@@ -18,16 +18,27 @@
  *
  * What is deliberately NOT here:
  *
- *   impSurface's own mutators (addVertex, addIndex, addTriStripLength) now
- *   run, but every byte they write goes into private members with no accessor
- *   and no observer short of draw(), which still needs a context. A test that
- *   called them and asserted nothing would be one more undiscriminating path
- *   of the kind this project already has twenty of, so they are left uncovered
- *   and honest.
+ *   impSurface's own mutators (addVertex, addIndex, addTriStripLength).
+ *
+ *   OVERTAKEN BY ss-or3 -- read the next paragraph before trusting this one.
+ *   As written, the reason was that every byte they write goes into private
+ *   members with no accessor and no observer short of draw(), which needs a
+ *   context; a test calling them and asserting nothing would be one more
+ *   undiscriminating path of the kind this project already has twenty of.
+ *
+ *   That is no longer true of two of the three. ss-or3 added const accessors
+ *   to impSurface -- getVertexCount, getVertex, getIndexCount, getIndex --
+ *   precisely so impCubeVolume's output could be asserted on, and addVertex
+ *   and addIndex are now fully covered through them by
+ *   test_impcubevolume.cpp. They are bucket A. Only addTriStripLength is
+ *   still uncovered, and for a different reason again: USE_TRIANGLE_STRIPS is
+ *   0, so nothing calls it and nothing reads what it writes.
  *
  *   The geometry itself -- makeSurface, polygonize, crawl_sort and the rest.
- *   That is ss-or3, and it is a much larger job than this one: it needs a
- *   field function, an expected mesh and a tolerance argued for in writing.
+ *   DONE, by ss-or3, in test_impcubevolume.cpp: an analytic sphere field, a
+ *   tolerance derived from the interpolation error rather than measured, and
+ *   assertions on manifold topology and triangulated area. What remains is
+ *   the crawl-and-sort paths (ss-c49).
  *   This file only establishes that ss-or3 is now possible.
  *
  *   The trivial accessors (getSurface, setSurfaceValue and friends), which

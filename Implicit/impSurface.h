@@ -103,11 +103,16 @@ public:
 	// Six floats per vertex: normal in [0..2], position in [3..5]. That is the
 	// order draw() feeds to glNormalPointer and glVertexPointer, and the order
 	// addVertex documents for its argument.
-	// data() rather than &vertices[i * 6]: a surface that emitted nothing has an
-	// empty vector, and indexing one is undefined even when the result is never
-	// read. Callers still must not read past getVertexCount().
+	// data() rather than operator[] in BOTH: a surface that emitted nothing has
+	// empty vectors, and indexing one is undefined even when the result is
+	// never read -- which the empty-field test case produces on purpose.
+	//
+	// Neither bounds-checks. Callers must not read past getVertexCount() or
+	// getIndexCount(): the vectors are grown a thousand elements at a time and
+	// never shrunk, so anything between the count and size() is stale data
+	// from an earlier frame and would be returned without complaint.
 	const float* getVertex(unsigned int i) const {return vertices.data() + i * 6;}
-	unsigned int getIndex(unsigned int i) const {return indices[i];}
+	unsigned int getIndex(unsigned int i) const {return indices.data()[i];}
 };
 
 
