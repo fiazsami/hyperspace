@@ -756,17 +756,33 @@ bool sameVertexSet(std::vector<Vertex> a, std::vector<Vertex> b)
     return a == b;
 }
 
+/* One crawl, through whichever of the two crawl overloads a case is
+ * exercising. They convert and clamp crawl points with identical code -- which
+ * is the point: ss-qsv was a divergence between two copies of it, so a case
+ * that drives only one of them pins only half the fix. The four-argument one
+ * also sorts, which every assertion phrased as a set is indifferent to. */
+void crawlWith(impCubeVolume &volume, impCrawlPointVector &cpv, bool withEyepoint)
+{
+    if (withEyepoint)
+        volume.makeSurface(0.0f, 0.0f, 10.0f, cpv);
+    else
+        volume.makeSurface(cpv);
+}
+
 /* Two disjoint balls of radius kClampRadius at +-kClampCentre along one axis.
  *
  * The radius and the centre are not free. The volume spans [-4, 4] along the
  * tested axis, so cube 0 covers [-4, -3.75] and cube w-1 covers [3.75, 4]; a
- * ball at -3.0 with R = 0.9 reaches -3.9, which puts the SURFACE inside cube 0
- * and nothing else. That is what makes a seed clamped to the near face land on
- * a cube whose corner mask is mixed, so the crawl starts immediately rather
- * than walking, and it makes the two ends of the axis symmetric -- which
- * matters because the two crawl overloads step in opposite directions when a
- * seed lands inside solid material (++i in makeSurface(cpv), --i in the
- * four-argument one). */
+ * ball at -3.0 with R = 0.9 reaches -3.9, so along the axis's centre line the
+ * surface falls inside cube 0. That is what makes a seed clamped to the near
+ * face land on a cube whose corner mask is mixed, so the crawl starts
+ * immediately.
+ *
+ * The two ends being symmetric is deliberate too. When a seed lands inside
+ * solid material the two overloads walk in opposite directions -- ++i in
+ * makeSurface(cpv), --i in the four-argument one (ss-raf) -- so a fixture that
+ * only straddled one end would exercise the walk in one of them and the crawl
+ * in the other, and a failure would not say which. Here neither walks. */
 struct AxisBalls {
     float r2;
     float centre;
@@ -833,7 +849,7 @@ impCrawlPointVector seedOnAxis(int axis, float along)
  * The reference is another seed rather than a count: whatever the near ball
  * tessellates to, a point outside the volume and a point just inside it are
  * asking for the same cube and must get the same surface. */
-void checkOutOfVolumeSeedsClampToTheNearFace(int axis)
+void checkOutOfVolumeSeedsClampToTheNearFace(int axis, bool withEyepoint)
 {
     impCubeVolume volume;
     AxisBalls field;
@@ -847,17 +863,17 @@ void checkOutOfVolumeSeedsClampToTheNearFace(int axis)
      * straddles the surface, which is the whole point of the geometry. */
     impCrawlPointVector justInside =
         seedOnAxis(axis, -(kClampHalfExtent - 0.5f * kCubeWidth));
-    volume.makeSurface(justInside);
+    crawlWith(volume, justInside, withEyepoint);
     const std::vector<Vertex> nearFromInside = collectVertices(volume.getSurface());
 
     /* Far enough out that the wrapped index is unmistakably huge, not merely
      * off by one. */
     impCrawlPointVector wellBeforeIt = seedOnAxis(axis, -10.0f * kClampHalfExtent);
-    volume.makeSurface(wellBeforeIt);
+    crawlWith(volume, wellBeforeIt, withEyepoint);
     const std::vector<Vertex> nearFromOutside = collectVertices(volume.getSurface());
 
     impCrawlPointVector wellPastIt = seedOnAxis(axis, 10.0f * kClampHalfExtent);
-    volume.makeSurface(wellPastIt);
+    crawlWith(volume, wellPastIt, withEyepoint);
     const std::vector<Vertex> farFromOutside = collectVertices(volume.getSurface());
 
     /* Each seed reaches one of two mirror-image components. */
@@ -879,17 +895,41 @@ void checkOutOfVolumeSeedsClampToTheNearFace(int axis)
 
 TEST(impcubevolume_a_crawl_point_off_the_x_end_clamps_to_the_near_face)
 {
-    checkOutOfVolumeSeedsClampToTheNearFace(0);
+    checkOutOfVolumeSeedsClampToTheNearFace(0, false);
 }
 
 TEST(impcubevolume_a_crawl_point_off_the_y_end_clamps_to_the_near_face)
 {
-    checkOutOfVolumeSeedsClampToTheNearFace(1);
+    checkOutOfVolumeSeedsClampToTheNearFace(1, false);
 }
 
 TEST(impcubevolume_a_crawl_point_off_the_z_end_clamps_to_the_near_face)
 {
-    checkOutOfVolumeSeedsClampToTheNearFace(2);
+    checkOutOfVolumeSeedsClampToTheNearFace(2, false);
+}
+
+/* The same three, through the overload that sorts.
+ *
+ * Not redundant, and not a copy for symmetry's sake. The four-argument
+ * overload has its own copy of the conversion and all six clamps, and it is
+ * the copy that was already right -- so these three cases are what makes
+ * "the signed/unsigned mismatch is gone from BOTH overloads" a checked claim
+ * rather than a read of the diff. Measured before they were written: all six
+ * of its clamp branches were uncovered, because nothing in the suite had ever
+ * handed it a seed outside the volume. */
+TEST(impcubevolume_a_sorted_crawl_point_off_the_x_end_clamps_to_the_near_face)
+{
+    checkOutOfVolumeSeedsClampToTheNearFace(0, true);
+}
+
+TEST(impcubevolume_a_sorted_crawl_point_off_the_y_end_clamps_to_the_near_face)
+{
+    checkOutOfVolumeSeedsClampToTheNearFace(1, true);
+}
+
+TEST(impcubevolume_a_sorted_crawl_point_off_the_z_end_clamps_to_the_near_face)
+{
+    checkOutOfVolumeSeedsClampToTheNearFace(2, true);
 }
 
 /* A seed in empty space reaches nothing, and does not spoil a seed that does.
@@ -910,24 +950,28 @@ TEST(impcubevolume_a_seed_in_empty_space_finds_nothing)
     float r2;
     configureSphere(volume, r2);
 
-    impCrawlPointVector centre;
-    centre.push_back(impCrawlPoint(0.0f, 0.0f, 0.0f));
-    volume.makeSurface(centre);
-    const std::vector<Vertex> fromCentre = collectVertices(volume.getSurface());
-    CHECK(fromCentre.size() > 0);
+    for (int sorted = 0; sorted < 2; sorted++) {
+        const bool withEyepoint = (sorted != 0);
 
-    /* Inside the volume, well outside the R = 1 ball: every corner of this
-     * cube is below the threshold, so the mask is 255. */
-    impCrawlPointVector void_;
-    void_.push_back(impCrawlPoint(-1.9f, 0.0f, 0.0f));
-    volume.makeSurface(void_);
-    CHECK(volume.getSurface()->getVertexCount() == 0);
+        impCrawlPointVector centre;
+        centre.push_back(impCrawlPoint(0.0f, 0.0f, 0.0f));
+        crawlWith(volume, centre, withEyepoint);
+        const std::vector<Vertex> fromCentre = collectVertices(volume.getSurface());
+        CHECK(fromCentre.size() > 0);
 
-    impCrawlPointVector both;
-    both.push_back(impCrawlPoint(-1.9f, 0.0f, 0.0f));
-    both.push_back(impCrawlPoint(0.0f, 0.0f, 0.0f));
-    volume.makeSurface(both);
-    CHECK(sameVertexSet(collectVertices(volume.getSurface()), fromCentre));
+        /* Inside the volume, well outside the R = 1 ball: every corner of this
+         * cube is below the threshold, so the mask is 255. */
+        impCrawlPointVector void_;
+        void_.push_back(impCrawlPoint(-1.9f, 0.0f, 0.0f));
+        crawlWith(volume, void_, withEyepoint);
+        CHECK(volume.getSurface()->getVertexCount() == 0);
+
+        impCrawlPointVector both;
+        both.push_back(impCrawlPoint(-1.9f, 0.0f, 0.0f));
+        both.push_back(impCrawlPoint(0.0f, 0.0f, 0.0f));
+        crawlWith(volume, both, withEyepoint);
+        CHECK(sameVertexSet(collectVertices(volume.getSurface()), fromCentre));
+    }
 }
 
 /* Where the crawl starts inside a component does not change what it finds.
