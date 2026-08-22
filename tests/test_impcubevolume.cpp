@@ -859,8 +859,15 @@ void checkOutOfVolumeSeedsClampToTheNearFace(int axis, bool withEyepoint)
     const unsigned int exhaustive = volume.getSurface()->getVertexCount();
     CHECK(exhaustive > 0);
 
-    /* Inside cube 0 along the tested axis, and outside the ball -- the cube
-     * straddles the surface, which is the whole point of the geometry. */
+    /* Inside cube 0 along the tested axis. The seed itself is just INSIDE the
+     * ball -- 0.875 from a centre at 3.0 with R = 0.9 -- and an earlier
+     * version of this comment claimed the opposite. Where it sits relative to
+     * the ball is not the property to preserve: what matters is that CUBE 0
+     * straddles the surface, so a seed clamped to the near face lands on a
+     * mixed corner mask and the crawl starts without walking. Shrinking
+     * kClampRadius to "restore" the seed to the outside would move the surface
+     * out of cube 0, make the mask 255, and fail this case with the production
+     * code entirely correct. */
     impCrawlPointVector justInside =
         seedOnAxis(axis, -(kClampHalfExtent - 0.5f * kCubeWidth));
     crawlWith(volume, justInside, withEyepoint);
@@ -1180,86 +1187,158 @@ TEST(impcubevolume_the_eyepoint_sort_emits_near_geometry_first)
 
 namespace {
 
-/* A ball too big for the volume that holds it: R = 2.5 in a volume spanning
- * [-2, 2], so the isosurface cuts all six faces. Nothing in the suite until
- * now had a surface that touched the boundary at all -- the header says so
- * explicitly, and that was the right call for the geometry cases. It is also
- * the reason every crawlfromsides branch was unreached: the side scans look
- * for boundary corners that are INSIDE the solid, and a ball floating in the
- * middle of its volume has none. */
-const float kOversizeRadius = 2.5f;
+/* Six disjoint balls, one straddling the centre of each face of the volume.
+ *
+ * THE DISJOINTNESS IS THE WHOLE POINT, and the first version of these cases
+ * did not have it. It used one ball too big for its volume -- R = 2.5 in a
+ * volume spanning [-2, 2] -- whose isosurface cuts all six faces, and asserted
+ * that crawling from the sides reached everything the exhaustive scan did.
+ *
+ * That assertion is satisfied by any side scan that finds ONE solid boundary
+ * corner anywhere, because the surface is a single connected component and the
+ * crawl spreads over all of it from wherever it starts. Measured: deleting the
+ * bottom/top loop group and the back/front loop group outright -- four of the
+ * six faces, two thirds of the code the case exists to characterize -- left
+ * the suite GREEN. The review that caught it named the regression it would
+ * miss: a port that keeps the left/right scan and drops the rest, so geometry
+ * entering through the top or the back silently stops being drawn.
+ *
+ * Six separated components fix that by construction. Each face's scan is the
+ * only thing that can reach its ball, so losing a loop group loses two whole
+ * components and the set comparison says so.
+ *
+ * Geometry: R = 0.5 balls centred on the six face centres of a [-2, 2] volume.
+ * Half of each ball is outside, so the surface inside the volume is a cap that
+ * the boundary cuts -- which is what makes the corner at the face centre solid
+ * and the scan able to see it. Nearest centres are 2*sqrt(2) apart against a
+ * diameter of 1, so they are disjoint with room to spare. */
+const float kFaceBallRadius = 0.5f;
 
-void configureOversizeSphere(impCubeVolume &volume, float &r2Storage)
+/* Face centres, in the order -x, +x, -y, +y, -z, +z. kCubes * kCubeWidth / 2
+ * is the half-extent, so each sits exactly on its face. */
+const float kFaceBallCentres[6][3] = {
+    {-2.0f, 0.0f, 0.0f}, {2.0f, 0.0f, 0.0f},
+    {0.0f, -2.0f, 0.0f}, {0.0f, 2.0f, 0.0f},
+    {0.0f, 0.0f, -2.0f}, {0.0f, 0.0f, 2.0f},
+};
+
+float faceBallField(float *p, void *context)
 {
-    r2Storage = kOversizeRadius * kOversizeRadius;
-    volume.function = sphereField;
+    const float r2 = *(const float *)context;
+    float best = -1.0e30f;
+    for (int b = 0; b < 6; b++) {
+        const float dx = p[0] - kFaceBallCentres[b][0];
+        const float dy = p[1] - kFaceBallCentres[b][1];
+        const float dz = p[2] - kFaceBallCentres[b][2];
+        const float v = 1.0f + r2 - (dx * dx + dy * dy + dz * dz);
+        if (v > best) best = v;
+    }
+    return best;
+}
+
+void configureFaceBalls(impCubeVolume &volume, float &r2Storage)
+{
+    r2Storage = kFaceBallRadius * kFaceBallRadius;
+    volume.function = faceBallField;
     volume.contextInfoForFunction = &r2Storage;
     volume.init(kCubes, kCubes, kCubes, kCubeWidth);
     volume.setSurfaceValue(kSurfaceValue);
+
+    /* The half-extent the centres above assume. Asserted rather than derived
+     * so that changing kCubes or kCubeWidth fails here, loudly, instead of
+     * quietly moving the balls off their faces and leaving the side scans
+     * with nothing to find. */
+    CHECK(0.5f * float(kCubes) * kCubeWidth == 2.0f);
+}
+
+/* How many emitted vertices belong to each of the six balls. A vertex is
+ * within h*sqrt(3)/2 of its cap, and the caps are 2*sqrt(2) apart, so nearest-
+ * centre attribution is unambiguous -- but it is checked rather than assumed:
+ * anything further than one ball diameter from every centre is counted as
+ * stray, and the cases assert there are none. */
+void countByFace(const std::vector<Vertex> &v, unsigned int perFace[6], unsigned int &stray)
+{
+    for (int b = 0; b < 6; b++) perFace[b] = 0;
+    stray = 0;
+    for (unsigned int i = 0; i < v.size(); i++) {
+        int best = -1;
+        double bestD2 = 4.0 * double(kFaceBallRadius) * kFaceBallRadius;
+        for (int b = 0; b < 6; b++) {
+            const double dx = double(v[i].data[3]) - kFaceBallCentres[b][0];
+            const double dy = double(v[i].data[4]) - kFaceBallCentres[b][1];
+            const double dz = double(v[i].data[5]) - kFaceBallCentres[b][2];
+            const double d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 < bestD2) { bestD2 = d2; best = b; }
+        }
+        if (best < 0) stray++;
+        else perFace[best]++;
+    }
 }
 
 }  // namespace
 
-/* Crawling from the sides finds a surface no crawl point points to.
+/* Crawling from the sides finds surfaces no crawl point points to -- through
+ * every one of the six faces.
  *
  * This is what setCrawlFromSides is for: geometry that enters the volume from
  * outside, where the saver has no seed to offer because it does not know where
- * the surface came in. The case is stated as the contrast, with the same field
- * and the same empty crawl point list throughout -- off finds nothing, on
- * finds everything the exhaustive scan does. Neither half means much alone:
- * "on finds 984 vertices" would pass a crawlfromsides that had quietly become
- * an exhaustive scan, and "off finds nothing" is already known.
+ * the surface came in. Stated as a contrast, with the same field and the same
+ * empty crawl point list throughout -- off finds nothing, on finds everything
+ * the exhaustive scan does. Neither half means much alone: a count would pass
+ * a crawlfromsides that had quietly become an exhaustive scan, and "off finds
+ * nothing" is already known.
  *
- * Set equality with the exhaustive scan, not just a count. The side scans walk
- * a checkerboard of boundary corners and rely on the crawl to spread from each
- * one, so "reached every cube the scan reaches" is exactly the property at
- * risk and exactly what a count would fail to state. */
-TEST(impcubevolume_crawling_from_the_sides_finds_a_surface_no_seed_points_to)
+ * The per-face assertion is what makes the set comparison worth making. See
+ * the fixture comment: with one connected surface, set equality is satisfied
+ * by a scan that finds a single boundary corner, and four of the six face
+ * scans could be deleted unnoticed. Six disjoint balls turn "reached every
+ * cube the scan reaches" back into a real claim, and counting per ball turns
+ * a failure into a statement about WHICH face stopped being scanned.
+ *
+ * What this does NOT pin: how densely each face is sampled. The scans walk a
+ * checkerboard of boundary corners, and a coarser stride that still lands
+ * inside every cap passes here. Pinning the stride means sizing a cap to fall
+ * between samples, which fixes the test to one particular scan pattern -- and
+ * a port is entitled to choose a different one that still finds everything.
+ * The loop groups are pinned; the stride within them is not. */
+TEST(impcubevolume_crawling_from_the_sides_reaches_all_six_faces)
 {
     impCubeVolume volume;
     float r2;
-    configureOversizeSphere(volume, r2);
+    configureFaceBalls(volume, r2);
 
     volume.makeSurface();
     const std::vector<Vertex> exhaustive = collectVertices(volume.getSurface());
     CHECK(exhaustive.size() > 0);
 
-    impCrawlPointVector noSeeds;
-
-    volume.makeSurface(noSeeds);
-    CHECK(volume.getSurface()->getVertexCount() == 0);
-
-    volume.setCrawlFromSides(true);
-    volume.makeSurface(noSeeds);
-    const std::vector<Vertex> fromSides = collectVertices(volume.getSurface());
-
-    CHECK(fromSides.size() == exhaustive.size());
-    CHECK(sameVertexSet(fromSides, exhaustive));
-}
-
-/* The same, for the overload that sorts. The two crawlfromsides blocks are
- * separate code -- one calls crawl_nosort and the other crawl_sort, and the
- * ss-c49 measurement had both at zero regions covered -- so a case against one
- * says nothing about the other. */
-TEST(impcubevolume_the_sorted_crawl_also_crawls_from_the_sides)
-{
-    impCubeVolume volume;
-    float r2;
-    configureOversizeSphere(volume, r2);
-
-    volume.makeSurface();
-    const std::vector<Vertex> exhaustive = collectVertices(volume.getSurface());
-    CHECK(exhaustive.size() > 0);
+    /* The fixture is only a fixture if all six balls are actually there. */
+    unsigned int expected[6], strayExpected;
+    countByFace(exhaustive, expected, strayExpected);
+    CHECK(strayExpected == 0);
+    for (int b = 0; b < 6; b++) CHECK(expected[b] > 0);
 
     impCrawlPointVector noSeeds;
 
-    volume.makeSurface(0.0f, 0.0f, 10.0f, noSeeds);
-    CHECK(volume.getSurface()->getVertexCount() == 0);
+    for (int sorted = 0; sorted < 2; sorted++) {
+        const bool withEyepoint = (sorted != 0);
 
-    volume.setCrawlFromSides(true);
-    volume.makeSurface(0.0f, 0.0f, 10.0f, noSeeds);
-    const std::vector<Vertex> fromSides = collectVertices(volume.getSurface());
+        volume.setCrawlFromSides(false);
+        crawlWith(volume, noSeeds, withEyepoint);
+        CHECK(volume.getSurface()->getVertexCount() == 0);
 
-    CHECK(fromSides.size() == exhaustive.size());
-    CHECK(sameVertexSet(fromSides, exhaustive));
+        volume.setCrawlFromSides(true);
+        crawlWith(volume, noSeeds, withEyepoint);
+        const std::vector<Vertex> fromSides = collectVertices(volume.getSurface());
+
+        CHECK(fromSides.size() == exhaustive.size());
+        CHECK(sameVertexSet(fromSides, exhaustive));
+
+        /* Every face, not just enough of them to reach the total. Each ball is
+         * a separate component, so the only thing that can put its vertices
+         * here is the scan of the face it sits on. */
+        unsigned int found[6], stray;
+        countByFace(fromSides, found, stray);
+        CHECK(stray == 0);
+        for (int b = 0; b < 6; b++) CHECK(found[b] == expected[b]);
+    }
 }
