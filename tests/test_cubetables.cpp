@@ -26,6 +26,7 @@
 #include "harness.h"
 
 #include "Implicit/impCubeTables.h"
+#include "Implicit/impCubeVolume.h"
 
 namespace {
 
@@ -205,4 +206,64 @@ TEST(every_non_uniform_cube_produces_a_surface)
     impCubeTables &t = tables();
     for (int mask = 1; mask < 255; mask++)
         CHECK(t.triStripPatterns[mask][0] != 0);
+}
+
+/* sortableCube (impCubeVolume.h) orders cubes by depth alone, for the
+ * back-to-front transparency sort in impCubeVolume::makeSurface(eyex, eyey,
+ * eyez, ...). "index" identifies the cube; "depth" is what the sort keys on.
+ * A test that swapped which field the operators read, or that swapped which
+ * direction they compared, would not be caught by the compiler -- both
+ * versions typecheck.
+ *
+ * The ordering fixtures below deliberately give index and depth order that
+ * disagree: near_cube carries the higher index but the lower depth. An
+ * operator< or operator> rewritten to compare .index instead of .depth would
+ * report the opposite order here, so the disagreement -- not the ordering
+ * itself -- is what makes these tests able to catch that swap. */
+
+TEST(sortable_cube_orders_by_depth_not_index)
+{
+    sortableCube near_cube(9);
+    sortableCube far_cube(1);
+    near_cube.depth = 1.0f;
+    far_cube.depth = 5.0f;
+
+    CHECK(near_cube < far_cube);
+    CHECK(!(far_cube < near_cube));
+    CHECK(far_cube > near_cube);
+    CHECK(!(near_cube > far_cube));
+}
+
+TEST(sortable_cube_equal_depth_is_neither_less_nor_greater)
+{
+    sortableCube a(9);
+    sortableCube b(1);
+    a.depth = b.depth = 3.0f;
+
+    CHECK(!(a < b));
+    CHECK(!(a > b));
+}
+
+TEST(sortable_cube_equality_compares_depth_not_index)
+{
+    /* Two cubes at different volume indices but the same depth are equal --
+     * equality is about where they sit in the sort, not which cube they are. */
+    sortableCube a(3);
+    sortableCube b(9);
+    a.depth = 2.5f;
+    b.depth = 2.5f;
+
+    CHECK(a == b);
+    CHECK(!(a != b));
+}
+
+TEST(sortable_cube_inequality_detects_differing_depth)
+{
+    sortableCube a(0);
+    sortableCube b(0);
+    a.depth = 1.0f;
+    b.depth = 2.0f;
+
+    CHECK(a != b);
+    CHECK(!(a == b));
 }
