@@ -40,8 +40,11 @@ void makeIdentity(float *m)
 
 /* Same matrix as test_imp_primitives.cpp's makeCoupledMatrix and
  * test_impknot.cpp's copy of it. Its 3x3 linear part is deliberately
- * non-symmetric ([[2,1.5,-1.5],[1,3,1],[1,1,4]], read as m[0..2]/m[4..6]/
- * m[8..10]) -- an earlier version of this fixture used the symmetric block
+ * non-symmetric ([[2,1.5,-1.5],[1,3,1],[1,1,4]] -- the storage is column-major,
+ * so those rows are (m[0],m[4],m[8]), (m[1],m[5],m[9]), (m[2],m[6],m[10]), NOT
+ * m[0..2]/m[4..6]/m[8..10], which would be its transpose and would lead anyone
+ * re-deriving the inverse below to the wrong answer) -- an earlier version of
+ * this fixture used the symmetric block
  * [[2,1,1],[1,3,1],[1,1,4]], which made its own inverse symmetric too and
  * left setMatrix_copies_mat_and_builds_invtrmat_as_the_transpose_of_invmat
  * below unable to tell a real transpose of the linear block from a
