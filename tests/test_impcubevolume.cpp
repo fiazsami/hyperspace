@@ -736,7 +736,8 @@ TEST(impcubevolume_a_field_below_the_threshold_emits_nothing)
  *
  *   - two balls straddling one axis, so a single seed distinguishes a crawl
  *     from an exhaustive scan and says WHICH component it reached;
- *   - a ball too big for its volume, so the surface cuts all six faces and
+ *   - six disjoint balls, one straddling the centre of each face, so every
+ *     face's side scan is the only thing that can reach its component and
  *     crawling from the sides has something to find that no seed points to;
  *   - seeds outside the volume entirely, which is what ss-qsv is about.
  *
