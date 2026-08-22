@@ -146,6 +146,29 @@ std::vector<Vertex> collectVertices(const impSurface *surface)
     return out;
 }
 
+/* Set comparison over emitted vertices. Taken by value because both sides are
+ * sorted into a canonical order first, and the caller's order usually still
+ * matters to the case that is comparing them. */
+bool sameVertexSet(std::vector<Vertex> a, std::vector<Vertex> b)
+{
+    std::sort(a.begin(), a.end());
+    std::sort(b.begin(), b.end());
+    return a == b;
+}
+
+/* One crawl, through whichever of the two crawl overloads a case is
+ * exercising. They convert and clamp crawl points with identical code -- which
+ * is the point: ss-qsv was a divergence between two copies of it, so a case
+ * that drives only one of them pins only half the fix. The four-argument one
+ * also sorts, which every assertion phrased as a set is indifferent to. */
+void crawlWith(impCubeVolume &volume, impCrawlPointVector &cpv, bool withEyepoint)
+{
+    if (withEyepoint)
+        volume.makeSurface(0.0f, 0.0f, 10.0f, cpv);
+    else
+        volume.makeSurface(cpv);
+}
+
 double squaredRadius(const float *vertex)
 {
     return double(vertex[3]) * vertex[3] + double(vertex[4]) * vertex[4] +
@@ -421,6 +444,14 @@ TEST(impcubevolume_fast_normals_are_coarser_than_accurate_ones)
  * which is why this uses two disjoint balls -- it is the only configuration
  * where the difference between the code paths is observable at all.
  *
+ * BOTH crawl overloads, in one case. They are separate code with separate
+ * traversals -- makeSurface(cpv) fills cubeIndices through crawl_nosort, the
+ * four-argument one fills sortableCubes through crawl_sort -- so a case
+ * against one says nothing about the other, and ss-c49 measured crawl_sort at
+ * zero regions covered. What they must NOT be is two copies of this case:
+ * review found that draft, and its cost is stated below. The fixture is built
+ * once, and crawlWith() swaps the overload under it.
+ *
  * The counts are asserted as relations, not as the numbers a run produced.
  * "One seed finds exactly half" follows from the two balls being mirror
  * images -- but it needs them to stay DISJOINT, which is a condition on the
@@ -428,7 +459,16 @@ TEST(impcubevolume_fast_normals_are_coarser_than_accurate_ones)
  * field.centre and the balls merge into one component; a single seed then
  * reaches all of it, fromOne == exhaustive, and this case fails with the code
  * entirely correct. The invariant survives a change of grid, and a change of
- * radius only while 2*R stays clear of 2*centre. */
+ * radius only while 2*R stays clear of 2*centre.
+ *
+ * That precondition is the reason the two cases were folded together rather
+ * than left as neighbours. Written once and depended on by two independently
+ * constructed volumes, it is a warning the second site does not carry -- and
+ * whoever eventually changes kRadius will read only one of them.
+ *
+ * The exhaustive baseline comes from makeSurface() alone. The sorted overload
+ * emits the same vertices in a different order, which is not assumed here:
+ * impcubevolume_sorting_permutes_the_vertices_without_changing_them pins it. */
 TEST(impcubevolume_crawl_finds_only_what_it_is_seeded_from)
 {
     TwoSpheres field;
@@ -445,24 +485,28 @@ TEST(impcubevolume_crawl_finds_only_what_it_is_seeded_from)
     const unsigned int exhaustive = volume.getSurface()->getVertexCount();
     CHECK(exhaustive > 0);
 
-    impCrawlPointVector oneSeed;
-    oneSeed.push_back(impCrawlPoint(field.centre, 0.0f, 0.0f));
-    volume.makeSurface(oneSeed);
-    const unsigned int fromOne = volume.getSurface()->getVertexCount();
+    for (int sorted = 0; sorted < 2; sorted++) {
+        const bool withEyepoint = (sorted != 0);
 
-    impCrawlPointVector bothSeeds;
-    bothSeeds.push_back(impCrawlPoint(field.centre, 0.0f, 0.0f));
-    bothSeeds.push_back(impCrawlPoint(-field.centre, 0.0f, 0.0f));
-    volume.makeSurface(bothSeeds);
-    const unsigned int fromBoth = volume.getSurface()->getVertexCount();
+        impCrawlPointVector oneSeed;
+        oneSeed.push_back(impCrawlPoint(field.centre, 0.0f, 0.0f));
+        crawlWith(volume, oneSeed, withEyepoint);
+        const unsigned int fromOne = volume.getSurface()->getVertexCount();
 
-    impCrawlPointVector noSeeds;
-    volume.makeSurface(noSeeds);
-    const unsigned int fromNone = volume.getSurface()->getVertexCount();
+        impCrawlPointVector bothSeeds;
+        bothSeeds.push_back(impCrawlPoint(field.centre, 0.0f, 0.0f));
+        bothSeeds.push_back(impCrawlPoint(-field.centre, 0.0f, 0.0f));
+        crawlWith(volume, bothSeeds, withEyepoint);
+        const unsigned int fromBoth = volume.getSurface()->getVertexCount();
 
-    CHECK(fromOne * 2 == exhaustive);  /* one of two mirror-image components */
-    CHECK(fromBoth == exhaustive);     /* both seeds reach everything */
-    CHECK(fromNone == 0);              /* no seed reaches nothing */
+        impCrawlPointVector noSeeds;
+        crawlWith(volume, noSeeds, withEyepoint);
+        const unsigned int fromNone = volume.getSurface()->getVertexCount();
+
+        CHECK(fromOne * 2 == exhaustive);  /* one of two mirror-image components */
+        CHECK(fromBoth == exhaustive);     /* both seeds reach everything */
+        CHECK(fromNone == 0);              /* no seed reaches nothing */
+    }
 }
 
 /* Passing an eyepoint asks for back-to-front ordering so that transparency
@@ -747,29 +791,6 @@ TEST(impcubevolume_a_field_below_the_threshold_emits_nothing)
 
 namespace {
 
-/* Set comparison over emitted vertices. Taken by value because both sides are
- * sorted into a canonical order first, and the caller's order usually still
- * matters to the case that is comparing them. */
-bool sameVertexSet(std::vector<Vertex> a, std::vector<Vertex> b)
-{
-    std::sort(a.begin(), a.end());
-    std::sort(b.begin(), b.end());
-    return a == b;
-}
-
-/* One crawl, through whichever of the two crawl overloads a case is
- * exercising. They convert and clamp crawl points with identical code -- which
- * is the point: ss-qsv was a divergence between two copies of it, so a case
- * that drives only one of them pins only half the fix. The four-argument one
- * also sorts, which every assertion phrased as a set is indifferent to. */
-void crawlWith(impCubeVolume &volume, impCrawlPointVector &cpv, bool withEyepoint)
-{
-    if (withEyepoint)
-        volume.makeSurface(0.0f, 0.0f, 10.0f, cpv);
-    else
-        volume.makeSurface(cpv);
-}
-
 /* Two disjoint balls of radius kClampRadius at +-kClampCentre along one axis.
  *
  * The radius and the centre are not free. The volume spans [-4, 4] along the
@@ -1016,52 +1037,6 @@ TEST(impcubevolume_the_crawl_is_independent_of_where_in_the_component_it_starts)
         else
             CHECK(sameVertexSet(found, reference));
     }
-}
-
-/* The four-argument overload is a crawl, not an exhaustive scan with a sort
- * bolted on.
- *
- * Exactly the claim the two-argument crawl case above makes, made again
- * against the overload that owns crawl_sort -- and it is not redundant,
- * because they are separate code with a separate traversal. Two disjoint balls
- * are the only configuration where the difference is observable at all: on one
- * connected surface a crawl and a scan agree exactly. The fixture's disjointness
- * is a condition on kRadius versus field.centre, as the two-argument case
- * explains at more length. */
-TEST(impcubevolume_the_sorted_crawl_visits_only_the_component_it_is_seeded_from)
-{
-    TwoSpheres field;
-    field.r2 = float(kR2);
-    field.centre = 2.0f;
-
-    impCubeVolume volume;
-    volume.function = twoSphereField;
-    volume.contextInfoForFunction = &field;
-    volume.init(kCubes * 2, kCubes, kCubes, kCubeWidth);
-    volume.setSurfaceValue(kSurfaceValue);
-
-    volume.makeSurface(0.0f, 0.0f, 10.0f);
-    const unsigned int exhaustive = volume.getSurface()->getVertexCount();
-    CHECK(exhaustive > 0);
-
-    impCrawlPointVector oneSeed;
-    oneSeed.push_back(impCrawlPoint(field.centre, 0.0f, 0.0f));
-    volume.makeSurface(0.0f, 0.0f, 10.0f, oneSeed);
-    const unsigned int fromOne = volume.getSurface()->getVertexCount();
-
-    impCrawlPointVector bothSeeds;
-    bothSeeds.push_back(impCrawlPoint(field.centre, 0.0f, 0.0f));
-    bothSeeds.push_back(impCrawlPoint(-field.centre, 0.0f, 0.0f));
-    volume.makeSurface(0.0f, 0.0f, 10.0f, bothSeeds);
-    const unsigned int fromBoth = volume.getSurface()->getVertexCount();
-
-    impCrawlPointVector noSeeds;
-    volume.makeSurface(0.0f, 0.0f, 10.0f, noSeeds);
-    const unsigned int fromNone = volume.getSurface()->getVertexCount();
-
-    CHECK(fromOne * 2 == exhaustive);
-    CHECK(fromBoth == exhaustive);
-    CHECK(fromNone == 0);
 }
 
 /* Adding an eyepoint to a crawl reorders it and changes nothing else.
