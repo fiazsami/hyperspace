@@ -97,7 +97,12 @@ jobs:
             # but leaves the bundle unsealed and linker-signed. Verified by
             # building it both ways -- only this call tells them apart.
             codesign --verify --strict --verbose=4 "$1"
-            codesign -dv "$1" 2>&1 | grep -q "^Sealed Resources" || {
+            # Captured first rather than piped into grep -q. Under pipefail a
+            # grep that exits on its first match can SIGPIPE the still-writing
+            # codesign (141), which propagates as the pipeline's status and
+            # reports a signing regression on a perfectly good bundle.
+            seal=$(codesign -dv "$1" 2>&1 || true)
+            printf '%s\n' "$seal" | grep -q "^Sealed Resources" || {
               echo "::error::$1 has no sealed resources -- signing regressed to linker-signed"
               exit 1
             }
