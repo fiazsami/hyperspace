@@ -90,6 +90,27 @@ jobs:
             exit 1
           fi
 
+          # Every configuration that pins an identity must also pin the style.
+          #
+          # The grep above catches the harm -- a committed team -- and Manual is
+          # what prevents it: Automatic is the mode in which Xcode resolves a
+          # team and writes it into the file. Without this assertion the setting
+          # is only remembered, and hills shipped two configurations on
+          # Automatic through three PRs that all claimed otherwise. Note that
+          # Xcode opened with no account signed in can flip a target to
+          # Automatic and write NO team, so the team grep stays green and the
+          # commit guard sees nothing -- the file is quietly back in the state
+          # that made 8D98N325TG possible.
+          identities=$(grep -cE 'CODE_SIGN_IDENTITY[^=]*=[[:space:]]*"-";' \
+                         Hyperspace.xcodeproj/project.pbxproj || true)
+          styles=$(grep -cE 'CODE_SIGN_STYLE[[:space:]]*=[[:space:]]*Manual;' \
+                     Hyperspace.xcodeproj/project.pbxproj || true)
+          if [ "$identities" -ne "$styles" ]; then
+            echo "::error::$identities configurations set CODE_SIGN_IDENTITY but $styles set CODE_SIGN_STYLE = Manual"
+            grep -nE 'CODE_SIGN_(IDENTITY|STYLE)' Hyperspace.xcodeproj/project.pbxproj
+            exit 1
+          fi
+
           verify() {
             echo "verifying $1"
             # Catches the regression this project's signing argument is about:
@@ -97,16 +118,24 @@ jobs:
             # but leaves the bundle unsealed and linker-signed. Verified by
             # building it both ways -- only this call tells them apart.
             codesign --verify --strict --verbose=4 "$1"
-            # No pipeline. Under pipefail, a grep -q that exits on its first
-            # match can SIGPIPE whatever is writing to it; 141 then propagates
-            # as the pipeline's status, the || branch runs, and CI reports a
+            # Not a pipeline. Under pipefail, a grep -q that exits on its
+            # first match can SIGPIPE whatever writes to it, and 141 propagates
+            # as the pipeline's status -- so the || branch runs and CI reports a
             # signing regression on a perfectly good bundle.
             #
-            # An earlier version of this fix captured codesign's output and then
-            # piped it into grep anyway, which is the same pipeline with a
-            # different writer -- review pointed out it fixed nothing. A here
-            # string has no writer to kill.
-            seal=$(codesign -dv "$1" 2>&1 || true)
+            # `cmd <<<"$s"` is a simple command rather than a pipeline, so
+            # pipefail never observes any writer's status and $? is grep's. Note
+            # that is the reason, NOT "a here string has no writer": bash >= 5.1
+            # implements here strings with a pipe when the data fits the buffer,
+            # so there is a writer, it just is not part of a pipeline. Two
+            # earlier versions of this check were wrong -- the first still piped
+            # into grep, and the second gave this wrong rationale -- so the
+            # mechanism is spelled out rather than summarised.
+            if ! seal=$(codesign -dv "$1" 2>&1); then
+              echo "::error::codesign -d failed for $1 -- cannot tell whether it sealed"
+              printf '%s\n' "$seal"
+              exit 1
+            fi
             grep -q "^Sealed Resources" <<<"$seal" || {
               echo "::error::$1 has no sealed resources -- signing regressed to linker-signed"
               exit 1
