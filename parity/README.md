@@ -37,8 +37,11 @@ A shot passes when, over pixels lit (any channel > 8) in **either** image:
 - the share more than 8 levels off is at most `max8`, and
 - the signed mean difference, Metal minus GL, worst channel, is at most 0.06 levels.
 
-Any draw the recorder could not capture also fails the shot, and a pass that drew
-nothing in any shot is an error rather than a pass.
+Any draw the recorder could not capture -- or captured under GL state the replay
+does not reproduce (a blend other than `(SRC_ALPHA, ONE)`, a texture mode other
+than MODULATE, a program, cube map or texgen on the fixed-function path, an
+alpha-only texture) -- fails the shot as "unrecorded GL draw calls". A pass that
+drew nothing in any shot is an error rather than a pass.
 
 Rates are over lit pixels, not the frame. Star frames are 0.3–4% lit, and a
 per-frame rate diluted every defect below 1%.
@@ -98,6 +101,9 @@ rule.
   verdict there would mean nothing yet. This runs locally.
 - **The replay reuses GL's matrices.** A real port computes them itself, which
   can add a small error this does not measure.
-- **The starburst is never judged.** It is dormant for the first five minutes.
+- **The starburst is never judged.** It is dormant for the first five minutes,
+  and past that it is drawn with the goo program from a display list, which the
+  recorder refuses: a run long enough to reach it fails with "unrecorded GL draw
+  calls" rather than a verdict on any shader.
 - **It is a comparison, not a renderer.** Nothing here draws the saver; the
   shaders in `metal/` are what a Metal renderer would use.

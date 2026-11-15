@@ -10,7 +10,7 @@ vertex FFOut ff_vertex(uint vid [[vertex_id]], const device FFVertex *v [[buffer
     FFOut o;
     o.position = u.mvp * p;
     o.texcoord = v[vid].texcoord;
-    o.color = v[vid].color;
+    o.color = saturate(v[vid].color);   // GL_CLAMP_VERTEX_COLOR defaults to TRUE
     o.depth = abs((u.modelview * p).z);
     return o;
 }

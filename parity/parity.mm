@@ -78,7 +78,7 @@ struct Batch {
     std::vector<Vtx> tri;                                            // immediate and tunnel
     std::vector<float> gooVerts; std::vector<uint32_t> gooTri; GLuint cube[3] = {0, 0, 0};
 };
-struct ListOp { GLuint tex = 0; bool hasTex = false; std::vector<Vtx> strip; };
+struct ListOp { GLuint tex = 0; bool hasTex = false; std::vector<std::vector<Vtx>> strips; };
 
 static bool gRecording = false;
 static std::vector<Batch> gBatches;
@@ -112,6 +112,33 @@ static State snap()
     float fc[4]; glGetFloatv(GL_FOG_COLOR, fc); s.fogColor = simd_make_float4(fc[0], fc[1], fc[2], fc[3]);
     return s;
 }
+// The replay hard-wires what Hyperspace's draws use today: blend (SRC_ALPHA, ONE),
+// GL_MODULATE, and for the fixed-function path no shader program, cube map or
+// texture-coordinate generation. Anything else would be replayed wrongly, so it is
+// counted as unrecorded instead of guessed at.
+static bool blendSupported()
+{
+    GLint src, dst; glGetIntegerv(GL_BLEND_SRC, &src); glGetIntegerv(GL_BLEND_DST, &dst);
+    return glIsEnabled(GL_BLEND) && src == GL_SRC_ALPHA && dst == GL_ONE;
+}
+static bool fixedFunctionSupported(GLuint boundTex)
+{
+    if (!blendSupported() || glGetHandleARB(GL_PROGRAM_OBJECT_ARB)) return false;
+    if (glIsEnabled(GL_TEXTURE_CUBE_MAP) || glIsEnabled(GL_TEXTURE_GEN_S) || glIsEnabled(GL_TEXTURE_GEN_T)) return false;
+    if (!glIsEnabled(GL_TEXTURE_2D)) return true;
+    GLint env; glGetTexEnviv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, &env);
+    if (env != GL_MODULATE) return false;
+    // glGetTexImage(GL_RGBA) turns an alpha-only texture into (0,0,0,A), which
+    // MODULATE would not match; every other base format reads back equivalently.
+    GLint saved, r = 0, l = 0, i = 0; glGetIntegerv(GL_TEXTURE_BINDING_2D, &saved);
+    real_glBindTexture(GL_TEXTURE_2D, boundTex);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_RED_SIZE, &r);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_LUMINANCE_SIZE, &l);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTENSITY_SIZE, &i);
+    real_glBindTexture(GL_TEXTURE_2D, saved);
+    return r || l || i;
+}
+
 // Odd triangles swap their first two vertices so every triangle keeps the strip's winding.
 template <typename T> static void stripToTris(const std::vector<T> &s, std::vector<T> &out)
 {
@@ -138,21 +165,23 @@ extern "C" void glBindTexture(GLenum target, GLuint tex)
 extern "C" void glEnd(void)
 {
     real_glEnd();
-    if (gCompiling) { gLists[gCompiling].strip = gStrip; return; }
+    if (gCompiling) { gLists[gCompiling].strips.push_back(gStrip); return; }
     if (!gRecording || gMode != GL_TRIANGLE_STRIP) return;
     Batch b; b.st = snap();
     GLhandleARB prog = glGetHandleARB(GL_PROGRAM_OBJECT_ARB);
     b.kind = prog == tunnelProgram && prog ? DrawKind::Tunnel : DrawKind::Immediate;
-    if (prog && b.kind != DrawKind::Tunnel) gUnsupported++;
     GLint active, tex; glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
     glActiveTexture(GL_TEXTURE0); glGetIntegerv(GL_TEXTURE_BINDING_2D, &tex); b.tex = (GLuint)tex;
     glActiveTexture(GL_TEXTURE1); glGetIntegerv(GL_TEXTURE_BINDING_2D, &tex); b.tex1 = (GLuint)tex;
     glActiveTexture(active);
+    bool supported = b.kind == DrawKind::Tunnel ? blendSupported() : fixedFunctionSupported(b.tex);
+    if (!supported) { gUnsupported++; return; }
     stripToTris(gStrip, b.tri);
     gBatches.push_back(std::move(b));
 }
-// Display lists (the flare quads) are recorded when compiled and expanded when
-// called; GL_COMPILE lists take the current colour at call time.
+// Display lists are recorded when compiled -- every strip in them -- and expanded
+// when called. Their vertices take the current colour at call time, which is right
+// only for lists that set no colour of their own, as the flare quads do not.
 extern "C" void glNewList(GLuint list, GLenum mode) { if (mode == GL_COMPILE) gCompiling = list; real_glNewList(list, mode); }
 extern "C" void glEndList(void) { gCompiling = 0; real_glEndList(); }
 extern "C" void glCallList(GLuint list)
@@ -162,10 +191,14 @@ extern "C" void glCallList(GLuint list)
         Batch b; b.kind = DrawKind::Immediate; b.st = snap();
         GLint cur; glGetIntegerv(GL_TEXTURE_BINDING_2D, &cur);
         b.tex = it->second.hasTex ? it->second.tex : (GLuint)cur;
-        std::vector<Vtx> s = it->second.strip;
-        for (auto &v : s) v.c = b.st.color;
-        stripToTris(s, b.tri);
-        gBatches.push_back(std::move(b));
+        if (!fixedFunctionSupported(b.tex)) gUnsupported++;
+        else {
+            for (std::vector<Vtx> s : it->second.strips) {
+                for (auto &v : s) v.c = b.st.color;
+                stripToTris(s, b.tri);
+            }
+            gBatches.push_back(std::move(b));
+        }
     } else if (gRecording) gUnsupported++;
     real_glCallList(list);
 }
@@ -181,7 +214,7 @@ extern "C" void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GL
     if (gRecording) {
         GLhandleARB prog = glGetHandleARB(GL_PROGRAM_OBJECT_ARB);
         GLint ab, eb; glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &ab); glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &eb);
-        if (prog != gooProgram || !prog || mode != GL_TRIANGLES || type != GL_UNSIGNED_INT || !ab || !eb) gUnsupported++;
+        if (prog != gooProgram || !prog || mode != GL_TRIANGLES || type != GL_UNSIGNED_INT || !ab || !eb || !blendSupported()) gUnsupported++;
         else if (count > 0) {
             Batch b; b.kind = DrawKind::Goo; b.st = snap();
             GLint asz; glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &asz);
@@ -271,11 +304,17 @@ int main(int argc, const char *argv[])
         NSString *metalDir = @(argv[2]), *outdir = @(argv[3]);
         NSString *shaderPath = [metalDir stringByAppendingPathComponent:@(pass->file)];
         int frames = pass->frames, every = pass->every, w = 1280, h = 720;
+        auto intOpt = [](const char *arg, const char *key, int &out) {
+            size_t n = strlen(key);
+            if (strncmp(arg, key, n)) return false;
+            char *end; long v = strtol(arg + n, &end, 10);
+            if (end == arg + n || *end || v < 1 || v > 1000000) { fprintf(stderr, "bad value in %s\n", arg); exit(2); }
+            out = (int)v; return true;
+        };
         for (int i = 4; i < argc; i++) {
-            char path[1024];
-            if (sscanf(argv[i], "shader=%1023s", path) == 1) shaderPath = @(path);
-            else if (sscanf(argv[i], "frames=%d", &frames) == 1 || sscanf(argv[i], "every=%d", &every) == 1 ||
-                     sscanf(argv[i], "w=%d", &w) == 1 || sscanf(argv[i], "h=%d", &h) == 1) {}
+            if (!strncmp(argv[i], "shader=", 7) && argv[i][7]) shaderPath = @(argv[i] + 7);
+            else if (intOpt(argv[i], "frames=", frames) || intOpt(argv[i], "every=", every) ||
+                     intOpt(argv[i], "w=", w) || intOpt(argv[i], "h=", h)) {}
             else { fprintf(stderr, "bad option %s\n", argv[i]); return 2; }
         }
         [[NSFileManager defaultManager] createDirectoryAtPath:outdir withIntermediateDirectories:YES attributes:nil error:nil];
