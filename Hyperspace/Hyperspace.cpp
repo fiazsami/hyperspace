@@ -579,8 +579,9 @@ void initSaver(HyperspaceSaverSettings *inSettings){
 		initShaders();
 		inSettings->numAnimTexFrames = 20;
 		HSMipChain faces[6];  // the same nebula on every face
-		for(int f=0; f<6; f++)
-			hsBuildMipmaps(&nebulamap[0][0][0], NEBULAMAPSIZE, 3, faces[f]);
+		hsBuildMipmaps(&nebulamap[0][0][0], NEBULAMAPSIZE, 3, faces[0]);
+		for(int f=1; f<6; f++)
+			faces[f] = faces[0];
 		inSettings->nebulatex = inSettings->renderer->createCubeTexture(faces);
 	}
 	else{

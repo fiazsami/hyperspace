@@ -33,9 +33,11 @@ public:
 	void beginOverlay(float aspect);
 	void endOverlay();
 
+	HSRendererGL() : offscreenSize(0) {}
+
 private:
 	int savedViewport[4];
-	int offscreenSize;
+	int offscreenSize;   // 0 outside beginOffscreen / endOffscreen
 };
 
 #endif

@@ -64,17 +64,23 @@ void HSRendererGL::endOverlay(){
 	glPopMatrix();
 }
 
-// Uploads every level of chain to target, with byte-aligned rows: a 2x2 RGB
-// level is 6 bytes a row, which GL's default 4-byte alignment would misread.
+// Uploads every level of chain to target from tightly packed rows, as GLU
+// did: byte alignment (a 2x2 RGB level is 6 bytes a row, which GL's default
+// 4-byte alignment would misread) and no row length or skips, whatever the
+// caller left set. An empty chain uploads nothing.
 static void uploadChain(GLenum target, const HSMipChain &chain){
-	GLint alignment;
-	glGetIntegerv(GL_UNPACK_ALIGNMENT, &alignment);
+	static const GLenum formats[5] = {0, GL_LUMINANCE, GL_LUMINANCE_ALPHA, GL_RGB, GL_RGBA};
+	if(chain.levels.empty() || chain.channels < 1 || chain.channels > 4)
+		return;
+	glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-	GLenum format = chain.channels == 4 ? GL_RGBA : GL_RGB;
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+	glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+	glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
 	int size = chain.size;
 	for(size_t level = 0; level < chain.levels.size(); level++, size /= 2)
-		glTexImage2D(target, GLint(level), chain.channels, size, size, 0, format, GL_UNSIGNED_BYTE, &chain.levels[level][0]);
-	glPixelStorei(GL_UNPACK_ALIGNMENT, alignment);
+		glTexImage2D(target, GLint(level), chain.channels, size, size, 0, formats[chain.channels], GL_UNSIGNED_BYTE, &chain.levels[level][0]);
+	glPopClientAttrib();
 }
 
 unsigned int HSRendererGL::createMipmappedTexture(const HSMipChain &chain){
@@ -135,6 +141,8 @@ void HSRendererGL::drawColorStrip(const HSColorVertex *v, int count){
 }
 
 void HSRendererGL::endOffscreen(unsigned char *rgb){
+	if(offscreenSize == 0)
+		return;   // no beginOffscreen: nothing to read or restore
 	GLint alignment;
 	glGetIntegerv(GL_PACK_ALIGNMENT, &alignment);
 	glPixelStorei(GL_PACK_ALIGNMENT, 1);
@@ -145,4 +153,5 @@ void HSRendererGL::endOffscreen(unsigned char *rgb){
 	glMatrixMode(GL_MODELVIEW);
 	glPopMatrix();
 	glViewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3]);
+	offscreenSize = 0;
 }

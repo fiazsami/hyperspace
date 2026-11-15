@@ -41,6 +41,7 @@ struct HSMipChain{
 	int size;
 	int channels;
 	std::vector<std::vector<unsigned char> > levels;
+	HSMipChain() : size(0), channels(0) {}   // empty: a backend uploads nothing
 };
 
 class HSRenderer{
@@ -61,7 +62,8 @@ public:
 	// clears to black; strips drawn until endOffscreen are untextured,
 	// per-vertex colored, blended (SRC_ALPHA, ONE), with x and y running 0..1
 	// across the target. endOffscreen writes size * size * 3 bytes, bottom row
-	// first, and leaves the target as it was before beginOffscreen.
+	// first, and restores the viewport and the camera. Other pipeline state
+	// is the backend's to leave: callers set what they draw with next.
 	virtual void beginOffscreen(int size) = 0;
 	virtual void drawColorStrip(const HSColorVertex *v, int count) = 0;
 	virtual void endOffscreen(unsigned char *rgb) = 0;
@@ -92,7 +94,9 @@ void hsQuad(const float m[16], float half, HSVertex out[4]);
 // gluBuild2DMipmaps' chain, built on the CPU: each level halves the last,
 // every texel the rounded mean of the 2x2 block above it, (a+b+c+d+2)/4.
 // That matches Apple's GLU byte for byte on power-of-two images. False, and
-// out untouched, when size is not a power of two: GLU would rescale those.
+// out untouched, when size is not a power of two (GLU would rescale those;
+// nothing here does, so texture sizes must be powers of two) or channels is
+// not 1 to 4.
 bool hsBuildMipmaps(const unsigned char *pixels, int size, int channels, HSMipChain &out);
 
 #endif

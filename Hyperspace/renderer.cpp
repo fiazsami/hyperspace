@@ -24,7 +24,7 @@ void hsQuad(const float m[16], float half, HSVertex out[4]){
 }
 
 bool hsBuildMipmaps(const unsigned char *pixels, int size, int channels, HSMipChain &out){
-	if(size < 1 || (size & (size - 1)) != 0 || channels < 1)
+	if(size < 1 || (size & (size - 1)) != 0 || channels < 1 || channels > 4)
 		return false;
 	out.size = size;
 	out.channels = channels;

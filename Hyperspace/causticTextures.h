@@ -56,9 +56,11 @@ public:
 	GLubyte** bitmap;
 
 	// constructor takes the following parameters:
-	// num keyframes (only for fractal heightfield generation),
-	// number of frames, geometry resolution, texture resolution, water depth, wave amplitude,
-	// refraction multiplier (sort of like index of refraction)
+	// num keyframes (now only a floor: frames is raised to at least 2 * keys;
+	// the fractal heightfield it once drove was never used and is gone),
+	// number of frames, geometry resolution, texture resolution (a power of
+	// two -- the mip chain is built without rescaling), water depth, wave
+	// amplitude, refraction multiplier (sort of like index of refraction)
 	causticTextures(HSRenderer *renderer, int keys, int frames, int res, int size, float depth, float wa, float rm);
 	~causticTextures(){}
 

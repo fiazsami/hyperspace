@@ -73,6 +73,8 @@ TEST(textures_mip_chain_refuses_what_glu_would_rescale)
     CHECK(c.size == 77);                        /* untouched */
     CHECK(!hsBuildMipmaps(img, 0, 3, c));
     CHECK(!hsBuildMipmaps(img, 4, 0, c));
+    CHECK(!hsBuildMipmaps(img, 4, 5, c));      /* no 5-channel format to upload */
+    CHECK(c.size == 77);
     CHECK(hsBuildMipmaps(img, 1, 3, c));        /* 1 is a power of two */
     CHECK(c.levels.size() == 1);
 }
@@ -204,4 +206,17 @@ TEST(textures_caustics_clamp_focused_light_to_full_intensity)
         for (size_t v = 0; v < o.strips[s].size(); v++)
             if (o.strips[s][v].color[0] > brightest) brightest = o.strips[s][v].color[0];
     CHECK(brightest == 1.0f);
+}
+
+TEST(textures_mip_chain_starts_empty)
+{
+    /* A chain hsBuildMipmaps refused is empty and sized 0, not garbage, so a
+     * backend handed one uploads nothing rather than reading past it. */
+    HSMipChain c;
+    CHECK(c.size == 0);
+    CHECK(c.channels == 0);
+    CHECK(c.levels.empty());
+    unsigned char img[6 * 6 * 3] = {0};
+    CHECK(!hsBuildMipmaps(img, 6, 3, c));
+    CHECK(c.levels.empty());
 }
