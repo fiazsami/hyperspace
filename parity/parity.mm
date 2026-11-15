@@ -588,6 +588,73 @@ static MTLSamplerMipFilter mipf(GLint f)
 }
 static MTLSamplerAddressMode addr(GLint m) { return m == GL_REPEAT ? MTLSamplerAddressModeRepeat : MTLSamplerAddressModeClampToEdge; }
 
+static std::vector<uint8_t> readPNG(NSString *path, int &w, int &h)
+{
+    std::vector<uint8_t> px;
+    CGImageSourceRef src = CGImageSourceCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:path], NULL);
+    CGImageRef img = src ? CGImageSourceCreateImageAtIndex(src, 0, NULL) : NULL;
+    if (img) {
+        w = (int)CGImageGetWidth(img); h = (int)CGImageGetHeight(img);
+        px.resize((size_t)w * h * 4);
+        CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+        CGContextRef bc = CGBitmapContextCreate(px.data(), w, h, 8, (size_t)w * 4, cs, (CGBitmapInfo)kCGImageAlphaNoneSkipLast);
+        CGContextDrawImage(bc, CGRectMake(0, 0, w, h), img);
+        CGContextRelease(bc); CGColorSpaceRelease(cs); CGImageRelease(img);
+    }
+    if (src) CFRelease(src);
+    return px;
+}
+
+// parity --compare <ref-dir> <new-dir>: the GL images of two runs of the same pass,
+// shot by shot (parity/seamcheck.sh). Both sides are the GL renderer, so nothing
+// here is a translation residual: the rule is the tightest any pass uses, and a
+// shot missing from either side is an error.
+static int compareRuns(NSString *refDir, NSString *newDir)
+{
+    auto shots = [](NSString *dir) -> NSArray<NSString *> * {
+        NSArray<NSString *> *all = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:nil];
+        if (!all) { printf("ERROR cannot read %s\n", dir.UTF8String); return nil; }
+        NSArray<NSString *> *gl = [all filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"self ENDSWITH '_gl.png'"]];
+        if (!gl.count) { printf("ERROR no *_gl.png in %s\n", dir.UTF8String); return nil; }
+        return [gl sortedArrayUsingSelector:@selector(compare:)];
+    };
+    NSArray<NSString *> *names = shots(refDir), *newNames = shots(newDir);
+    if (!names || !newNames) return 2;
+    if (![names isEqualToArray:newNames]) {
+        NSMutableSet *onlyRef = [NSMutableSet setWithArray:names], *onlyNew = [NSMutableSet setWithArray:newNames];
+        [onlyRef minusSet:[NSSet setWithArray:newNames]]; [onlyNew minusSet:[NSSet setWithArray:names]];
+        printf("ERROR the two runs shot different frames: only in ref %s; only in new %s\n",
+               [[onlyRef.allObjects componentsJoinedByString:@" "] UTF8String], [[onlyNew.allObjects componentsJoinedByString:@" "] UTF8String]);
+        return 2;
+    }
+    const double max2 = 0.1, max8 = 0.01, maxBias = 0.06;
+    bool ok = true; double worst2 = 0, worst8 = 0, worstBias = 0; int worstMax = 0;
+    for (NSString *n in names) {
+        int rw = 0, rh = 0, nw = 0, nh = 0;
+        std::vector<uint8_t> a = readPNG([refDir stringByAppendingPathComponent:n], rw, rh);
+        std::vector<uint8_t> b = readPNG([newDir stringByAppendingPathComponent:n], nw, nh);
+        if (a.empty() || b.empty() || rw != nw || rh != nh) { printf("ERROR %s missing or a different size\n", n.UTF8String); return 2; }
+        size_t lit = 0, l2 = 0, l8 = 0; int maxd = 0; double sb[3] = {0, 0, 0};
+        for (size_t i = 0; i < (size_t)rw * rh; i++) {
+            int pm = 0; bool isLit = false;
+            for (int c = 0; c < 3; c++) {
+                int d = abs((int)a[i * 4 + c] - (int)b[i * 4 + c]); pm = MAX(pm, d);
+                isLit |= a[i * 4 + c] > 8 || b[i * 4 + c] > 8;
+            }
+            maxd = MAX(maxd, pm);
+            if (isLit) { lit++; l2 += pm > 2; l8 += pm > 8; for (int c = 0; c < 3; c++) sb[c] += (int)b[i * 4 + c] - (int)a[i * 4 + c]; }
+        }
+        double bias = 0; for (int c = 0; c < 3; c++) bias = MAX(bias, fabs(sb[c] / MAX((size_t)1, lit)));
+        double p2 = lit ? 100.0 * l2 / lit : 0, p8 = lit ? 100.0 * l8 / lit : 0;
+        bool shotOk = p2 <= max2 && p8 <= max8 && bias <= maxBias;
+        ok &= shotOk; worst2 = MAX(worst2, p2); worst8 = MAX(worst8, p8); worstBias = MAX(worstBias, bias); worstMax = MAX(worstMax, maxd);
+        printf("%s  max %3d  lit>2 %6.3f%%  lit>8 %6.3f%%  bias %5.3f  %s\n", n.UTF8String, maxd, p2, p8, bias, shotOk ? "ok" : "FAIL");
+    }
+    printf("%s shots=%lu worst_max=%d worst_lit>2=%.3f%% worst_lit>8=%.3f%% worst_bias=%.3f (limits %.2f%% / %.2f%% / %.3f)\n",
+           ok ? "SAME" : "DIFFERENT", (unsigned long)names.count, worstMax, worst2, worst8, worstBias, max2, max8, maxBias);
+    return ok ? 0 : 1;
+}
+
 static NSString *readFile(NSString *path)
 {
     NSString *s = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
@@ -598,6 +665,7 @@ static NSString *readFile(NSString *path)
 int main(int argc, const char *argv[])
 {
     @autoreleasepool {
+        if (argc == 4 && !strcmp(argv[1], "--compare")) return compareRuns(@(argv[2]), @(argv[3]));
         if (argc == 2 && !strcmp(argv[1], "--inject-cases")) { for (const char *k : kInjectCases) printf("%s\n", k); return 0; }
         if (argc < 4) {
             fprintf(stderr, "usage: parity <stars|goo|tunnel> <metal-dir> <outdir> [shader=PATH] [inject=CASE] [frames=N] [every=N] [w=N] [h=N]\n");

@@ -55,6 +55,7 @@
 		E0AA3CA811E122EE00F84B8B /* impTorus.h in Headers */ = {isa = PBXBuildFile; fileRef = E0AA3C9111E122EE00F84B8B /* impTorus.h */; };
 		E0CDA06209A8E5C00004FDE6 /* starBurst.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0CDA05809A8E5C00004FDE6 /* starBurst.cpp */; };
 		E0CDA06309A8E5C00004FDE6 /* stretchedParticle.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0CDA05909A8E5C00004FDE6 /* stretchedParticle.cpp */; };
+		A4A40001A4A4000100000003 /* transform.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000001 /* transform.cpp */; };
 		E0CDA06409A8E5C00004FDE6 /* wavyNormalCubeMaps.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0CDA05A09A8E5C00004FDE6 /* wavyNormalCubeMaps.cpp */; };
 		E0CDA06509A8E5C00004FDE6 /* splinePath.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0CDA05B09A8E5C00004FDE6 /* splinePath.cpp */; };
 		E0CDA06709A8E5C00004FDE6 /* flare.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0CDA05D09A8E5C00004FDE6 /* flare.cpp */; };
@@ -70,6 +71,7 @@
 		E0CDA07909A8E6510004FDE6 /* splinePath.h in Headers */ = {isa = PBXBuildFile; fileRef = E0CDA07809A8E6510004FDE6 /* splinePath.h */; };
 		E0CDA07B09A8E6580004FDE6 /* starBurst.h in Headers */ = {isa = PBXBuildFile; fileRef = E0CDA07A09A8E6580004FDE6 /* starBurst.h */; };
 		E0CDA07D09A8E65E0004FDE6 /* stretchedParticle.h in Headers */ = {isa = PBXBuildFile; fileRef = E0CDA07C09A8E65E0004FDE6 /* stretchedParticle.h */; };
+		A4A40001A4A4000100000004 /* transform.h in Headers */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000002 /* transform.h */; };
 		E0CDA07F09A8E6680004FDE6 /* tunnel.h in Headers */ = {isa = PBXBuildFile; fileRef = E0CDA07E09A8E6680004FDE6 /* tunnel.h */; };
 		E0CDA08109A8E66E0004FDE6 /* wavyNormalCubeMaps.h in Headers */ = {isa = PBXBuildFile; fileRef = E0CDA08009A8E66E0004FDE6 /* wavyNormalCubeMaps.h */; };
 		E0CDA09509A8E8270004FDE6 /* Hyperspace.h in Headers */ = {isa = PBXBuildFile; fileRef = E0CDA09409A8E8270004FDE6 /* Hyperspace.h */; };
@@ -138,6 +140,7 @@
 		E0AA3C9111E122EE00F84B8B /* impTorus.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; path = impTorus.h; sourceTree = "<group>"; };
 		E0CDA05809A8E5C00004FDE6 /* starBurst.cpp */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.cpp.cpp; path = starBurst.cpp; sourceTree = "<group>"; };
 		E0CDA05909A8E5C00004FDE6 /* stretchedParticle.cpp */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.cpp.cpp; path = stretchedParticle.cpp; sourceTree = "<group>"; };
+		A4A40001A4A4000100000001 /* transform.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = transform.cpp; sourceTree = "<group>"; };
 		E0CDA05A09A8E5C00004FDE6 /* wavyNormalCubeMaps.cpp */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.cpp.cpp; path = wavyNormalCubeMaps.cpp; sourceTree = "<group>"; };
 		E0CDA05B09A8E5C00004FDE6 /* splinePath.cpp */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.cpp.cpp; path = splinePath.cpp; sourceTree = "<group>"; };
 		E0CDA05D09A8E5C00004FDE6 /* flare.cpp */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.cpp.cpp; path = flare.cpp; sourceTree = "<group>"; };
@@ -153,6 +156,7 @@
 		E0CDA07809A8E6510004FDE6 /* splinePath.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; path = splinePath.h; sourceTree = "<group>"; };
 		E0CDA07A09A8E6580004FDE6 /* starBurst.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; path = starBurst.h; sourceTree = "<group>"; };
 		E0CDA07C09A8E65E0004FDE6 /* stretchedParticle.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; path = stretchedParticle.h; sourceTree = "<group>"; };
+		A4A40001A4A4000100000002 /* transform.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = transform.h; sourceTree = "<group>"; };
 		E0CDA07E09A8E6680004FDE6 /* tunnel.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; path = tunnel.h; sourceTree = "<group>"; };
 		E0CDA08009A8E66E0004FDE6 /* wavyNormalCubeMaps.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; path = wavyNormalCubeMaps.h; sourceTree = "<group>"; };
 		E0CDA09409A8E8270004FDE6 /* Hyperspace.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Hyperspace.h; sourceTree = "<group>"; };
@@ -293,6 +297,8 @@
 				E0CDA05809A8E5C00004FDE6 /* starBurst.cpp */,
 				E0CDA07C09A8E65E0004FDE6 /* stretchedParticle.h */,
 				E0CDA05909A8E5C00004FDE6 /* stretchedParticle.cpp */,
+				A4A40001A4A4000100000002 /* transform.h */,
+				A4A40001A4A4000100000001 /* transform.cpp */,
 				E0CDA07E09A8E6680004FDE6 /* tunnel.h */,
 				E0CDA06109A8E5C00004FDE6 /* tunnel.cpp */,
 				E0CDA08009A8E66E0004FDE6 /* wavyNormalCubeMaps.h */,
@@ -384,6 +390,7 @@
 				E0CDA07909A8E6510004FDE6 /* splinePath.h in Headers */,
 				E0CDA07B09A8E6580004FDE6 /* starBurst.h in Headers */,
 				E0CDA07D09A8E65E0004FDE6 /* stretchedParticle.h in Headers */,
+				A4A40001A4A4000100000004 /* transform.h in Headers */,
 				E0CDA07F09A8E6680004FDE6 /* tunnel.h in Headers */,
 				E0CDA08109A8E66E0004FDE6 /* wavyNormalCubeMaps.h in Headers */,
 				E0CDA09509A8E8270004FDE6 /* Hyperspace.h in Headers */,
@@ -496,6 +503,7 @@
 				8D255ACC0486D3F9007BF209 /* HyperspaceView.mm in Sources */,
 				E0CDA06209A8E5C00004FDE6 /* starBurst.cpp in Sources */,
 				E0CDA06309A8E5C00004FDE6 /* stretchedParticle.cpp in Sources */,
+				A4A40001A4A4000100000003 /* transform.cpp in Sources */,
 				E0CDA06409A8E5C00004FDE6 /* wavyNormalCubeMaps.cpp in Sources */,
 				E0CDA06509A8E5C00004FDE6 /* splinePath.cpp in Sources */,
 				E0CDA06709A8E5C00004FDE6 /* flare.cpp in Sources */,

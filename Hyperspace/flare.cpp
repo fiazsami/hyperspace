@@ -20,6 +20,7 @@
 
 
 #include <Hyperspace/flare.h>
+#include <Hyperspace/transform.h>
 
 
 
@@ -179,16 +180,15 @@ void initFlares(HyperspaceSaverSettings *inSettings){
 // Screen corners are at (0,0) and (1,1)
 // alpha = 0.0 for lowest intensity; alpha = 1.0 for highest intensity
 void flare(float *pos, float red, float green, float blue, float alpha, HyperspaceSaverSettings *inSettings){
-	double winx, winy, winz;  // in screen coordinates
+	double win[3];  // in screen coordinates
 	float x, y, dx, dy;
 	float fadewidth, temp;
 	static float flicker = 0.95f;
 
-	gluProject(pos[0], pos[1], pos[2],
-		inSettings->modelMat, inSettings->projMat, inSettings->viewport,
-		&winx, &winy, &winz);
-	x = (float(winx) / float(inSettings->xsize)) * inSettings->aspectRatio;
-	y = float(winy) / float(inSettings->ysize);
+	if(!hsProject(pos[0], pos[1], pos[2], inSettings->modelMat, inSettings->projMat, inSettings->viewport, win))
+		return;   // in the eye plane: no screen position to draw at
+	x = (float(win[0]) / float(inSettings->xsize)) * inSettings->aspectRatio;
+	y = float(win[1]) / float(inSettings->ysize);
 	float diff[3] = {pos[0] - inSettings->camPos[0], pos[1] - inSettings->camPos[1], pos[2] - inSettings->camPos[2]};
 	if(diff[0] * inSettings->billboardMat[8] + diff[1] * inSettings->billboardMat[9] + diff[2] * inSettings->billboardMat[10] > 0.0f)
 		return;

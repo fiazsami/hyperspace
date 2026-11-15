@@ -53,6 +53,7 @@
 #include <Hyperspace/starBurst.h>
 #include <Hyperspace/nebulamap.h>
 #include <Hyperspace/shaders.h>
+#include <Hyperspace/transform.h>
 #include "Hyperspace.h"
 
 //#include <fstream>
@@ -81,12 +82,6 @@ int dUseTunnels;
 int dUseGoo;
 int dShaders;
 
-
-float unroll;
-float billboardMat[16];
-double modelMat[16];
-double projMat[16];
-int viewport[4];
 
 float camPos[3] = {0.0f, 0.0f, 0.0f};
 float depth;
@@ -193,15 +188,15 @@ void draw(HyperspaceSaverSettings *inSettings){
 	inSettings->thePath->getBaseDirection(inSettings->dDepth + 2, inSettings->thePath->step, pathDir);
 	float pathAngle = atan2f(-pathDir[0], -pathDir[2]);
 
-	glLoadIdentity();
-	glRotatef((pathAngle + camHeading[0]) * RS_RAD2DEG, 0, 1, 0);
-	glRotatef(camRoll[0] * RS_RAD2DEG, 0, 0, 1);
-	glGetFloatv(GL_MODELVIEW_MATRIX, inSettings->billboardMat);
-	glLoadIdentity();
-	glRotatef(-camRoll[0] * RS_RAD2DEG, 0, 0, 1);
-	glRotatef((-pathAngle - camHeading[0]) * RS_RAD2DEG, 0, 1, 0);
-	glTranslatef(inSettings->camPos[0]*-1, inSettings->camPos[1]*-1, inSettings->camPos[2]*-1);
-	glGetDoublev(GL_MODELVIEW_MATRIX, inSettings->modelMat);
+	float view[16];
+	hsIdentity(view);
+	hsRotate(view, -camRoll[0] * RS_RAD2DEG, 0, 0, 1);
+	hsRotate(view, (-pathAngle - camHeading[0]) * RS_RAD2DEG, 0, 1, 0);
+	hsRotationInverse(inSettings->billboardMat, view);   // faces the camera: undoes the view's rotation
+	hsTranslate(view, inSettings->camPos[0]*-1, inSettings->camPos[1]*-1, inSettings->camPos[2]*-1);
+	for(int i=0; i<16; i++)
+		inSettings->modelMat[i] = view[i];
+	glLoadMatrixf(view);
 	inSettings->unroll = camRoll[0] * RS_RAD2DEG;
 
 	if(inSettings->dUseGoo){
@@ -476,10 +471,12 @@ void reshape(int width, int height, HyperspaceSaverSettings *inSettings){
 	inSettings->viewport[3] = height;
 
 	// setup projection matrix
+	float proj[16];
+	hsPerspective(proj, float(inSettings->dFov), inSettings->aspectRatio, 0.001f, 200.0f);
+	for(int i=0; i<16; i++)
+		inSettings->projMat[i] = proj[i];
 	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();
-	gluPerspective(float(inSettings->dFov), inSettings->aspectRatio, 0.001f, 200.0f);
-	glGetDoublev(GL_PROJECTION_MATRIX, inSettings->projMat);
+	glLoadMatrixf(proj);
 	glMatrixMode(GL_MODELVIEW);
 }
 

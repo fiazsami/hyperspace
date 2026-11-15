@@ -139,6 +139,28 @@ pass. Each case is the shape one check exists for, and removing that check lets
 the case through. Where a check spans several entry points (the texture-change
 interposers, the color setters), the case exercises one of them.
 
+## Seam check
+
+`parity/seamcheck.sh <ref>` answers a different question from the passes: **did a
+change to how Hyperspace draws leave the picture alone?** It builds `parity` at
+`<ref>` in a worktree under `.parity-build/seam/`, runs the passes on that tree
+and on the working tree, and compares the two runs' GL images with
+`parity --compare`. Both sides are the GL renderer, so the comparison has no
+translation residual and its rule is tighter than any pass's: per shot, at most
+0.1% of lit pixels off by more than 2 levels, 0.01% by more than 8, and a signed
+bias of 0.06.
+
+```bash
+parity/seamcheck.sh master            # all three passes, ~3 min
+parity/seamcheck.sh master stars      # one pass
+```
+
+`master` against itself compares at exactly 0. Moving the camera maths off the GL
+matrix stack (`Hyperspace/transform`) measured 0.000% / 0.005% / 0.015% worst
+lit>2 for stars / goo / tunnel: float rounding on a few edge pixels. A camera
+roll sign flip, a field of view 0.5 degrees off, a billboard heading 0.3 rad off
+and a stuck star stretch each come out DIFFERENT at about 100%.
+
 ## Limits
 
 - **One machine.** Calibrated on an Apple M5 Max under macOS 26. Another GPU or

@@ -23,10 +23,10 @@
 	#include <windows.h>
 #endif
 #include <Hyperspace/stretchedParticle.h>
+#include <Hyperspace/transform.h>
 #include <stdio.h>
 #include <math.h>
 #include <OpenGL/gl.h>
-#include <OpenGL/glu.h>
 
 
 
@@ -42,6 +42,9 @@ stretchedParticle::stretchedParticle(){
 	pos[0] = pos[1] = pos[2] = 0.0f;
 	lastPos[0] = lastPos[1] = lastPos[2] = 0.0f;
 	drawPos[0] = drawPos[1] = drawPos[2] = 0.0f;
+	// A star whose first projection fails has no last frame to keep.
+	screenPos[0] = screenPos[1] = 0.0;
+	lastScreenPos[0] = lastScreenPos[1] = 0.0;
 	
 	radius = 0.03f;
 	color[0] = color[1] = color[2] = 1.0f;
@@ -49,13 +52,11 @@ stretchedParticle::stretchedParticle(){
 
 
 void stretchedParticle::draw(float* eyepoint, float unroll, double *modelMat, double *projMat, GLint *viewport){
-	static double winx, winy, winz;
-	gluProject(pos[0], pos[1], pos[2],
-		modelMat, projMat, viewport,
-		&winx, &winy, &winz);
-	if(winz > 0.0f){
-		screenPos[0] = winx;
-		screenPos[1] = winy;
+	double win[3];
+	// Where the projection fails (w = 0) the star keeps last frame's position.
+	if(hsProject(pos[0], pos[1], pos[2], modelMat, projMat, viewport, win) && win[2] > 0.0f){
+		screenPos[0] = win[0];
+		screenPos[1] = win[1];
 	}
 
 	drawPos[0] = (pos[0] + lastPos[0]) * 0.5f;
