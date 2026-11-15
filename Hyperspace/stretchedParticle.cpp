@@ -23,6 +23,7 @@
 	#include <windows.h>
 #endif
 #include <Hyperspace/stretchedParticle.h>
+#include <Hyperspace/transform.h>
 #include <stdio.h>
 #include <math.h>
 #include <OpenGL/gl.h>
@@ -49,13 +50,11 @@ stretchedParticle::stretchedParticle(){
 
 
 void stretchedParticle::draw(float* eyepoint, float unroll, double *modelMat, double *projMat, GLint *viewport){
-	static double winx, winy, winz;
-	gluProject(pos[0], pos[1], pos[2],
-		modelMat, projMat, viewport,
-		&winx, &winy, &winz);
-	if(winz > 0.0f){
-		screenPos[0] = winx;
-		screenPos[1] = winy;
+	static double win[3];
+	hsProject(pos[0], pos[1], pos[2], modelMat, projMat, viewport, win);
+	if(win[2] > 0.0f){
+		screenPos[0] = win[0];
+		screenPos[1] = win[1];
 	}
 
 	drawPos[0] = (pos[0] + lastPos[0]) * 0.5f;
