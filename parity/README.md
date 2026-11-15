@@ -28,7 +28,8 @@ pass fails.
 
 Stars draw in every pass, through `FixedFunction.metal`. The tunnel needs two
 minutes because one rarely puts the camera inside a tunnel; most shots of the
-first minute are under 1% lit.
+first minute are under 1% lit. Every pass runs with shaders on; nothing here
+judges the fixed-function goo and tunnel a user gets with shaders off.
 
 ## The rule
 
@@ -175,6 +176,15 @@ the caustics rendered offscreen and read back -- compared at exactly 0 against
 the star and flare seam. Mip rounding one level off, the caustics' red
 refraction scaled by 1.1 and two cube-map faces swapped come out DIFFERENT at
 6.4% (goo), 17.9% (tunnel) and 6.8% (goo).
+
+Moving the goo and the tunnel onto `HSRenderer` -- their texture binding,
+program and pipeline state now set by the backend, their geometry handed over
+per surface and per strip -- compared at exactly 0 against the texture seam.
+The passes run with shaders on, so the fixed-function looks a user gets with
+shaders off were compared once by hand, with both trees' `parity` set to
+`dShaders = 0`: exactly 0 again, on shots up to 96% (goo) and 84% (tunnel)
+lit. Goo surfaces raised by 0.02 and tunnel strips wound the wrong way come out
+DIFFERENT at 93.6% and 99.99%.
 
 ## Limits
 

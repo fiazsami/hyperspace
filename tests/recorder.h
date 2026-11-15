@@ -17,6 +17,11 @@ struct Strip {
     bool overlay;
 };
 
+struct GooDraw {
+    impSurface *surface;
+    float offset[3];
+};
+
 struct Offscreen {
     int size;
     std::vector<std::vector<HSColorVertex> > strips;
@@ -34,6 +39,8 @@ public:
     bool inOffscreen = false;
     float aspect = 0.0f;
     unsigned int nextName = 100;
+    std::vector<GooDraw> goo;
+    std::vector<std::vector<HSTunnelVertex> > tunnel;
 
     unsigned int createTexture(int width, int height, const unsigned char *) override
     {
@@ -83,6 +90,23 @@ public:
     }
     void beginOverlay(float a) override { inOverlay = true; aspect = a; overlays++; }
     void endOverlay() override { inOverlay = false; }
+    /* The goo and the tunnel leave their begin and end calls to Hyperspace's
+     * draw(), so only what they draw in between is recorded. */
+    void beginGoo(const float *, unsigned int, unsigned int, unsigned int, bool) override {}
+    void drawGooSurface(impSurface *surface, const float offset[3]) override
+    {
+        GooDraw d;
+        d.surface = surface;
+        memcpy(d.offset, offset, sizeof d.offset);
+        goo.push_back(d);
+    }
+    void endGoo() override {}
+    void beginTunnel(unsigned int, unsigned int, float, bool) override {}
+    void drawTunnelStrip(const HSTunnelVertex *v, int count) override
+    {
+        tunnel.push_back(std::vector<HSTunnelVertex>(v, v + count));
+    }
+    void endTunnel() override {}
 };
 
 #endif

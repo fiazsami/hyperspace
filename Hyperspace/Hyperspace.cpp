@@ -283,42 +283,18 @@ void draw(HyperspaceSaverSettings *inSettings){
 			if(goo_rgb[i] < 0.0f)
 				goo_rgb[i] = 0.0f;
 		}
-		// setup textures
+		// alpha mixes the two normal maps; without shaders there are none
+		unsigned int normals0 = 0, normals1 = 0;
 		if(inSettings->dShaders){
 			goo_rgb[3] = lerp;
-			glDisable(GL_TEXTURE_2D);
-			glEnable(GL_TEXTURE_CUBE_MAP_ARB);
-			glActiveTextureARB(GL_TEXTURE2_ARB);
-			glBindTexture(GL_TEXTURE_CUBE_MAP_ARB, inSettings->nebulatex);
-			glActiveTextureARB(GL_TEXTURE1_ARB);
-			glBindTexture(GL_TEXTURE_CUBE_MAP_ARB, inSettings->theWNCM->texture[(inSettings->whichTexture + 1) % inSettings->numAnimTexFrames]);
-			glActiveTextureARB(GL_TEXTURE0_ARB);
-			glBindTexture(GL_TEXTURE_CUBE_MAP_ARB, inSettings->theWNCM->texture[inSettings->whichTexture]);
-			glUseProgramObjectARB(gooProgram);
+			normals0 = inSettings->theWNCM->texture[inSettings->whichTexture];
+			normals1 = inSettings->theWNCM->texture[(inSettings->whichTexture + 1) % inSettings->numAnimTexFrames];
 		}
-		else{
+		else
 			goo_rgb[3] = 1.0f;
-			glBindTexture(GL_TEXTURE_2D, inSettings->nebulatex);
-			glEnable(GL_TEXTURE_2D);
-			glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
-			glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
-			glEnable(GL_TEXTURE_GEN_S);
-			glEnable(GL_TEXTURE_GEN_T);
-		}
-		// draw it
-		glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-		glEnable(GL_BLEND);
-		glColor4fv(goo_rgb);
-		inSettings->theGoo->draw();
-		if(inSettings->dShaders){
-			glDisable(GL_TEXTURE_CUBE_MAP_ARB);
-			glUseProgramObjectARB(0);
-		}
-		else{
-			glDisable(GL_TEXTURE_GEN_S);
-			glDisable(GL_TEXTURE_GEN_T);
-		}
+		inSettings->renderer->beginGoo(goo_rgb, inSettings->nebulatex, normals0, normals1, inSettings->dShaders);
+		inSettings->theGoo->draw(inSettings->renderer);
+		inSettings->renderer->endGoo();
 	}
 
 	// update starburst
@@ -339,23 +315,12 @@ void draw(HyperspaceSaverSettings *inSettings){
 	// draw tunnel
 	if(inSettings->dUseTunnels){
 		inSettings->theTunnel->make(inSettings->frameTime, inSettings->dShaders);
-		glCullFace(GL_BACK);
-		glEnable(GL_CULL_FACE);
-		glEnable(GL_TEXTURE_2D);
-		if(inSettings->dShaders){
-			glActiveTextureARB(GL_TEXTURE1_ARB);
-			glBindTexture(GL_TEXTURE_2D, inSettings->theCausticTextures->caustictex[(inSettings->whichTexture + 1) % inSettings->numAnimTexFrames]);
-			glActiveTextureARB(GL_TEXTURE0_ARB);
-			glBindTexture(GL_TEXTURE_2D, inSettings->theCausticTextures->caustictex[inSettings->whichTexture]);
-			glUseProgramObjectARB(tunnelProgram);
-			inSettings->theTunnel->draw(lerp);
-			glUseProgramObjectARB(0);
-		}
-		else{
-			glBindTexture(GL_TEXTURE_2D, inSettings->theCausticTextures->caustictex[inSettings->whichTexture]);
-			inSettings->theTunnel->draw();
-		}
-		glDisable(GL_CULL_FACE);
+		inSettings->renderer->beginTunnel(
+			inSettings->theCausticTextures->caustictex[inSettings->whichTexture],
+			inSettings->theCausticTextures->caustictex[(inSettings->whichTexture + 1) % inSettings->numAnimTexFrames],
+			lerp, inSettings->dShaders);
+		inSettings->theTunnel->draw(inSettings->renderer);
+		inSettings->renderer->endTunnel();
 	}
 
 	// draw sun with lens flare

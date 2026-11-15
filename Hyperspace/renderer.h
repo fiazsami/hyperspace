@@ -16,9 +16,9 @@
 // without a context and drawn by another backend later. HSRendererGL is the
 // only implementation; it draws exactly what the code it replaced drew.
 //
-// This covers the stars, the lens flare and every texture, including the
-// caustics, which are rendered offscreen and read back. The goo, the tunnel
-// and the starburst sphere still draw through GL directly.
+// This covers the stars, the lens flare, the goo, the tunnel and every texture,
+// including the caustics, which are rendered offscreen and read back. The
+// starburst sphere still draws through GL directly.
 
 #ifndef HYPERSPACE_RENDERER_H
 #define HYPERSPACE_RENDERER_H
@@ -34,6 +34,14 @@ struct HSColorVertex{
 	float pos[3];
 	float color[3];
 };
+
+struct HSTunnelVertex{
+	float pos[3];
+	float uv[2];
+	float color[3];
+};
+
+class impSurface;
 
 // A square, power-of-two image and every mip level down to 1x1, tightly
 // packed bytes, channels per pixel. levels[0] is the image itself.
@@ -84,6 +92,28 @@ public:
 	// top, with no camera and no fog.
 	virtual void beginOverlay(float aspect) = 0;
 	virtual void endOverlay() = 0;
+
+	// Both the goo and the tunnel have two looks, chosen by shaded: the GLSL
+	// programs (metal/Goo.metal and metal/Tunnel.metal are their translations)
+	// or GL's fixed function, which is what a user who turns shaders off gets.
+	// Both are seen through the camera, fogged, and blended (SRC_ALPHA, ONE).
+	//
+	// The goo: each surface drawn between beginGoo and endGoo, its vertices
+	// moved by offset, colored by color. Shaded, it reflects the nebula cube
+	// map through normals perturbed by the two wavy normal cube maps, mixed by
+	// color[3]. Not shaded, nebula is a 2D texture sphere-mapped onto it.
+	// The surface is not const because a backend may cache it for the GPU.
+	virtual void beginGoo(const float color[4], unsigned int nebula,
+		unsigned int normals0, unsigned int normals1, bool shaded) = 0;
+	virtual void drawGooSurface(impSurface *surface, const float offset[3]) = 0;
+	virtual void endGoo() = 0;
+
+	// The tunnel: triangle strips with back faces culled, each vertex's color
+	// modulating the caustic texture. Shaded, textures caustic0 and caustic1
+	// are mixed by lerp; not shaded, caustic0 alone, and lerp is unused.
+	virtual void beginTunnel(unsigned int caustic0, unsigned int caustic1, float lerp, bool shaded) = 0;
+	virtual void drawTunnelStrip(const HSTunnelVertex *v, int count) = 0;
+	virtual void endTunnel() = 0;
 };
 
 // The unit-textured square of side 2 * half centred on the origin, through m,

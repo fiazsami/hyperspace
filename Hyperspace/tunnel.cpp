@@ -24,7 +24,9 @@
 #endif
 #include <Hyperspace/tunnel.h>
 #include <math.h>
-#include <OpenGL/gl.h>
+#include <Hyperspace/renderer.h>
+#include <string.h>
+#include <vector>
 #include <rsMath/rsMath.h>
 #include <Rgbhsl/Rgbhsl.h>
 
@@ -172,42 +174,21 @@ void tunnel::make(float frameTime, bool dShaders){
 }
 
 
-void tunnel::draw(){
-	int i, j, k;
-
-	for(k=0; k<numSections; k++){
-		for(i=0; i<resolution; i++){
-			glBegin(GL_TRIANGLE_STRIP);
-			for(j=0; j<=resolution; j++){
-				glColor3fv(c[k][i+1][j]);
-				glTexCoord2fv(t[k][i+1][j]);
-				glVertex3fv(v[k][i+1][j]);
-				glColor3fv(c[k][i][j]);
-				glTexCoord2fv(t[k][i][j]);
-				glVertex3fv(v[k][i][j]);
-			}
-			glEnd();
-		}
-	}
-}
-
-
-// specialty drawing function for when using shaders.
-// lerp goes into color alpha and determines blend between
-// texture frames.
-void tunnel::draw(float lerp){
+void tunnel::draw(HSRenderer *renderer){
+	std::vector<HSTunnelVertex> strip(2 * (resolution + 1));
 	for(int k=0; k<numSections; k++){
 		for(int i=0; i<resolution; i++){
-			glBegin(GL_TRIANGLE_STRIP);
 			for(int j=0; j<=resolution; j++){
-				glColor4f(c[k][i+1][j][0], c[k][i+1][j][1], c[k][i+1][j][2], lerp);
-				glTexCoord2fv(t[k][i+1][j]);
-				glVertex3fv(v[k][i+1][j]);
-				glColor4f(c[k][i][j][0], c[k][i][j][1], c[k][i][j][2], lerp);
-				glTexCoord2fv(t[k][i][j]);
-				glVertex3fv(v[k][i][j]);
+				for(int side=0; side<2; side++){
+					// the next ring first, as the strip's winding needs
+					const int ring = i + 1 - side;
+					HSTunnelVertex &tv = strip[2 * j + side];
+					memcpy(tv.pos, v[k][ring][j], sizeof tv.pos);
+					memcpy(tv.uv, t[k][ring][j], sizeof tv.uv);
+					memcpy(tv.color, c[k][ring][j], sizeof tv.color);
+				}
 			}
-			glEnd();
+			renderer->drawTunnelStrip(&strip[0], int(strip.size()));
 		}
 	}
 }

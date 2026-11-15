@@ -34,6 +34,7 @@
 #include <Implicit/impCrawlPoint.h>
 
 typedef struct HyperspaceSaverSettings;
+class HSRenderer;
 
 
 class goo{
@@ -62,7 +63,8 @@ public:
 	~goo();
 	void update(float x, float z, float heading, float fov, HyperspaceSaverSettings *inSettings);
 	static float function(float* position, void *contextInfo);
-	void draw();
+	// Each surface update() made, between the caller's beginGoo and endGoo.
+	void draw(HSRenderer *renderer);
 };
 
 

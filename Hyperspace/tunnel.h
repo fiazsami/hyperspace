@@ -26,6 +26,8 @@
 
 #include "splinePath.h"
 
+class HSRenderer;
+
 
 
 class tunnel{
@@ -53,8 +55,9 @@ public:
 	tunnel(splinePath* sp, int res);
 	~tunnel();
 	void make(float frameTime, bool dShaders);
-	void draw();
-	void draw(float lerp);
+	// One strip per ring of each section, between the caller's beginTunnel
+	// and endTunnel.
+	void draw(HSRenderer *renderer);
 };
 
 
