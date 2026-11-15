@@ -60,12 +60,15 @@ that set being complete:
 
 Display lists are recorded when compiled and refused if they set their own
 color, bind more than one texture, draw anything but triangle strips, or call
-another list. Compiling a name again replaces its list. Vertices issued before a
+another list, and a call made between `glBegin` and `glEnd` is refused. Compiling a name again replaces its list. Vertices issued before a
 list's first `glTexCoord` take the texcoord current at call time, as GL does.
 
-Texture copies are dropped after every shot. Hyperspace uploads through
-`gluBuild2DMipmaps`, which reaches GL without passing through the recorder, so a
-copy kept across shots could not tell that its texture had been replaced.
+Textures are copied after the frame has drawn, so an upload during a shot frame
+(`glTexImage2D`, `glTexSubImage2D`, `glCopyTex*Image2D`, or Hyperspace's own
+`gluBuild2DMipmaps` calls) fails the shot: the copy would hold the final image
+for draws GL made with the earlier one. Hyperspace uploads only at start-up. The
+copies are also dropped after every shot, so an upload between shots is picked
+up.
 
 Rates are over lit pixels, not the frame. Star frames are 0.3–4% lit, and a
 per-frame rate diluted every defect below 1%.
@@ -118,11 +121,12 @@ rule.
 
 The recorder's checks have fixtures too, as `inject=<case>`: parity draws one
 known fault at the end of every shot, through the same interposers the saver
-uses. The refused cases (`drawarrays`, `colorub`, `texcoordd`, `listcolorub`,
-`listquads`, `nestedlist`, `tunnelnotex`) draw with alpha 0 or off screen, so the
-recorder check is the only thing that can fail them. The `*_ok` cases
-(`strip_ok`, `recompile_ok`, `listcalluv_ok`) draw something the recorder must
-replay correctly, and they must pass.
+uses; `parity --inject-cases` lists them, and `killcheck.sh` runs every one. The
+refused cases draw with alpha 0 or off screen, and `killcheck.sh` counts one as
+killed only if the recorder refused it and the image stayed within limits, so a
+case cannot pass by failing for some other reason. The `*_ok` cases (`strip_ok`,
+`recompile_ok`, `listcalluv_ok`) draw something the recorder must replay
+correctly, and they must pass.
 
 ## Limits
 

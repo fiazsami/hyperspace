@@ -23,15 +23,21 @@ mkdir -p "$OUT"
 bad=0
 for pass in "${passes[@]}"; do
     if [ "$pass" = inject ]; then
-        for case in strip_ok recompile_ok listcalluv_ok drawarrays colorub texcoordd listcolorub listquads nestedlist tunnelnotex; do
+        cases=$(.parity-build/parity --inject-cases) || exit 2
+        for case in $cases; do
             name=inject_$case
             rm -rf "$OUT/$name"
             .parity-build/parity stars metal "$OUT/$name" inject="$case" frames=301 every=300 > "$OUT/$name.log" 2>&1; code=$?
             result=$(tail -1 "$OUT/$name.log")
-            want=1; [[ $case == *_ok ]] && want=0
-            if [ "$code" -eq "$want" ] && [ "$want" -eq 0 ]; then printf 'pass       %-26s %s\n' "$name" "${result#PASS }"
-            elif [ "$code" -eq "$want" ]; then printf 'killed     %-26s %s\n' "$name" "$(grep -m1 -oE '\((unrecorded|GL drew)[^)]*\)' "$OUT/$name.log")"
-            else printf 'WRONG      %-26s exit %s, wanted %s: %s\n' "$name" "$code" "$want" "$result"; bad=1; fi
+            # A refused case counts only if the recorder is what failed it; its
+            # draws are invisible, so the image rule failing it means something else broke.
+            reason=$(grep -m1 -oE '\((unrecorded|GL drew)[^)]*\)' "$OUT/$name.log")
+            if [[ $case == *_ok ]]; then
+                if [ "$code" -eq 0 ]; then printf 'pass       %-26s %s\n' "$name" "${result#PASS }"
+                else printf 'WRONG      %-26s exit %s, wanted a pass: %s\n' "$name" "$code" "$result"; bad=1; fi
+            elif [ "$code" -eq 1 ] && [ -n "$reason" ] && ! grep -q '(outside limits)' "$OUT/$name.log"; then
+                printf 'killed     %-26s %s\n' "$name" "$reason"
+            else printf 'WRONG      %-26s exit %s, wanted a recorder refusal: %s\n' "$name" "$code" "$result"; bad=1; fi
         done
         continue
     fi
