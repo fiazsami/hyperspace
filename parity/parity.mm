@@ -119,6 +119,8 @@ REAL(glTexSubImage2D, void, (GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLen
 REAL(glCopyTexImage2D, void, (GLenum, GLint, GLenum, GLint, GLint, GLsizei, GLsizei, GLint));
 REAL(glCopyTexSubImage2D, void, (GLenum, GLint, GLint, GLint, GLint, GLint, GLsizei, GLsizei));
 REAL(gluBuild2DMipmaps, GLint, (GLenum, GLint, GLsizei, GLsizei, GLenum, GLenum, const void *));
+REAL(glTexParameteri, void, (GLenum, GLenum, GLint)); REAL(glTexParameterf, void, (GLenum, GLenum, GLfloat));
+REAL(glDeleteTextures, void, (GLsizei, const GLuint *));
 
 static simd_float4 currentColor() { float c[4]; glGetFloatv(GL_CURRENT_COLOR, c); return simd_make_float4(c[0], c[1], c[2], c[3]); }
 static simd_float2 currentUV()   // unit 0's, which is the one glTexCoord2f sets
@@ -147,16 +149,17 @@ static bool blendSupported()
     GLint src, dst; glGetIntegerv(GL_BLEND_SRC, &src); glGetIntegerv(GL_BLEND_DST, &dst);
     return glIsEnabled(GL_BLEND) && src == GL_SRC_ALPHA && dst == GL_ONE;
 }
-static GLuint gCompiling = 0;
+static GLuint gCompiling = 0;   // the list being recorded, if GL_COMPILE
+static bool gListOpen = false;  // any list open, in either mode
 static bool gInBegin = false;
 // One level-0 parameter of a texture, read without disturbing the binding. face is
 // what to query: GL_TEXTURE_2D, or one face of a cube map.
 static GLint level0(GLenum target, GLenum face, GLuint tex, GLenum pname)
 {
     GLint saved, v = 0; glGetIntegerv(target == GL_TEXTURE_2D ? GL_TEXTURE_BINDING_2D : GL_TEXTURE_BINDING_CUBE_MAP, &saved);
-    real_glBindTexture(target, tex);
+    if ((GLuint)saved != tex) real_glBindTexture(target, tex);
     glGetTexLevelParameteriv(face, 0, pname, &v);
-    real_glBindTexture(target, saved);
+    if ((GLuint)saved != tex) real_glBindTexture(target, saved);
     return v;
 }
 // Texture name 0, or a name with no image, would be copied as a 0x0 Metal texture.
@@ -270,12 +273,13 @@ extern "C" void glNewList(GLuint list, GLenum mode)
     // Compiling a name again replaces the list. GL_COMPILE_AND_EXECUTE is not
     // recorded, so a later call of that name is refused.
     // GL refuses a list opened inside another and keeps compiling the outer one.
-    if (gCompiling) { real_glNewList(list, mode); return; }
+    if (gListOpen) { real_glNewList(list, mode); return; }
+    gListOpen = true;
     if (mode == GL_COMPILE) { gCompiling = list; gLists[list] = ListOp{}; }
     else gLists.erase(list);
     real_glNewList(list, mode);
 }
-extern "C" void glEndList(void) { gCompiling = 0; real_glEndList(); }
+extern "C" void glEndList(void) { gCompiling = 0; gListOpen = false; real_glEndList(); }
 extern "C" void glCallList(GLuint list)
 {
     if (gCompiling) gLists[gCompiling].unreplayable = true;
@@ -339,10 +343,17 @@ extern "C" void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GL
     }
     real_glDrawElements(mode, count, type, idx);
 }
-// Textures are copied after the frame, so one uploaded during a shot frame would
-// replay its final image for draws GL made with the earlier one. gluBuild2DMipmaps
-// is caught here, at Hyperspace's call, because its own uploads bypass the rest.
-static void noteUpload() { if (gRecording) gUnsupported++; }
+// Textures and their sampler settings are copied after the frame, so a change to
+// either during a shot frame would replay the final state for draws GL made with
+// the earlier one. gluBuild2DMipmaps is caught here, at Hyperspace's call, because
+// its own uploads bypass the rest. A change compiled into a list happens when the
+// list runs, so the list is refused instead. Not intercepted: glGenerateMipmap,
+// compressed, 1D and 3D uploads, gluBuild2DMipmapLevels -- Hyperspace uses none.
+static void noteUpload()
+{
+    if (gCompiling) gLists[gCompiling].unreplayable = true;
+    else if (gRecording) gUnsupported++;
+}
 extern "C" void glTexImage2D(GLenum t, GLint l, GLint ifmt, GLsizei w, GLsizei h, GLint b, GLenum f, GLenum ty, const GLvoid *px)
 { noteUpload(); real_glTexImage2D(t, l, ifmt, w, h, b, f, ty, px); }
 extern "C" void glTexSubImage2D(GLenum t, GLint l, GLint x, GLint y, GLsizei w, GLsizei h, GLenum f, GLenum ty, const GLvoid *px)
@@ -353,6 +364,9 @@ extern "C" void glCopyTexSubImage2D(GLenum t, GLint l, GLint xo, GLint yo, GLint
 { noteUpload(); real_glCopyTexSubImage2D(t, l, xo, yo, x, y, w, h); }
 extern "C" GLint gluBuild2DMipmaps(GLenum t, GLint ifmt, GLsizei w, GLsizei h, GLenum f, GLenum ty, const void *px)
 { noteUpload(); return real_gluBuild2DMipmaps(t, ifmt, w, h, f, ty, px); }
+extern "C" void glTexParameteri(GLenum t, GLenum p, GLint v) { noteUpload(); real_glTexParameteri(t, p, v); }
+extern "C" void glTexParameterf(GLenum t, GLenum p, GLfloat v) { noteUpload(); real_glTexParameterf(t, p, v); }
+extern "C" void glDeleteTextures(GLsizei n, const GLuint *t) { noteUpload(); real_glDeleteTextures(n, t); }
 
 // ---- injected faults ----
 //
@@ -363,25 +377,50 @@ extern "C" GLint gluBuild2DMipmaps(GLenum t, GLint ifmt, GLsizei w, GLsizei h, G
 // draw with alpha 0 or off screen, so only the recorder check -- not the image
 // comparison -- can be what fails them.
 static const char *const kInjectCases[] = {
-    "strip_ok", "recompile_ok", "listcalluv_ok",
+    "strip_ok", "recompile_ok", "listcalluv_ok", "newlistinlist_ok",
     "drawarrays", "colorub", "texcoordd", "listcolorub", "listquads", "nestedlist", "listinbegin",
-    "tunnelnotex", "texupload",
+    "tunnelnotex", "goopartialcube", "texupload", "listupload",
 };
-static GLuint gInjectTex = 0, gInjectList = 0;
-// Made before the first frame: an upload during a shot frame is itself refused.
-static void injectSetup()
+static GLuint gInjectTex = 0, gInjectCube = 0, gInjectList = 0, gInjectVBO[2] = {0, 0};
+// Made before the first frame, because an upload during a shot frame is itself
+// refused, and with every binding put back so the saver draws exactly as it would.
+static void injectSetup(const char *which)
 {
+    GLint saved2D, savedCube, savedAB, savedEB;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &saved2D); glGetIntegerv(GL_TEXTURE_BINDING_CUBE_MAP, &savedCube);
+    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &savedAB); glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &savedEB);
     uint8_t px[4 * 4 * 4];
     for (int i = 0; i < 16; i++) { px[i * 4] = (uint8_t)(i * 16); px[i * 4 + 1] = (uint8_t)(255 - i * 16); px[i * 4 + 2] = (uint8_t)((i * 97) & 255); px[i * 4 + 3] = 255; }
     glGenTextures(1, &gInjectTex); glBindTexture(GL_TEXTURE_2D, gInjectTex);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 4, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    // A cube map with only its +X face: the goo check must look at all six.
+    glGenTextures(1, &gInjectCube); glBindTexture(GL_TEXTURE_CUBE_MAP, gInjectCube);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 0, GL_RGBA8, 4, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    // One off-screen goo triangle, laid out as impSurface's VBOs are: normal, then position.
+    static const float verts[] = {0, 0, 1, 5, 5, 0,  0, 0, 1, 6, 5, 0,  0, 0, 1, 5, 6, 0};
+    static const uint32_t idx[] = {0, 1, 2};
+    glGenBuffers(2, gInjectVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, gInjectVBO[0]); glBufferData(GL_ARRAY_BUFFER, sizeof verts, verts, GL_STATIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gInjectVBO[1]); glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof idx, idx, GL_STATIC_DRAW);
     gInjectList = glGenLists(2);
+    // Compiled here, outside any shot frame, so the upload inside it is seen only
+    // when the list runs.
+    if (!strcmp(which, "listupload")) {
+        static const uint8_t zeros[4 * 4 * 4] = {0};
+        glNewList(gInjectList, GL_COMPILE);
+        glBindTexture(GL_TEXTURE_2D, gInjectTex); glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 4, 4, GL_RGBA, GL_UNSIGNED_BYTE, zeros);
+        glEndList();
+    }
+    glBindTexture(GL_TEXTURE_2D, saved2D); glBindTexture(GL_TEXTURE_CUBE_MAP, savedCube);
+    glBindBuffer(GL_ARRAY_BUFFER, savedAB); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, savedEB);
 }
 static void quad(float x0, float x1) { glVertex3f(x0, -0.5f, 0); glVertex3f(x1, -0.5f, 0); glVertex3f(x0, 0.5f, 0); glVertex3f(x1, 0.5f, 0); }
 static void injectFault(const char *which)
 {
     const GLuint tex = gInjectTex, list = gInjectList;
+    GLint savedAB, savedEB; glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &savedAB); glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &savedEB);
     GLhandleARB prog = glGetHandleARB(GL_PROGRAM_OBJECT_ARB);
     GLint active; glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
     glPushAttrib(GL_ALL_ATTRIB_BITS); glPushClientAttrib(GL_CLIENT_ALL_ATTRIB_BITS);
@@ -429,15 +468,36 @@ static void injectFault(const char *which)
         glNewList(list + 1, GL_COMPILE); glBegin(GL_TRIANGLE_STRIP); quad(-0.5f, 0.5f); glEnd(); glEndList();
         glNewList(list, GL_COMPILE); glCallList(list + 1); glEndList();
         glColor4f(1, 1, 1, 0); glCallList(list);
-    } else if (c == "listinbegin") {   // GL allows a call there; the recorder cannot query state
-        glNewList(list, GL_COMPILE); glVertex3f(0.5f, 0.5f, 0); glEndList();
+    } else if (c == "newlistinlist_ok") {
+        // GL refuses the inner glNewList and keeps executing the outer list, so
+        // the strip is drawn now and must be recorded as drawn now.
+        glNewList(list, GL_COMPILE_AND_EXECUTE);
+        glNewList(list + 1, GL_COMPILE); (void)glGetError();   // GL_INVALID_OPERATION, by design
+        glColor4f(0.5f, 0.3f, 0.2f, 1); glBegin(GL_TRIANGLE_STRIP); quad(-0.5f, 0.5f); glEnd();
+        glEndList();
+    } else if (c == "listinbegin") {
+        // GL allows a list call there but no state query, so the recorder must
+        // refuse before querying; a query would raise a GL error. The list is
+        // empty, so the primitive count cannot be what fails it.
+        glNewList(list, GL_COMPILE); glEndList();
         glColor4f(1, 1, 1, 0); glBegin(GL_TRIANGLE_STRIP);
         glVertex3f(-0.5f, -0.5f, 0); glVertex3f(0.5f, -0.5f, 0); glVertex3f(-0.5f, 0.5f, 0);
         glCallList(list); glEnd();
-    } else if (c == "texupload") {     // replaced mid-frame, after a draw that used it
-        static const uint8_t white[4 * 4 * 4] = {0};
+    } else if (c == "goopartialcube") {   // off screen, through the goo program
+        glUseProgramObjectARB(gooProgram);
+        for (int u = 0; u < 3; u++) { glActiveTexture(GL_TEXTURE0 + u); glBindTexture(GL_TEXTURE_CUBE_MAP, gInjectCube); }
+        glActiveTexture(GL_TEXTURE0);
+        glBindBuffer(GL_ARRAY_BUFFER, gInjectVBO[0]); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gInjectVBO[1]);
+        glEnableClientState(GL_VERTEX_ARRAY); glEnableClientState(GL_NORMAL_ARRAY);
+        glNormalPointer(GL_FLOAT, 6 * sizeof(float), (const GLvoid *)0);
+        glVertexPointer(3, GL_FLOAT, 6 * sizeof(float), (const GLvoid *)(3 * sizeof(float)));
+        glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_INT, (const GLvoid *)0);
+    } else if (c == "texupload") {     // any upload during a shot frame is refused, used or not
+        static const uint8_t zeros[4 * 4 * 4] = {0};
         glBindTexture(GL_TEXTURE_2D, tex);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 4, 4, GL_RGBA, GL_UNSIGNED_BYTE, white);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 4, 4, GL_RGBA, GL_UNSIGNED_BYTE, zeros);
+    } else if (c == "listupload") {    // compiled in injectSetup; the upload runs now
+        glColor4f(1, 1, 1, 0); glCallList(list);
     } else if (c == "tunnelnotex") {    // the tunnel program with nothing bound on unit 1
         glUseProgramObjectARB(tunnelProgram);
         glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, 0); glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, tex);
@@ -445,6 +505,7 @@ static void injectFault(const char *which)
     }
 
     glMatrixMode(GL_PROJECTION); glPopMatrix(); glMatrixMode(GL_MODELVIEW); glPopMatrix();
+    glBindBuffer(GL_ARRAY_BUFFER, savedAB); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, savedEB);
     glPopClientAttrib(); glPopAttrib();
     glUseProgramObjectARB(prog); glActiveTexture(active);
 }
@@ -597,7 +658,7 @@ int main(int argc, const char *argv[])
         printf("config: pass=%s seed=%ld goo=%d tunnels=%d shaders=%d %dx%d frames=%d every=%d shader=%s%s%s\n",
                pass->name, (long)gSeed, s.dUseGoo, s.dUseTunnels, s.dShaders, w, h, frames, every, shaderPath.UTF8String,
                inject ? " inject=" : "", inject ? inject : "");
-        if (inject) injectSetup();
+        if (inject) injectSetup(inject);
         if (inject && !strcmp(inject, "tunnelnotex") && !tunnelProgram) { printf("ERROR inject=tunnelnotex needs the tunnel program\n"); return 2; }
 
         MTLTextureDescriptor *cd = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:w height:h mipmapped:NO];
@@ -623,9 +684,9 @@ int main(int argc, const char *argv[])
         };
         // Textures are copied out of GL with every mip level it holds, so neither
         // texture generation nor mip generation can differ between the two sides.
-        // The copies are dropped after every shot: Hyperspace uploads through
-        // gluBuild2DMipmaps, which reaches GL past any interposer here, so a copy
-        // kept by name could not tell that its texture had been replaced.
+        // A texture changed during a shot frame fails the shot (noteUpload); the
+        // copies are dropped after every shot so that one changed between shots
+        // is copied again.
         auto copyCube = [&](GLuint t) {
             real_glBindTexture(GL_TEXTURE_CUBE_MAP, t);
             GLint sz, minF; glGetTexLevelParameteriv(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 0, GL_TEXTURE_WIDTH, &sz);
@@ -674,6 +735,7 @@ int main(int argc, const char *argv[])
             bool shot = f > 0 && (f % every == 0 || f == frames - 1);
             gRecording = shot; gBatches.clear(); gUnsupported = 0;
             s.frameTime = dt;
+            if (shot) while (glGetError() != GL_NO_ERROR) {}
             if (shot) glBeginQuery(GL_PRIMITIVES_GENERATED_EXT, primQuery);
             draw(&s);
             if (shot && inject) injectFault(inject);
@@ -682,11 +744,14 @@ int main(int argc, const char *argv[])
             gRecording = false;
             if (!shot) continue;
 
+            // A GL error means some call -- the saver's or the recorder's -- did not do
+            // what the recording assumes it did.
+            GLenum glErr = glGetError();
             // Every primitive GL generated must be a recorded triangle.
             GLuint generated = 0; glGetQueryObjectuiv(primQuery, GL_QUERY_RESULT, &generated);
             size_t recorded = 0;
             for (auto &b : gBatches) recorded += (b.kind == DrawKind::Goo ? b.gooTri.size() : b.tri.size()) / 3;
-            bool complete = gUnsupported == 0 && generated == recorded;
+            bool complete = gUnsupported == 0 && generated == recorded && glErr == GL_NO_ERROR;
             tex2d.clear(); texCube.clear(); samp2d.clear(); sampCube.clear();
 
             glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, glbuf.data());
@@ -775,6 +840,7 @@ int main(int argc, const char *argv[])
             printf("%5d  %12d  %3d  %5.2f  %6.2f  %6.2f  %5.3f  %s", f, judged, maxd, 100.0 * lit / npx, p2, p8, bias, shotOk ? "ok" : "FAIL");
             if (!(p2 <= pass->max2 && p8 <= pass->max8 && bias <= pass->maxBias)) printf(" (outside limits)");
             if (gUnsupported) printf(" (unrecorded GL draw calls)");
+            if (glErr != GL_NO_ERROR) printf(" (GL error 0x%x)", glErr);
             if (!gUnsupported && generated != recorded) printf(" (GL drew %u primitives, %zu recorded)", generated, recorded);
             printf("\n");
             NSString *base = [outdir stringByAppendingPathComponent:[NSString stringWithFormat:@"%05d", f]];

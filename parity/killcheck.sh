@@ -7,7 +7,9 @@
 # that passes fails this script.
 #
 # The recorder's own checks are proved the same way, with parity's inject= cases
-# (one short stars run each): a *_ok case must PASS, every other case must FAIL.
+# (one short stars run each): a *_ok case must PASS. Every other case must FAIL
+# because the recorder refused it -- with the image within limits and no GL error,
+# so a case cannot count as killed by failing for some other reason.
 #
 #   parity/killcheck.sh [stars|goo|tunnel ...]     default: all three, plus inject
 #   parity/killcheck.sh inject                     the recorder cases alone
@@ -35,7 +37,7 @@ for pass in "${passes[@]}"; do
             if [[ $case == *_ok ]]; then
                 if [ "$code" -eq 0 ]; then printf 'pass       %-26s %s\n' "$name" "${result#PASS }"
                 else printf 'WRONG      %-26s exit %s, wanted a pass: %s\n' "$name" "$code" "$result"; bad=1; fi
-            elif [ "$code" -eq 1 ] && [ -n "$reason" ] && ! grep -q '(outside limits)' "$OUT/$name.log"; then
+            elif [ "$code" -eq 1 ] && [ -n "$reason" ] && ! grep -qE '\((outside limits|GL error)' "$OUT/$name.log"; then
                 printf 'killed     %-26s %s\n' "$name" "$reason"
             else printf 'WRONG      %-26s exit %s, wanted a recorder refusal: %s\n' "$name" "$code" "$result"; bad=1; fi
         done

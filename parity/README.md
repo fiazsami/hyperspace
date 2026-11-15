@@ -57,18 +57,25 @@ that set being complete:
   color and texcoord must equal the recorded ones. A mismatch means one was set
   through an entry point the recorder does not see (`glColor4ub`,
   `glTexCoord2d`), and the draw is refused.
+- **No GL error.** A shot frame that raises one fails as "GL error": some call,
+  the saver's or the recorder's, did not do what the recording assumes.
 
 Display lists are recorded when compiled and refused if they set their own
 color, bind more than one texture, draw anything but triangle strips, or call
-another list, and a call made between `glBegin` and `glEnd` is refused. Compiling a name again replaces its list. Vertices issued before a
+another list, or change a texture, and a call made between `glBegin` and
+`glEnd` is refused. A `glNewList` inside an open list is ignored, as GL ignores
+it. Compiling a name again replaces its list. Vertices issued before a
 list's first `glTexCoord` take the texcoord current at call time, as GL does.
 
-Textures are copied after the frame has drawn, so an upload during a shot frame
-(`glTexImage2D`, `glTexSubImage2D`, `glCopyTex*Image2D`, or Hyperspace's own
-`gluBuild2DMipmaps` calls) fails the shot: the copy would hold the final image
-for draws GL made with the earlier one. Hyperspace uploads only at start-up. The
-copies are also dropped after every shot, so an upload between shots is picked
-up.
+Textures and their sampler settings are copied after the frame has drawn, so
+changing a texture during a shot frame fails the shot: the copy would hold the
+final state for draws GL made with the earlier one. That covers `glTexImage2D`,
+`glTexSubImage2D`, `glCopyTex*Image2D`, `glTexParameter{i,f}`,
+`glDeleteTextures`, and Hyperspace's own `gluBuild2DMipmaps` calls. It does not
+cover `glGenerateMipmap`, compressed, 1D or 3D uploads, or
+`gluBuild2DMipmapLevels`; Hyperspace uses none, and changes textures only at
+start-up. The copies are dropped after every shot, so a change between shots is
+picked up.
 
 Rates are over lit pixels, not the frame. Star frames are 0.3–4% lit, and a
 per-frame rate diluted every defect below 1%.
@@ -123,10 +130,11 @@ The recorder's checks have fixtures too, as `inject=<case>`: parity draws one
 known fault at the end of every shot, through the same interposers the saver
 uses; `parity --inject-cases` lists them, and `killcheck.sh` runs every one. The
 refused cases draw with alpha 0 or off screen, and `killcheck.sh` counts one as
-killed only if the recorder refused it and the image stayed within limits, so a
-case cannot pass by failing for some other reason. The `*_ok` cases (`strip_ok`,
-`recompile_ok`, `listcalluv_ok`) draw something the recorder must replay
-correctly, and they must pass.
+killed only if the recorder refused it, the image stayed within limits, and no
+GL error was raised, so a case cannot pass by failing for some other reason. The
+`*_ok` cases draw something the recorder must replay correctly, and they must
+pass. Every check has a case that only that check stops; removing the check
+lets its case through.
 
 ## Limits
 
