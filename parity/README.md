@@ -161,6 +161,11 @@ lit>2 for stars / goo / tunnel: float rounding on a few edge pixels. A camera
 roll sign flip, a field of view 0.5 degrees off, a billboard heading 0.3 rad off
 and a stuck star stretch each come out DIFFERENT at about 100%.
 
+Moving the stars and the lens flare onto `HSRenderer` (`Hyperspace/renderer.h`),
+with their vertices computed on the CPU, measured 0.024% / 0.002% / 0.023% worst
+lit>2, no pixel more than 3 levels off. A star core 10% too large and a flare
+plane 2% too wide come out DIFFERENT at 9.8% and 43.7%.
+
 ## Limits
 
 - **One machine.** Calibrated on an Apple M5 Max under macOS 26. Another GPU or

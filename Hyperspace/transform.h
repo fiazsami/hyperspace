@@ -33,6 +33,11 @@ void hsScale(float m[16], float x, float y, float z);               // glScalef
 // out and m may be the same matrix.
 void hsRotationInverse(float out[16], const float m[16]);
 
+// The point (x, y, z, 1) through m, as GL would place a vertex issued under it.
+// m must be affine (bottom row 0 0 0 1), which every matrix built from the
+// calls above is, so w stays 1 and is not returned.
+void hsApply(const float m[16], float x, float y, float z, float out[3]);
+
 // gluPerspective's matrix as GL stores it after glLoadIdentity + gluPerspective:
 // computed in double, kept in float. Degenerate input (zNear == zFar, a zero
 // field of view, aspect 0) leaves the identity, because GLU returns before

@@ -54,6 +54,7 @@
 #include <Hyperspace/nebulamap.h>
 #include <Hyperspace/shaders.h>
 #include <Hyperspace/transform.h>
+#include <Hyperspace/rendererGL.h>
 #include "Hyperspace.h"
 
 //#include <fstream>
@@ -250,7 +251,7 @@ void draw(HyperspaceSaverSettings *inSettings){
 			inSettings->stars[i]->pos[2] += inSettings->depth * 2.0f;
 			inSettings->stars[i]->lastPos[2] += inSettings->depth * 2.0f;
 		}
-		inSettings->stars[i]->draw(inSettings->camPos, inSettings->unroll, inSettings->modelMat, inSettings->projMat, inSettings->viewport);
+		inSettings->stars[i]->draw(inSettings->renderer, inSettings->flaretex[0], inSettings->camPos, inSettings->unroll, inSettings->modelMat, inSettings->projMat, inSettings->viewport);
 	}
 	glDisable(GL_CULL_FACE);
 
@@ -362,7 +363,7 @@ void draw(HyperspaceSaverSettings *inSettings){
 	glDisable(GL_FOG);
 	float flarepos[3] = {0.0f, 2.0f, 0.0f};
 	glBindTexture(GL_TEXTURE_2D, inSettings->flaretex[0]);
-	inSettings->sunStar->draw(inSettings->camPos, inSettings->unroll, inSettings->modelMat, inSettings->projMat, inSettings->viewport);
+	inSettings->sunStar->draw(inSettings->renderer, inSettings->flaretex[0], inSettings->camPos, inSettings->unroll, inSettings->modelMat, inSettings->projMat, inSettings->viewport);
 	float diff[3] = {flarepos[0] - inSettings->camPos[0], flarepos[1] - inSettings->camPos[1], flarepos[2] - inSettings->camPos[2]};
 	float alpha = 0.5f - 0.005f * sqrtf(diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2]);
 	if(alpha > 0.0f)
@@ -528,6 +529,7 @@ void initSaver(HyperspaceSaverSettings *inSettings){
 	glEnable(GL_BLEND);
 	glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, GL_TRUE);
 
+	inSettings->renderer = new HSRendererGL;
 	initFlares(inSettings);
 
 	inSettings->thePath = new splinePath((inSettings->dDepth * 2) + 6);
@@ -646,6 +648,7 @@ void cleanUp(HyperspaceSaverSettings *inSettings){
 	}
 	delete inSettings->thePath;
 	delete inSettings->theWNCM;
+	delete inSettings->renderer;
 	inSettings->first = 1;
 }
 //#endif

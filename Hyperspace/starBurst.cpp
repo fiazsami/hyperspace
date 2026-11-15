@@ -151,7 +151,7 @@ void starBurst::drawStars(HyperspaceSaverSettings *inSettings){
 		if(distance > inSettings->depth)
 			stars_active[i] = 0;
 		if(stars_active[i])
-			stars[i]->draw(inSettings->camPos, inSettings->unroll, inSettings->modelMat, inSettings->projMat, inSettings->viewport);
+			stars[i]->draw(inSettings->renderer, inSettings->flaretex[0], inSettings->camPos, inSettings->unroll, inSettings->modelMat, inSettings->projMat, inSettings->viewport);
 	}
 }
 

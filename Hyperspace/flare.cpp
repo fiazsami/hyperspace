@@ -21,6 +21,7 @@
 
 #include <Hyperspace/flare.h>
 #include <Hyperspace/transform.h>
+#include <Hyperspace/renderer.h>
 
 
 
@@ -51,8 +52,6 @@ void initFlares(HyperspaceSaverSettings *inSettings){
 	float x, y;
 	float temp;
 	
-	glGenTextures(4, inSettings->flaretex);
-	
 	// First flare:  basic sphere
 	for(i=0; i<FLARESIZE; i++){
 		for(j=0; j<FLARESIZE; j++){
@@ -70,11 +69,7 @@ void initFlares(HyperspaceSaverSettings *inSettings){
 			inSettings->flare1[i][j][3] = (unsigned char)(255.0f * temp);
 		}
 	}
-	glBindTexture(GL_TEXTURE_2D, inSettings->flaretex[0]);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexImage2D(GL_TEXTURE_2D, 0, 4, FLARESIZE, FLARESIZE, 0, GL_RGBA,
-				 GL_UNSIGNED_BYTE, inSettings->flare1);
+	inSettings->flaretex[0] = inSettings->renderer->createTexture(FLARESIZE, FLARESIZE, &inSettings->flare1[0][0][0]);
 	
 	// Second flare:  flattened sphere
 	for(i=0; i<FLARESIZE; i++){
@@ -93,11 +88,7 @@ void initFlares(HyperspaceSaverSettings *inSettings){
 			inSettings->flare2[i][j][3] = (unsigned char)(255.0f * temp);
 		}
 	}
-	glBindTexture(GL_TEXTURE_2D, inSettings->flaretex[1]);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexImage2D(GL_TEXTURE_2D, 0, 4, FLARESIZE, FLARESIZE, 0, GL_RGBA,
-				 GL_UNSIGNED_BYTE, inSettings->flare2);
+	inSettings->flaretex[1] = inSettings->renderer->createTexture(FLARESIZE, FLARESIZE, &inSettings->flare2[0][0][0]);
 	
 	// Third flare:  torus
 	for(i=0; i<FLARESIZE; i++){
@@ -116,11 +107,7 @@ void initFlares(HyperspaceSaverSettings *inSettings){
 			inSettings->flare3[i][j][3] = (unsigned char)(255.0f * temp);
 		}
 	}
-	glBindTexture(GL_TEXTURE_2D, inSettings->flaretex[2]);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexImage2D(GL_TEXTURE_2D, 0, 4, FLARESIZE, FLARESIZE, 0, GL_RGBA,
-				 GL_UNSIGNED_BYTE, inSettings->flare3);
+	inSettings->flaretex[2] = inSettings->renderer->createTexture(FLARESIZE, FLARESIZE, &inSettings->flare3[0][0][0]);
 	
 	// Fourth flare:  weird flare
 	for(i=0; i<FLARESIZE; i++){
@@ -147,32 +134,17 @@ void initFlares(HyperspaceSaverSettings *inSettings){
 			inSettings->flare4[i][j][3] = (unsigned char)(255.0f * temp);
 		}
 	}
-	glBindTexture(GL_TEXTURE_2D, inSettings->flaretex[3]);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexImage2D(GL_TEXTURE_2D, 0, 4, FLARESIZE, FLARESIZE, 0, GL_RGBA,
-				 GL_UNSIGNED_BYTE, inSettings->flare4);
-	
-	// Build display lists
-	inSettings->flarelist[0] = glGenLists(4);
-	inSettings->flarelist[1] = inSettings->flarelist[0] + 1;
-	inSettings->flarelist[2] = inSettings->flarelist[0] + 2;
-	inSettings->flarelist[3] = inSettings->flarelist[0] + 3;
-	for(i=0; i<4; i++){
-		glNewList(inSettings->flarelist[i], GL_COMPILE);
-		glBindTexture(GL_TEXTURE_2D, inSettings->flaretex[i]);
-		glBegin(GL_TRIANGLE_STRIP);
-		glTexCoord2f(0.0f, 0.0f);
-		glVertex3f(-0.5f, -0.5f, 0.0f);
-		glTexCoord2f(1.0f, 0.0f);
-		glVertex3f(0.5f, -0.5f, 0.0f);
-		glTexCoord2f(0.0f, 1.0f);
-		glVertex3f(-0.5f, 0.5f, 0.0f);
-		glTexCoord2f(1.0f, 1.0f);
-		glVertex3f(0.5f, 0.5f, 0.0f);
-		glEnd();
-		glEndList();
-	}
+	inSettings->flaretex[3] = inSettings->renderer->createTexture(FLARESIZE, FLARESIZE, &inSettings->flare4[0][0][0]);
+}
+
+
+// One flare element: the unit square through m, in flare texture which.
+static void flareElement(HyperspaceSaverSettings *inSettings, int which, const float m[16],
+                         float red, float green, float blue, float alpha){
+	const float color[4] = {red, green, blue, alpha};
+	HSVertex quad[4];
+	hsQuad(m, 0.5f, quad);
+	inSettings->renderer->drawStrip(inSettings->flaretex[which], color, quad, 4);
 }
 
 
@@ -192,11 +164,6 @@ void flare(float *pos, float red, float green, float blue, float alpha, Hyperspa
 	float diff[3] = {pos[0] - inSettings->camPos[0], pos[1] - inSettings->camPos[1], pos[2] - inSettings->camPos[2]};
 	if(diff[0] * inSettings->billboardMat[8] + diff[1] * inSettings->billboardMat[9] + diff[2] * inSettings->billboardMat[10] > 0.0f)
 		return;
-
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-	glEnable(GL_BLEND);
-	glEnable(GL_TEXTURE_2D);
-	glDisable(GL_LIGHTING);
 
 	// Fade alpha if source is off edge of screen
 	fadewidth = float(inSettings->xsize) / 10.0f;
@@ -230,11 +197,7 @@ void flare(float *pos, float red, float green, float blue, float alpha, Hyperspa
 	dx = 0.5f * inSettings->aspectRatio - x;
 	dy = 0.5f - y;
 	
-	// Setup projection matrix
-	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
-	glLoadIdentity();
-	gluOrtho2D(0, inSettings->aspectRatio, 0, 1.0f);
+	inSettings->renderer->beginOverlay(inSettings->aspectRatio);
 
 	// Update fractal flickering
 	flicker += inSettings->frameTime * (rsRandf(2.0f) - 1.0f);
@@ -245,101 +208,81 @@ void flare(float *pos, float red, float green, float blue, float alpha, Hyperspa
 	alpha *= flicker;
 
 	// Draw stuff
-	glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
+	float m[16];
 
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-
-	glLoadIdentity();
-	glTranslatef(x, y, 0.0f);
-	glScalef(0.1f * flicker, 0.1f * flicker, 1.0f);
-	glColor4f(red, green, blue * 0.8f, alpha);
-	glCallList(inSettings->flarelist[0]);
+	hsIdentity(m);
+	hsTranslate(m, x, y, 0.0f);
+	hsScale(m, 0.1f * flicker, 0.1f * flicker, 1.0f);
+	flareElement(inSettings, 0, m, red, green, blue * 0.8f, alpha);
 
 	// wide flare
-	glLoadIdentity();
-	glTranslatef(x, y, 0.0f);
-	glScalef(5.0f * alpha, 0.05f * alpha, 1.0f);
-	glColor4f(red * 0.3f, green * 0.3f, blue, alpha);
-	glCallList(inSettings->flarelist[0]);
+	hsIdentity(m);
+	hsTranslate(m, x, y, 0.0f);
+	hsScale(m, 5.0f * alpha, 0.05f * alpha, 1.0f);
+	flareElement(inSettings, 0, m, red * 0.3f, green * 0.3f, blue, alpha);
 
 	// torus
-	glLoadIdentity();
-	glTranslatef(x, y, 0.0f);
-	glScalef(0.5f, 0.2f, 1.0f);
-	glColor4f(red, green * 0.5f, blue * 0.5f, alpha * 0.4f);
-	glCallList(inSettings->flarelist[2]);
+	hsIdentity(m);
+	hsTranslate(m, x, y, 0.0f);
+	hsScale(m, 0.5f, 0.2f, 1.0f);
+	flareElement(inSettings, 2, m, red, green * 0.5f, blue * 0.5f, alpha * 0.4f);
 
 	// 3 blueish dots
-	glLoadIdentity();
-	glTranslatef(x + dx * 0.35f, y + dy * 0.35f, 0.0f);
-	glScalef(0.06f, 0.06f, 1.0f);
-	glColor4f(red * 0.85f, green * 0.85f, blue, alpha * 0.5f);
-	glCallList(inSettings->flarelist[1]);
+	hsIdentity(m);
+	hsTranslate(m, x + dx * 0.35f, y + dy * 0.35f, 0.0f);
+	hsScale(m, 0.06f, 0.06f, 1.0f);
+	flareElement(inSettings, 1, m, red * 0.85f, green * 0.85f, blue, alpha * 0.5f);
 
-	glLoadIdentity();
-	glTranslatef(x + dx * 0.45f, y + dy * 0.45f, 0.0f);
-	glScalef(0.09f, 0.09f, 1.0f);
-	glColor4f(red * 0.7f, green * 0.7f, blue, alpha * 0.4f);
-	glCallList(inSettings->flarelist[1]);
+	hsIdentity(m);
+	hsTranslate(m, x + dx * 0.45f, y + dy * 0.45f, 0.0f);
+	hsScale(m, 0.09f, 0.09f, 1.0f);
+	flareElement(inSettings, 1, m, red * 0.7f, green * 0.7f, blue, alpha * 0.4f);
 
-	glLoadIdentity();
-	glTranslatef(x + dx * 0.55f, y + dy * 0.55f, 0.0f);
-	glScalef(0.12f, 0.12f, 1.0f);
-	glColor4f(red * 0.55f, green * 0.55f, blue, alpha * 0.3f);
-	glCallList(inSettings->flarelist[1]);
+	hsIdentity(m);
+	hsTranslate(m, x + dx * 0.55f, y + dy * 0.55f, 0.0f);
+	hsScale(m, 0.12f, 0.12f, 1.0f);
+	flareElement(inSettings, 1, m, red * 0.55f, green * 0.55f, blue, alpha * 0.3f);
 
 	// 4 more dots
-	glLoadIdentity();
-	glTranslatef(x + dx * 0.75f, y + dy * 0.75f, 0.0f);
-	glScalef(0.14f, 0.07f, 1.0f);
-	glColor4f(red * 0.3f, green * 0.3f, blue * 0.3f, alpha);
-	glCallList(inSettings->flarelist[3]);
+	hsIdentity(m);
+	hsTranslate(m, x + dx * 0.75f, y + dy * 0.75f, 0.0f);
+	hsScale(m, 0.14f, 0.07f, 1.0f);
+	flareElement(inSettings, 3, m, red * 0.3f, green * 0.3f, blue * 0.3f, alpha);
 
-	glLoadIdentity();
-	glTranslatef(x + dx * 0.78f, y + dy * 0.78f, 0.0f);
-	glScalef(0.06f, 0.06f, 1.0f);
-	glColor4f(red * 0.3f, green * 0.4f, blue * 0.4f, alpha * 0.5f);
-	glCallList(inSettings->flarelist[1]);
+	hsIdentity(m);
+	hsTranslate(m, x + dx * 0.78f, y + dy * 0.78f, 0.0f);
+	hsScale(m, 0.06f, 0.06f, 1.0f);
+	flareElement(inSettings, 1, m, red * 0.3f, green * 0.4f, blue * 0.4f, alpha * 0.5f);
 
-	glLoadIdentity();
-	glTranslatef(x + dx * 1.25f, y + dy * 1.25f, 0.0f);
-	glScalef(0.1f, 0.1f, 1.0f);
-	glColor4f(red * 0.3f, green * 0.4f, blue * 0.3f, alpha * 0.5f);
-	glCallList(inSettings->flarelist[1]);
+	hsIdentity(m);
+	hsTranslate(m, x + dx * 1.25f, y + dy * 1.25f, 0.0f);
+	hsScale(m, 0.1f, 0.1f, 1.0f);
+	flareElement(inSettings, 1, m, red * 0.3f, green * 0.4f, blue * 0.3f, alpha * 0.5f);
 
-	glLoadIdentity();
-	glTranslatef(x + dx * 1.3f, y + dy * 1.3f, 0.0f);
-	glScalef(0.07f, 0.07f, 1.0f);
-	glColor4f(red * 0.6f, green * 0.45f, blue * 0.3f, alpha * 0.5f);
-	glCallList(inSettings->flarelist[1]);
+	hsIdentity(m);
+	hsTranslate(m, x + dx * 1.3f, y + dy * 1.3f, 0.0f);
+	hsScale(m, 0.07f, 0.07f, 1.0f);
+	flareElement(inSettings, 1, m, red * 0.6f, green * 0.45f, blue * 0.3f, alpha * 0.5f);
 
 	// stretched weird flare
-	glLoadIdentity();
-	glTranslatef(x + dx * 1.45f, y + dy * 1.45f, 0.0f);
-	glScalef(0.8f, 0.2f, 1.0f);
-	glRotatef(x * 70.0f, 0, 0, 1);
-	glColor4f(red, green, blue, alpha * 0.4f);
-	glCallList(inSettings->flarelist[3]);
+	hsIdentity(m);
+	hsTranslate(m, x + dx * 1.45f, y + dy * 1.45f, 0.0f);
+	hsScale(m, 0.8f, 0.2f, 1.0f);
+	hsRotate(m, x * 70.0f, 0, 0, 1);
+	flareElement(inSettings, 3, m, red, green, blue, alpha * 0.4f);
 
 	// circle
-	glLoadIdentity();
-	glTranslatef(x + dx * 2.0f, y + dy * 2.0f, 0.0f);
-	glScalef(0.3f, 0.3f, 1.0f);
-	glColor4f(red, green, blue, alpha * 0.2f);
-	glCallList(inSettings->flarelist[1]);
+	hsIdentity(m);
+	hsTranslate(m, x + dx * 2.0f, y + dy * 2.0f, 0.0f);
+	hsScale(m, 0.3f, 0.3f, 1.0f);
+	flareElement(inSettings, 1, m, red, green, blue, alpha * 0.2f);
 
 	// big weird flare
-	glLoadIdentity();
-	glTranslatef(x + dx * 2.4f, y + dy * 2.4f, 0.0f);
-	glRotatef(y * 40.0f, 0, 0, 1);
-	glScalef(0.7f, 0.7f, 1.0f);
-	glColor4f(red, green, blue, alpha * 0.3f);
-	glCallList(inSettings->flarelist[3]);
+	hsIdentity(m);
+	hsTranslate(m, x + dx * 2.4f, y + dy * 2.4f, 0.0f);
+	hsRotate(m, y * 40.0f, 0, 0, 1);
+	hsScale(m, 0.7f, 0.7f, 1.0f);
+	flareElement(inSettings, 3, m, red, green, blue, alpha * 0.3f);
 
-	// Unsetup projection matrix
-	glMatrixMode(GL_PROJECTION);
-	glPopMatrix();
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
+	inSettings->renderer->endOverlay();
 }

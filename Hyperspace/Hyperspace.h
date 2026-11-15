@@ -11,6 +11,7 @@ class tunnel;
 class goo;
 class stretchedParticle;
 class starBurst;
+class HSRenderer;
 
 #define FLARESIZE 64
 
@@ -63,8 +64,9 @@ typedef struct HyperspaceSaverSettings
 	unsigned char flare2[FLARESIZE][FLARESIZE][4];
 	unsigned char flare3[FLARESIZE][FLARESIZE][4];
 	unsigned char flare4[FLARESIZE][FLARESIZE][4];
-	unsigned int flarelist[4];
 	GLuint flaretex[4];
+
+	HSRenderer *renderer;  // stars and lens flare draw through this
 };
 
 __private_extern__ void draw(HyperspaceSaverSettings *inSettings);
