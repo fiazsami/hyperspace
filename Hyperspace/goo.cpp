@@ -21,6 +21,7 @@
 
 #include <Hyperspace/goo.h>
 #include "Hyperspace.h"
+#include <Hyperspace/renderer.h>
 
 
 //extern float frameTime, simulationTime;
@@ -150,7 +151,7 @@ float goo::function(float* position, void *contextInfo){
 }
 
 
-void goo::draw(){
+void goo::draw(HSRenderer *renderer){
 	int i, j;
 
 	for(i=0; i<arraySize; i++){
@@ -158,10 +159,8 @@ void goo::draw(){
 			if(useSurface[i][j]){
 				shiftx = centerx + volumeSize * (0.5f + float(i - arraySize / 2));
 				shiftz = centerz + volumeSize * (0.5f + float(j - arraySize / 2));
-				glPushMatrix();
-				glTranslatef(shiftx, 0.0f, shiftz);
-				surface[i][j]->draw();
-				glPopMatrix();
+				const float offset[3] = {shiftx, 0.0f, shiftz};
+				renderer->drawGooSurface(surface[i][j], offset);
 				useSurface[i][j] = false;
 			}
 		}

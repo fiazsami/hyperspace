@@ -25,6 +25,8 @@
 
 
 #include "splinePath.h"
+#include <Hyperspace/renderer.h>
+#include <vector>
 
 
 
@@ -37,6 +39,7 @@ public:
 	float**** v;  // vertex data
 	float**** t;  // texture coordinate data
 	float**** c;  // color data
+	std::vector<HSTunnelVertex> strip;  // draw()'s, sized once here
 
 	float radius;
 	// offset for tunnel width
@@ -53,8 +56,9 @@ public:
 	tunnel(splinePath* sp, int res);
 	~tunnel();
 	void make(float frameTime, bool dShaders);
-	void draw();
-	void draw(float lerp);
+	// One strip per ring of each section, between the caller's beginTunnel
+	// and endTunnel.
+	void draw(HSRenderer *renderer);
 };
 
 

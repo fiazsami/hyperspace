@@ -22,7 +22,7 @@
 #include <rsMath/rsMath.h>
 #include <math.h>*/
 #include "splinePath.h"
-#include "rsMath.h"
+#include <rsMath/rsMath.h>
 #include <math.h>
 
 

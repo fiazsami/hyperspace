@@ -13,6 +13,7 @@
 
 #include <Hyperspace/rendererGL.h>
 #include <Hyperspace/transform.h>
+#include <Implicit/impSurface.h>
 #include <OpenGL/gl.h>
 
 unsigned int HSRendererGL::createTexture(int width, int height, const unsigned char *rgba){
@@ -154,4 +155,86 @@ void HSRendererGL::endOffscreen(unsigned char *rgb){
 	glPopMatrix();
 	glViewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3]);
 	offscreenSize = 0;
+}
+
+// Linked by initShaders(), in shaders.h, which only Hyperspace.cpp includes.
+extern GLhandleARB gooProgram, tunnelProgram;
+
+void HSRendererGL::beginGoo(const float color[4], unsigned int nebula,
+	unsigned int normals0, unsigned int normals1, bool shaded){
+	gooShaded = shaded;
+	if(shaded){
+		glDisable(GL_TEXTURE_2D);
+		glEnable(GL_TEXTURE_CUBE_MAP_ARB);
+		glActiveTextureARB(GL_TEXTURE2_ARB);
+		glBindTexture(GL_TEXTURE_CUBE_MAP_ARB, nebula);
+		glActiveTextureARB(GL_TEXTURE1_ARB);
+		glBindTexture(GL_TEXTURE_CUBE_MAP_ARB, normals1);
+		glActiveTextureARB(GL_TEXTURE0_ARB);
+		glBindTexture(GL_TEXTURE_CUBE_MAP_ARB, normals0);
+		glUseProgramObjectARB(gooProgram);
+	}
+	else{
+		glBindTexture(GL_TEXTURE_2D, nebula);
+		glEnable(GL_TEXTURE_2D);
+		glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
+		glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
+		glEnable(GL_TEXTURE_GEN_S);
+		glEnable(GL_TEXTURE_GEN_T);
+	}
+	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+	glEnable(GL_BLEND);
+	glColor4fv(color);
+}
+
+void HSRendererGL::drawGooSurface(impSurface *surface, const float offset[3]){
+	glPushMatrix();
+	glTranslatef(offset[0], offset[1], offset[2]);
+	surface->draw();
+	glPopMatrix();
+}
+
+void HSRendererGL::endGoo(){
+	if(gooShaded){
+		glDisable(GL_TEXTURE_CUBE_MAP_ARB);
+		glUseProgramObjectARB(0);
+	}
+	else{
+		glDisable(GL_TEXTURE_GEN_S);
+		glDisable(GL_TEXTURE_GEN_T);
+	}
+}
+
+void HSRendererGL::beginTunnel(unsigned int caustic0, unsigned int caustic1, float lerp, bool shaded){
+	tunnelShaded = shaded;
+	tunnelAlpha = shaded ? lerp : 1.0f;
+	glCullFace(GL_BACK);
+	glEnable(GL_CULL_FACE);
+	glEnable(GL_TEXTURE_2D);
+	if(shaded){
+		glActiveTextureARB(GL_TEXTURE1_ARB);
+		glBindTexture(GL_TEXTURE_2D, caustic1);
+		glActiveTextureARB(GL_TEXTURE0_ARB);
+		glBindTexture(GL_TEXTURE_2D, caustic0);
+		glUseProgramObjectARB(tunnelProgram);
+	}
+	else
+		glBindTexture(GL_TEXTURE_2D, caustic0);
+}
+
+void HSRendererGL::drawTunnelStrip(const HSTunnelVertex *v, int count){
+	glBegin(GL_TRIANGLE_STRIP);
+	for(int i = 0; i < count; i++){
+		glColor4f(v[i].color[0], v[i].color[1], v[i].color[2], tunnelAlpha);
+		glTexCoord2fv(v[i].uv);
+		glVertex3fv(v[i].pos);
+	}
+	glEnd();
+}
+
+void HSRendererGL::endTunnel(){
+	if(tunnelShaded)
+		glUseProgramObjectARB(0);
+	glDisable(GL_CULL_FACE);
 }
