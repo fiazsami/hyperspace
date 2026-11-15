@@ -25,7 +25,7 @@ pass fails.
 | `stars` | stars, sun, lens flare (GL fixed function) | `metal/FixedFunction.metal` | 60 s, 12 shots |
 | `goo` | the GLSL goo program: cube-mapped normals, reflection, Fresnel | `metal/Goo.metal` | 60 s, 12 shots |
 | `tunnel` | the GLSL tunnel program: two caustic textures, two octaves | `metal/Tunnel.metal` | 2 min, 36 shots |
-| `burst` | the starburst's stars; its sphere is refused (below) | `metal/FixedFunction.metal` | 8 s, 16 shots |
+| `burst` | the goo, once the starburst's sphere is gone; the sphere is refused (below) | `metal/Goo.metal` | 8 s, 16 shots |
 
 Stars draw in every pass, through `FixedFunction.metal`. The tunnel needs two
 minutes because one rarely puts the camera inside a tunnel; most shots of the
@@ -35,11 +35,14 @@ judges the fixed-function goo and tunnel a user gets with shaders off.
 The saver sets off its first starburst after five minutes. `burst` sets one off
 itself, at frame 60, ahead of the camera along the path as the saver does, but
 at fixed values where the saver draws random ones: 0.75 of the depth ahead
-(the saver: 0.5 to 1.0) and height 0 (the saver: -1 to 1). It exists for the seam
+(the saver: 0.5 to 1.0) and height 0 (the saver: -1 to 1). It is placed from
+the previous frame's camera; the saver uses the current one. Goo is on, as the
+saver's default is, because the sphere draws with the goo's program and
+textures. A burst that fails to start is an error, not a pass. It exists for the seam
 check: the sphere is drawn with the goo program from a display list, which the
-recorder refuses, so every shot that shows it FAILs as "unrecorded GL draw
-calls", and `killcheck.sh` does not run it. The burst's stars are judged with
-the stars pass's limits.
+recorder refuses, so every shot until it is gone (about frame 420) FAILs as
+"unrecorded GL draw calls", and `killcheck.sh` does not run it. The shots after
+that judge the goo with the goo pass's limits.
 
 ## The rule
 
@@ -167,7 +170,8 @@ parity/seamcheck.sh master            # all four passes, ~3 min
 parity/seamcheck.sh master stars      # one pass
 ```
 
-A `<ref>` older than the `burst` pass does not know it: name the other three.
+A `<ref>` older than the `burst` pass does not know it; seamcheck skips that
+pass with a note and compares the rest.
 The burst pass compared with itself is exactly 0, and the starburst's sphere
 scaled by 1.1 comes out DIFFERENT at 99.0%.
 

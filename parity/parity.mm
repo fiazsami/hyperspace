@@ -566,11 +566,13 @@ static const Pass kPasses[] = {
     // 1.50% / 0.28% / 0.012; weakest defects 4.81% / bias 0.197 and 3.92% / 0.220.
     {"tunnel", "Tunnel.metal",        "tunnel_vertex", "tunnel_fragment", false, true,  7200, 200, 3.0, 0.6, 0.06, 0},
     // 8 s with a starburst set off at 1 s; the saver's own timer would wait five
-    // minutes. Its stars are judged with the stars pass's shader and limits; its
-    // sphere is refused (a display list drawn with the goo program), so shots
-    // that show it FAIL. The pass is there for seamcheck.sh, which compares GL
-    // with GL and ignores that verdict.
-    {"burst",  "FixedFunction.metal", "ff_vertex",     "ff_fragment",     false, false, 480,  30,  1.0, 0.1, 0.06, 60},
+    // minutes. Goo is on, as the saver's default is, because the sphere shares
+    // the goo's program and textures. The sphere is refused (a display list drawn
+    // with the goo program), so every shot until it is gone (about frame 420)
+    // FAILs; later shots judge the goo with the goo pass's shader and limits.
+    // The pass is there for seamcheck.sh, which compares GL with GL and ignores
+    // that verdict.
+    {"burst",  "Goo.metal",           "goo_vertex",    "goo_fragment",    true,  false, 480,  30,  8.0, 2.5, 0.06, 60},
 };
 
 // ---- Metal ----
@@ -711,7 +713,7 @@ int main(int argc, const char *argv[])
         // Two libraries, each with the interface prepended: the fixed-function path
         // (always needed -- stars draw in every pass) and the judged pass's shader.
         NSString *iface = readFile([metalDir stringByAppendingPathComponent:@"Interface.metal"]);
-        bool starsPass = !strcmp(pass->file, "FixedFunction.metal");   // stars and burst
+        bool starsPass = !strcmp(pass->name, "stars");
         NSString *ffPath = starsPass ? shaderPath : [metalDir stringByAppendingPathComponent:@"FixedFunction.metal"];
         NSString *ffSrc = readFile(ffPath), *passSrc = starsPass ? ffSrc : readFile(shaderPath);
         if (!iface || !ffSrc || !passSrc) return 2;
@@ -846,12 +848,16 @@ int main(int argc, const char *argv[])
             if (pass->burstAt > 0 && f == pass->burstAt) {
                 // Where the saver puts one, ahead of the camera along the path, with
                 // its random distance (0.5 to 1.0 of depth) and height (-1 to 1)
-                // fixed at their middles.
+                // fixed at their middles. The saver places it after this frame's
+                // path update; this uses the last frame's camera, a frame behind.
                 float dir[3], at[3];
                 s.thePath->getBaseDirection(s.dDepth + 2, s.thePath->step, dir);
                 for (int i = 0; i < 3; i++) at[i] = s.camPos[i] + dir[i] * s.depth * 0.75f;
                 at[1] = 0.0f;
                 s.theStarBurst->restart(at);
+                // restart() declines silently when a burst is already running; then
+                // this pass would be a short goo pass with nothing of the burst in it.
+                if (s.theStarBurst->size != 0.0f) { printf("ERROR the starburst did not start at frame %d\n", f); return 2; }
             }
             draw(&s);
             if (shot && inject) injectFault(inject);
@@ -903,7 +909,7 @@ int main(int argc, const char *argv[])
                     [enc setVertexBytes:&u length:sizeof u atIndex:1]; [enc setFragmentBytes:&u length:sizeof u atIndex:1];
                     for (int t = 0; t < 3; t++) { [enc setFragmentTexture:texCube[b.cube[t]] atIndex:t]; [enc setFragmentSamplerState:sampCube[b.cube[t]] atIndex:t]; }
                     [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:b.gooTri.size()];
-                    judged += !strcmp(pass->name, "goo");
+                    judged += pass->goo;   // the goo and burst passes
                 } else if (b.kind == DrawKind::Tunnel) {
                     if (b.tri.empty()) continue;
                     if (!tex2d.count(b.tex)) copy2D(b.tex);
