@@ -31,6 +31,8 @@
 #include <OpenGL/gl.h>
 
 
+class HSRenderer;
+
 class causticTextures{
 public:
 	int numKeys;
@@ -57,17 +59,14 @@ public:
 	// num keyframes (only for fractal heightfield generation),
 	// number of frames, geometry resolution, texture resolution, water depth, wave amplitude,
 	// refraction multiplier (sort of like index of refraction)
-	causticTextures(int keys, int frames, int res, int size, float depth, float wa, float rm);
+	causticTextures(HSRenderer *renderer, int keys, int frames, int res, int size, float depth, float wa, float rm);
 	~causticTextures(){}
 
 private:
-	void makeFractalAltitudes();
 	void makeTrigAltitudes();
-	void altitudeSquare(int left, int right, int bottom, int top, float** alt);
-	void draw(int xlo, int xhi, int zlo, int zhi);
+	void draw(HSRenderer *renderer, int xlo, int xhi, int zlo, int zhi, float dx, float dz);
 	void makeIndices(int index, int* minus, int* plus);
 	float myFabs(float x){if(x<0) return -x; return x;};
-	float interpolate(float a, float b, float c, float d, float where);
 };
 
 

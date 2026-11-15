@@ -110,19 +110,19 @@ void draw(HyperspaceSaverSettings *inSettings){
 			// because they have to be drawn and then read back from the framebuffer.
 #ifdef WIN32
 			if(doingPreview) // super fast for Windows previewer
-				inSettings->theCausticTextures = new causticTextures(8, inSettings->numAnimTexFrames, 32, 32, 1.0f, 0.01f, 10.0f);
+				inSettings->theCausticTextures = new causticTextures(inSettings->renderer, 8, inSettings->numAnimTexFrames, 32, 32, 1.0f, 0.01f, 10.0f);
 			else  // normal
 #endif
-				inSettings->theCausticTextures = new causticTextures(8, inSettings->numAnimTexFrames, 100, 256, 1.0f, 0.01f, 20.0f);
+				inSettings->theCausticTextures = new causticTextures(inSettings->renderer, 8, inSettings->numAnimTexFrames, 100, 256, 1.0f, 0.01f, 20.0f);
 			glEnable(GL_FOG);
 		}
 		if(inSettings->dShaders){
 #ifdef WIN32
 			if(doingPreview) // super fast for Windows previewer
-				inSettings->theWNCM = new wavyNormalCubeMaps(inSettings->numAnimTexFrames, 32);
+				inSettings->theWNCM = new wavyNormalCubeMaps(inSettings->renderer, inSettings->numAnimTexFrames, 32);
 			else  // normal
 #endif
-				inSettings->theWNCM = new wavyNormalCubeMaps(inSettings->numAnimTexFrames, 128);
+				inSettings->theWNCM = new wavyNormalCubeMaps(inSettings->renderer, inSettings->numAnimTexFrames, 128);
 		}
 		glViewport(inSettings->viewport[0], inSettings->viewport[1], inSettings->viewport[2], inSettings->viewport[3]);
 		inSettings->first = 0;
@@ -575,21 +575,13 @@ void initSaver(HyperspaceSaverSettings *inSettings){
 	for(int i=0; i<SB_NUM_STARS; i++)
 		inSettings->theStarBurst->stars[i]->radius = rsRandf(float(inSettings->dStarSize) * 0.001f) + float(inSettings->dStarSize) * 0.001f;
 
-	glGenTextures(1, &inSettings->nebulatex);
 	if(inSettings->dShaders){
 		initShaders();
 		inSettings->numAnimTexFrames = 20;
-		glBindTexture(GL_TEXTURE_CUBE_MAP_ARB, inSettings->nebulatex);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP_ARB, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP_ARB, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		gluBuild2DMipmaps(GL_TEXTURE_CUBE_MAP_NEGATIVE_X_ARB, 3, NEBULAMAPSIZE, NEBULAMAPSIZE, GL_RGB, GL_UNSIGNED_BYTE, nebulamap);
-		gluBuild2DMipmaps(GL_TEXTURE_CUBE_MAP_POSITIVE_X_ARB, 3, NEBULAMAPSIZE, NEBULAMAPSIZE, GL_RGB, GL_UNSIGNED_BYTE, nebulamap);
-		gluBuild2DMipmaps(GL_TEXTURE_CUBE_MAP_NEGATIVE_Y_ARB, 3, NEBULAMAPSIZE, NEBULAMAPSIZE, GL_RGB, GL_UNSIGNED_BYTE, nebulamap);
-		gluBuild2DMipmaps(GL_TEXTURE_CUBE_MAP_POSITIVE_Y_ARB, 3, NEBULAMAPSIZE, NEBULAMAPSIZE, GL_RGB, GL_UNSIGNED_BYTE, nebulamap);
-		gluBuild2DMipmaps(GL_TEXTURE_CUBE_MAP_NEGATIVE_Z_ARB, 3, NEBULAMAPSIZE, NEBULAMAPSIZE, GL_RGB, GL_UNSIGNED_BYTE, nebulamap);
-		gluBuild2DMipmaps(GL_TEXTURE_CUBE_MAP_POSITIVE_Z_ARB, 3, NEBULAMAPSIZE, NEBULAMAPSIZE, GL_RGB, GL_UNSIGNED_BYTE, nebulamap);
+		HSMipChain faces[6];  // the same nebula on every face
+		for(int f=0; f<6; f++)
+			hsBuildMipmaps(&nebulamap[0][0][0], NEBULAMAPSIZE, 3, faces[f]);
+		inSettings->nebulatex = inSettings->renderer->createCubeTexture(faces);
 	}
 	else{
 		//unsigned char spheremap[NEBULAMAPSIZE][NEBULAMAPSIZE][3] = nebulamap;
@@ -613,10 +605,9 @@ void initSaver(HyperspaceSaverSettings *inSettings){
 			}
 		}
 		glEnable(GL_NORMALIZE);
-		glBindTexture(GL_TEXTURE_2D, inSettings->nebulatex);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-		gluBuild2DMipmaps(GL_TEXTURE_2D, 3, NEBULAMAPSIZE, NEBULAMAPSIZE, GL_RGB, GL_UNSIGNED_BYTE, nebulamap);
+		HSMipChain chain;
+		hsBuildMipmaps(&nebulamap[0][0][0], NEBULAMAPSIZE, 3, chain);
+		inSettings->nebulatex = inSettings->renderer->createMipmappedTexture(chain);
 	}
 
 	glEnable(GL_FOG);

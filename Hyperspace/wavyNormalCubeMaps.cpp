@@ -22,10 +22,11 @@
 #include <Hyperspace/wavyNormalCubeMaps.h>
 #include <rsMath/rsMath.h>
 #include <math.h>
+#include <Hyperspace/renderer.h>
 
 
 
-wavyNormalCubeMaps::wavyNormalCubeMaps(int frames, int size){
+wavyNormalCubeMaps::wavyNormalCubeMaps(HSRenderer *renderer, int frames, int size){
 	int g, i, j;
 
 	numFrames = frames;
@@ -35,18 +36,13 @@ wavyNormalCubeMaps::wavyNormalCubeMaps(int frames, int size){
 	
 	// allocate memory for pointers to texture objects
 	texture = new GLuint[numFrames];
-	glGenTextures(numFrames, texture);
 
 	// calculate normal cube maps
 	float vec[3];
 	float norm[3];
 	float offset = -0.5f * float(texSize) + 0.5f;
 	for(g=0; g<numFrames; g++){
-		glBindTexture(GL_TEXTURE_CUBE_MAP_ARB, texture[g]);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP_ARB, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP_ARB, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		HSMipChain faces[6];  // -x +x -y +y -z +z
 		phase = RS_PIx2 * float(g) / float(numFrames);
 
 		// left
@@ -62,8 +58,7 @@ wavyNormalCubeMaps::wavyNormalCubeMaps(int frames, int size){
 				map[(i + j * texSize) * 3 + 2] = GLubyte(norm[2] * -127.999f + 128.0f);
 			}
 		}
-		gluBuild2DMipmaps(GL_TEXTURE_CUBE_MAP_NEGATIVE_X_ARB, 3, texSize, texSize,
-			GL_RGB, GL_UNSIGNED_BYTE, map);
+		hsBuildMipmaps(map, texSize, 3, faces[0]);
 
 		// right
 		for(i=0; i<texSize; i++){
@@ -78,8 +73,7 @@ wavyNormalCubeMaps::wavyNormalCubeMaps(int frames, int size){
 				map[(i + j * texSize) * 3 + 2] = GLubyte(norm[2] * -127.999f + 128.0f);
 			}
 		}
-		gluBuild2DMipmaps(GL_TEXTURE_CUBE_MAP_POSITIVE_X_ARB, 3, texSize, texSize,
-			GL_RGB, GL_UNSIGNED_BYTE, map);
+		hsBuildMipmaps(map, texSize, 3, faces[1]);
 
 		// back
 		for(i=0; i<texSize; i++){
@@ -94,8 +88,7 @@ wavyNormalCubeMaps::wavyNormalCubeMaps(int frames, int size){
 				map[(i + j * texSize) * 3 + 2] = GLubyte(norm[2] * -127.999f + 128.0f);
 			}
 		}
-		gluBuild2DMipmaps(GL_TEXTURE_CUBE_MAP_NEGATIVE_Z_ARB, 3, texSize, texSize,
-			GL_RGB, GL_UNSIGNED_BYTE, map);
+		hsBuildMipmaps(map, texSize, 3, faces[4]);
 
 		// front
 		for(i=0; i<texSize; i++){
@@ -110,8 +103,7 @@ wavyNormalCubeMaps::wavyNormalCubeMaps(int frames, int size){
 				map[(i + j * texSize) * 3 + 2] = GLubyte(norm[2] * -127.999f + 128.0f);
 			}
 		}
-		gluBuild2DMipmaps(GL_TEXTURE_CUBE_MAP_POSITIVE_Z_ARB, 3, texSize, texSize,
-			GL_RGB, GL_UNSIGNED_BYTE, map);
+		hsBuildMipmaps(map, texSize, 3, faces[5]);
 
 		// bottom
 		for(i=0; i<texSize; i++){
@@ -126,8 +118,7 @@ wavyNormalCubeMaps::wavyNormalCubeMaps(int frames, int size){
 				map[(i + j * texSize) * 3 + 2] = GLubyte(norm[2] * -127.999f + 128.0f);
 			}
 		}
-		gluBuild2DMipmaps(GL_TEXTURE_CUBE_MAP_NEGATIVE_Y_ARB, 3, texSize, texSize,
-			GL_RGB, GL_UNSIGNED_BYTE, map);
+		hsBuildMipmaps(map, texSize, 3, faces[2]);
 
 		// top
 		for(i=0; i<texSize; i++){
@@ -142,8 +133,8 @@ wavyNormalCubeMaps::wavyNormalCubeMaps(int frames, int size){
 				map[(i + j * texSize) * 3 + 2] = GLubyte(norm[2] * -127.999f + 128.0f);
 			}
 		}
-		gluBuild2DMipmaps(GL_TEXTURE_CUBE_MAP_POSITIVE_Y_ARB, 3, texSize, texSize,
-			GL_RGB, GL_UNSIGNED_BYTE, map);
+		hsBuildMipmaps(map, texSize, 3, faces[3]);
+		texture[g] = renderer->createCubeTexture(faces);
 	}
 
 	delete[] map;
