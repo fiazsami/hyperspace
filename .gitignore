@@ -15,3 +15,6 @@ Hyperspace.xcodeproj/xcuserdata
 
 # Build tree for the tests workflow in .github/workflows/
 .ci-build/
+
+# Build tree and images for parity/ (GL -> Metal comparison)
+.parity-build/
