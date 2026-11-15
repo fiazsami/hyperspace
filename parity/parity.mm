@@ -33,6 +33,8 @@
 #include <string>
 #include <vector>
 #include "Hyperspace.h"
+#include "splinePath.h"
+#include "starBurst.h"
 
 extern GLhandleARB gooProgram, tunnelProgram;
 
@@ -553,15 +555,22 @@ struct Pass {
     const char *name, *file, *vfn, *ffn;
     bool goo, tunnels; int frames, every;
     double max2, max8, maxBias;
+    int burstAt;   // frame at which to set off the starburst; 0 leaves it to the saver's timer
 };
 static const Pass kPasses[] = {
     // 60 s; stars are tiny, so the lit-pixel normalization matters most here.
-    {"stars",  "FixedFunction.metal", "ff_vertex",     "ff_fragment",     false, false, 3600, 300, 1.0, 0.1, 0.06},
+    {"stars",  "FixedFunction.metal", "ff_vertex",     "ff_fragment",     false, false, 3600, 300, 1.0, 0.1, 0.06, 0},
     // 60 s; faithful worst 5.28% / 1.35% / bias 0.012, weakest defect bias 0.357.
-    {"goo",    "Goo.metal",           "goo_vertex",    "goo_fragment",    true,  false, 3600, 300, 8.0, 2.5, 0.06},
+    {"goo",    "Goo.metal",           "goo_vertex",    "goo_fragment",    true,  false, 3600, 300, 8.0, 2.5, 0.06, 0},
     // 2 min: one minute rarely puts the camera inside a tunnel. Faithful worst
     // 1.50% / 0.28% / 0.012; weakest defects 4.81% / bias 0.197 and 3.92% / 0.220.
-    {"tunnel", "Tunnel.metal",        "tunnel_vertex", "tunnel_fragment", false, true,  7200, 200, 3.0, 0.6, 0.06},
+    {"tunnel", "Tunnel.metal",        "tunnel_vertex", "tunnel_fragment", false, true,  7200, 200, 3.0, 0.6, 0.06, 0},
+    // 8 s with a starburst set off at 1 s; the saver's own timer would wait five
+    // minutes. Its stars are judged with the stars pass's shader and limits; its
+    // sphere is refused (a display list drawn with the goo program), so shots
+    // that show it FAIL. The pass is there for seamcheck.sh, which compares GL
+    // with GL and ignores that verdict.
+    {"burst",  "FixedFunction.metal", "ff_vertex",     "ff_fragment",     false, false, 480,  30,  1.0, 0.1, 0.06, 60},
 };
 
 // ---- Metal ----
@@ -668,7 +677,7 @@ int main(int argc, const char *argv[])
         if (argc == 4 && !strcmp(argv[1], "--compare")) return compareRuns(@(argv[2]), @(argv[3]));
         if (argc == 2 && !strcmp(argv[1], "--inject-cases")) { for (const char *k : kInjectCases) printf("%s\n", k); return 0; }
         if (argc < 4) {
-            fprintf(stderr, "usage: parity <stars|goo|tunnel> <metal-dir> <outdir> [shader=PATH] [inject=CASE] [frames=N] [every=N] [w=N] [h=N]\n");
+            fprintf(stderr, "usage: parity <stars|goo|tunnel|burst> <metal-dir> <outdir> [shader=PATH] [inject=CASE] [frames=N] [every=N] [w=N] [h=N]\n");
             return 2;
         }
         const Pass *pass = nullptr;
@@ -702,7 +711,7 @@ int main(int argc, const char *argv[])
         // Two libraries, each with the interface prepended: the fixed-function path
         // (always needed -- stars draw in every pass) and the judged pass's shader.
         NSString *iface = readFile([metalDir stringByAppendingPathComponent:@"Interface.metal"]);
-        bool starsPass = !strcmp(pass->name, "stars");
+        bool starsPass = !strcmp(pass->file, "FixedFunction.metal");   // stars and burst
         NSString *ffPath = starsPass ? shaderPath : [metalDir stringByAppendingPathComponent:@"FixedFunction.metal"];
         NSString *ffSrc = readFile(ffPath), *passSrc = starsPass ? ffSrc : readFile(shaderPath);
         if (!iface || !ffSrc || !passSrc) return 2;
@@ -834,6 +843,16 @@ int main(int argc, const char *argv[])
             s.frameTime = dt;
             if (shot) while (glGetError() != GL_NO_ERROR) {}
             if (shot) glBeginQuery(GL_PRIMITIVES_GENERATED_EXT, primQuery);
+            if (pass->burstAt > 0 && f == pass->burstAt) {
+                // Where the saver puts one, ahead of the camera along the path, with
+                // its random distance (0.5 to 1.0 of depth) and height (-1 to 1)
+                // fixed at their middles.
+                float dir[3], at[3];
+                s.thePath->getBaseDirection(s.dDepth + 2, s.thePath->step, dir);
+                for (int i = 0; i < 3; i++) at[i] = s.camPos[i] + dir[i] * s.depth * 0.75f;
+                at[1] = 0.0f;
+                s.theStarBurst->restart(at);
+            }
             draw(&s);
             if (shot && inject) injectFault(inject);
             if (shot) glEndQuery(GL_PRIMITIVES_GENERATED_EXT);

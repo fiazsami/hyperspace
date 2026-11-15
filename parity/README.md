@@ -25,11 +25,21 @@ pass fails.
 | `stars` | stars, sun, lens flare (GL fixed function) | `metal/FixedFunction.metal` | 60 s, 12 shots |
 | `goo` | the GLSL goo program: cube-mapped normals, reflection, Fresnel | `metal/Goo.metal` | 60 s, 12 shots |
 | `tunnel` | the GLSL tunnel program: two caustic textures, two octaves | `metal/Tunnel.metal` | 2 min, 36 shots |
+| `burst` | the starburst's stars; its sphere is refused (below) | `metal/FixedFunction.metal` | 8 s, 16 shots |
 
 Stars draw in every pass, through `FixedFunction.metal`. The tunnel needs two
 minutes because one rarely puts the camera inside a tunnel; most shots of the
 first minute are under 1% lit. Every pass runs with shaders on; nothing here
 judges the fixed-function goo and tunnel a user gets with shaders off.
+
+The saver sets off its first starburst after five minutes. `burst` sets one off
+itself, at frame 60, ahead of the camera along the path as the saver does, but
+at fixed values where the saver draws random ones: 0.75 of the depth ahead
+(the saver: 0.5 to 1.0) and height 0 (the saver: -1 to 1). It exists for the seam
+check: the sphere is drawn with the goo program from a display list, which the
+recorder refuses, so every shot that shows it FAILs as "unrecorded GL draw
+calls", and `killcheck.sh` does not run it. The burst's stars are judged with
+the stars pass's limits.
 
 ## The rule
 
@@ -153,9 +163,13 @@ translation residual and its rule is tighter than any pass's: per shot, at most
 bias of 0.06.
 
 ```bash
-parity/seamcheck.sh master            # all three passes, ~3 min
+parity/seamcheck.sh master            # all four passes, ~3 min
 parity/seamcheck.sh master stars      # one pass
 ```
+
+A `<ref>` older than the `burst` pass does not know it: name the other three.
+The burst pass compared with itself is exactly 0, and the starburst's sphere
+scaled by 1.1 comes out DIFFERENT at 99.0%.
 
 `master` against itself compares at exactly 0. Moving the camera maths off the GL
 matrix stack (`Hyperspace/transform`) measured 0.000% / 0.005% / 0.015% worst
@@ -195,9 +209,9 @@ DIFFERENT at 93.6% and 99.99%.
   verdict there would mean nothing yet. This runs locally.
 - **The replay reuses GL's matrices.** A real port computes them itself, which
   can add a small error this does not measure.
-- **The starburst is never judged.** It is dormant for the first five minutes,
-  and past that it is drawn with the goo program from a display list, which the
-  recorder refuses: a run long enough to reach it fails with "unrecorded GL draw
-  calls" rather than a verdict on any shader.
+- **The starburst's sphere is never judged.** It is drawn with the goo program
+  from a display list, which the recorder refuses. The `burst` pass reaches it,
+  so the seam check covers it, but its Metal verdict on those shots is always
+  that refusal.
 - **It is a comparison, not a renderer.** Nothing here draws the saver; the
   shaders in `metal/` are what a Metal renderer would use.

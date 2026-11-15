@@ -6,16 +6,17 @@
 # `parity --compare`. Both sides are the GL renderer, so the two should agree to
 # within float rounding; the Metal images are not compared. Each run still builds
 # its own tree's Metal pipelines, so <ref> must be a commit whose parity runs --
-# any master commit is.
+# any master commit is -- and knows every pass asked for: name the passes when
+# <ref> predates the burst pass.
 #
-#   parity/seamcheck.sh <ref> [stars|goo|tunnel ...]    default: all three
+#   parity/seamcheck.sh <ref> [stars|goo|tunnel|burst ...]    default: all four
 #
 # Exit 0 = the same picture, 1 = different, 2 = a run or build failed.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 [ $# -ge 1 ] || { echo "usage: parity/seamcheck.sh <ref> [pass ...]" >&2; exit 2; }
 ref=$1; shift
-passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo tunnel)
+passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo tunnel burst)
 sha=$(git rev-parse --verify "$ref^{commit}") || exit 2
 
 OUT=.parity-build/seam
