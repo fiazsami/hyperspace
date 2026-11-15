@@ -78,12 +78,11 @@ struct Batch {
     std::vector<Vtx> tri;                                            // immediate and tunnel
     std::vector<float> gooVerts; std::vector<uint32_t> gooTri; GLuint cube[3] = {0, 0, 0};
 };
-struct ListOp { GLuint tex = 0; bool hasTex = false; std::vector<std::vector<Vtx>> strips; };
+struct ListOp { GLuint tex = 0; bool hasTex = false, unreplayable = false; std::vector<std::vector<Vtx>> strips; };
 
 static bool gRecording = false;
 static std::vector<Batch> gBatches;
 static std::map<GLuint, ListOp> gLists;
-static GLuint gCompiling = 0;
 static GLenum gMode = 0;
 static std::vector<Vtx> gStrip;
 static simd_float2 gUV = {0, 0};
@@ -121,22 +120,26 @@ static bool blendSupported()
     GLint src, dst; glGetIntegerv(GL_BLEND_SRC, &src); glGetIntegerv(GL_BLEND_DST, &dst);
     return glIsEnabled(GL_BLEND) && src == GL_SRC_ALPHA && dst == GL_ONE;
 }
+static GLuint gCompiling = 0;
 static bool fixedFunctionSupported(GLuint boundTex)
 {
+    if (gCompiling) return false;   // the bind/restore below would be compiled into the open list
     if (!blendSupported() || glGetHandleARB(GL_PROGRAM_OBJECT_ARB)) return false;
     if (glIsEnabled(GL_TEXTURE_CUBE_MAP) || glIsEnabled(GL_TEXTURE_GEN_S) || glIsEnabled(GL_TEXTURE_GEN_T)) return false;
     if (!glIsEnabled(GL_TEXTURE_2D)) return true;
     GLint env; glGetTexEnviv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, &env);
     if (env != GL_MODULATE) return false;
-    // glGetTexImage(GL_RGBA) turns an alpha-only texture into (0,0,0,A), which
-    // MODULATE would not match; every other base format reads back equivalently.
+    // copy2D reads textures back with glGetTexImage(GL_RGBA), which reproduces only
+    // RGB and RGBA. Measured on this driver: alpha-only reads back (0,0,0,A), and
+    // luminance, luminance-alpha and intensity read back red-only, none of which
+    // MODULATE would match.
     GLint saved, r = 0, l = 0, i = 0; glGetIntegerv(GL_TEXTURE_BINDING_2D, &saved);
     real_glBindTexture(GL_TEXTURE_2D, boundTex);
     glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_RED_SIZE, &r);
     glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_LUMINANCE_SIZE, &l);
     glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTENSITY_SIZE, &i);
     real_glBindTexture(GL_TEXTURE_2D, saved);
-    return r || l || i;
+    return r && !l && !i;
 }
 
 // Odd triangles swap their first two vertices so every triangle keeps the strip's winding.
@@ -151,15 +154,21 @@ template <typename T> static void stripToTris(const std::vector<T> &s, std::vect
 extern "C" void glBegin(GLenum mode) { gMode = mode; gStrip.clear(); if (gRecording && mode != GL_TRIANGLE_STRIP) gUnsupported++; real_glBegin(mode); }
 extern "C" void glTexCoord2f(GLfloat s, GLfloat t) { gUV = simd_make_float2(s, t); real_glTexCoord2f(s, t); }
 extern "C" void glTexCoord2fv(const GLfloat *t) { gUV = simd_make_float2(t[0], t[1]); real_glTexCoord2fv(t); }
-extern "C" void glColor3f(GLfloat r, GLfloat g, GLfloat b) { gColor = simd_make_float4(r, g, b, 1); real_glColor3f(r, g, b); }
-extern "C" void glColor3fv(const GLfloat *c) { gColor = simd_make_float4(c[0], c[1], c[2], 1); real_glColor3fv(c); }
-extern "C" void glColor4f(GLfloat r, GLfloat g, GLfloat b, GLfloat a) { gColor = simd_make_float4(r, g, b, a); real_glColor4f(r, g, b, a); }
-extern "C" void glColor4fv(const GLfloat *c) { gColor = simd_make_float4(c[0], c[1], c[2], c[3]); real_glColor4fv(c); }
+// A list that sets its own colour would be replayed with the call-time colour instead.
+static void noteListColour() { if (gCompiling) gLists[gCompiling].unreplayable = true; }
+extern "C" void glColor3f(GLfloat r, GLfloat g, GLfloat b) { noteListColour(); gColor = simd_make_float4(r, g, b, 1); real_glColor3f(r, g, b); }
+extern "C" void glColor3fv(const GLfloat *c) { noteListColour(); gColor = simd_make_float4(c[0], c[1], c[2], 1); real_glColor3fv(c); }
+extern "C" void glColor4f(GLfloat r, GLfloat g, GLfloat b, GLfloat a) { noteListColour(); gColor = simd_make_float4(r, g, b, a); real_glColor4f(r, g, b, a); }
+extern "C" void glColor4fv(const GLfloat *c) { noteListColour(); gColor = simd_make_float4(c[0], c[1], c[2], c[3]); real_glColor4fv(c); }
 extern "C" void glVertex3f(GLfloat x, GLfloat y, GLfloat z) { gStrip.push_back({simd_make_float3(x, y, z), gUV, gColor}); real_glVertex3f(x, y, z); }
 extern "C" void glVertex3fv(const GLfloat *v) { gStrip.push_back({simd_make_float3(v[0], v[1], v[2]), gUV, gColor}); real_glVertex3fv(v); }
 extern "C" void glBindTexture(GLenum target, GLuint tex)
 {
-    if (gCompiling && target == GL_TEXTURE_2D) { gLists[gCompiling].tex = tex; gLists[gCompiling].hasTex = true; }
+    if (gCompiling && target == GL_TEXTURE_2D) {
+        ListOp &l = gLists[gCompiling];
+        if (l.hasTex) l.unreplayable = true;   // one texture per batch in the replay
+        l.tex = tex; l.hasTex = true;
+    }
     real_glBindTexture(target, tex);
 }
 extern "C" void glEnd(void)
@@ -180,8 +189,10 @@ extern "C" void glEnd(void)
     gBatches.push_back(std::move(b));
 }
 // Display lists are recorded when compiled -- every strip in them -- and expanded
-// when called. Their vertices take the current colour at call time, which is right
-// only for lists that set no colour of their own, as the flare quads do not.
+// when called with the current colour. A list that sets its own colour or binds
+// more than one texture is refused. Other state a list changes (glEnable,
+// glBlendFunc) is not intercepted and would go unnoticed; Hyperspace's lists
+// change none.
 extern "C" void glNewList(GLuint list, GLenum mode) { if (mode == GL_COMPILE) gCompiling = list; real_glNewList(list, mode); }
 extern "C" void glEndList(void) { gCompiling = 0; real_glEndList(); }
 extern "C" void glCallList(GLuint list)
@@ -191,7 +202,7 @@ extern "C" void glCallList(GLuint list)
         Batch b; b.kind = DrawKind::Immediate; b.st = snap();
         GLint cur; glGetIntegerv(GL_TEXTURE_BINDING_2D, &cur);
         b.tex = it->second.hasTex ? it->second.tex : (GLuint)cur;
-        if (!fixedFunctionSupported(b.tex)) gUnsupported++;
+        if (it->second.unreplayable || !fixedFunctionSupported(b.tex)) gUnsupported++;
         else {
             for (std::vector<Vtx> s : it->second.strips) {
                 for (auto &v : s) v.c = b.st.color;
