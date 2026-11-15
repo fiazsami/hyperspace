@@ -54,4 +54,4 @@ The tests, fixes and reviews were written by coding agents (Claude Code) running
 
 - Hyperspace © 1999–2010 Terence M. Welsh.
 - macOS port © 2006 Nick Zitzmann ([nickzman/hyperspace](https://github.com/nickzman/hyperspace)).
-- Licensed under the GPL, version 2 or later ([`LICENSE.txt`](LICENSE.txt)). The core libraries (`rsMath`, `Implicit`, `Rgbhsl` and others) are LGPL-2.1 or later, per their file headers.
+- Licensed under the GPL, version 2 or later ([`LICENSE.txt`](LICENSE.txt)). The core libraries (`rsMath`, `Implicit`, `Rgbhsl` and others) are LGPL-2.1 or later, per their file headers. The macOS view files (`*View.h`, `*View.mm`) carry their own copyright notices with no separate licence grant; see their headers.
