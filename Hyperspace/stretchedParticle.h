@@ -24,6 +24,8 @@
 
 #include "Hyperspace.h"
 
+class HSRenderer;
+
 
 class stretchedParticle{
 public:
@@ -41,7 +43,8 @@ public:
 	stretchedParticle();
 	~stretchedParticle(){};
 	//void update();
-	void draw(float* eyepoint, float unroll, double *modelMat, double *projMat, GLint *viewport);
+	// Draws through renderer with texture, so it needs no GL context.
+	void draw(HSRenderer *renderer, unsigned int texture, float* eyepoint, float unroll, double *modelMat, double *projMat, int *viewport);
 };
 
 

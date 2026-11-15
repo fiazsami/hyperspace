@@ -24,9 +24,9 @@
 #endif
 #include <Hyperspace/stretchedParticle.h>
 #include <Hyperspace/transform.h>
+#include <Hyperspace/renderer.h>
 #include <stdio.h>
 #include <math.h>
-#include <OpenGL/gl.h>
 
 
 
@@ -51,7 +51,7 @@ stretchedParticle::stretchedParticle(){
 }
 
 
-void stretchedParticle::draw(float* eyepoint, float unroll, double *modelMat, double *projMat, GLint *viewport){
+void stretchedParticle::draw(HSRenderer *renderer, unsigned int texture, float* eyepoint, float unroll, double *modelMat, double *projMat, int *viewport){
 	double win[3];
 	// Where the projection fails (w = 0) the star keeps last frame's position.
 	if(hsProject(pos[0], pos[1], pos[2], modelMat, projMat, viewport, win) && win[2] > 0.0f){
@@ -93,39 +93,21 @@ void stretchedParticle::draw(float* eyepoint, float unroll, double *modelMat, do
 		stretch = 1.0f;
 	if(stretch > 0.5f / radius)
 		stretch = 0.5f / radius;
-	glPushMatrix();
-		glTranslatef(drawPos[0], drawPos[1], drawPos[2]);
-		glMultMatrixf(bbMat);
-		glRotatef(57.2957795131f * atan2f(sd[1], sd[0]) + unroll, 0, 0, 1);
-		glScalef(stretch, 1.0f, 1.0f);
-		float darkener = stretch * 0.3f;
-		if(darkener < 1.0f)
-			darkener = 1.0f;
-		// draw colored aura
-		glColor3f(color[0] / darkener, color[1] / darkener, color[2] / darkener);
-		glBegin(GL_TRIANGLE_STRIP);
-			glTexCoord2f(0.0f, 0.0f);
-			glVertex3f(-radius, -radius, 0.0f);
-			glTexCoord2f(1.0f, 0.0f);
-			glVertex3f(radius, -radius, 0.0f);
-			glTexCoord2f(0.0f, 1.0f);
-			glVertex3f(-radius, radius, 0.0f);
-			glTexCoord2f(1.0f, 1.0f);
-			glVertex3f(radius, radius, 0.0f);
-		glEnd();
-		// draw white center
-		glColor3f(1.0f / darkener, 1.0f / darkener, 1.0f / darkener);
-		glBegin(GL_TRIANGLE_STRIP);
-			glTexCoord2f(0.0f, 0.0f);
-			glVertex3f(-radius*0.3f, -radius*0.3f, 0.0f);
-			glTexCoord2f(1.0f, 0.0f);
-			glVertex3f(radius*0.3f, -radius*0.3f, 0.0f);
-			glTexCoord2f(0.0f, 1.0f);
-			glVertex3f(-radius*0.3f, radius*0.3f, 0.0f);
-			glTexCoord2f(1.0f, 1.0f);
-			glVertex3f(radius*0.3f, radius*0.3f, 0.0f);
-		glEnd();
-	glPopMatrix();
+	float m[16];
+	hsIdentity(m);
+	hsTranslate(m, drawPos[0], drawPos[1], drawPos[2]);
+	hsMultiply(m, bbMat);
+	hsRotate(m, 57.2957795131f * atan2f(sd[1], sd[0]) + unroll, 0, 0, 1);
+	hsScale(m, stretch, 1.0f, 1.0f);
+	float darkener = stretch * 0.3f;
+	if(darkener < 1.0f)
+		darkener = 1.0f;
+	// draw colored aura
+	const float aura[4] = {color[0] / darkener, color[1] / darkener, color[2] / darkener, 1.0f};
+	renderer->drawQuad(texture, aura, m, radius);
+	// draw white center
+	const float center[4] = {1.0f / darkener, 1.0f / darkener, 1.0f / darkener, 1.0f};
+	renderer->drawQuad(texture, center, m, radius * 0.3f);
 	
 	lastScreenPos[0] = screenPos[0];
 	lastScreenPos[1] = screenPos[1];
