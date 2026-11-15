@@ -42,12 +42,15 @@ public:
         textureSizes.push_back(width * 1000 + height);
         return 100 + (unsigned int)textureSizes.size();
     }
-    void drawStrip(unsigned int texture, const float color[4], const HSVertex *v, int count) override
+    /* Records the corners drawQuad's contract says it draws. */
+    void drawQuad(unsigned int texture, const float color[4], const float model[16], float half) override
     {
+        HSVertex v[4];
+        hsQuad(model, half, v);
         Strip s;
         s.texture = texture;
         memcpy(s.color, color, sizeof s.color);
-        s.v.assign(v, v + count);
+        s.v.assign(v, v + 4);
         s.overlay = inOverlay;
         strips.push_back(s);
     }
@@ -76,7 +79,11 @@ HyperspaceSaverSettings *settingsFor(Recorder *r)
     s->xsize = 200; s->ysize = 100; s->aspectRatio = 2.0f;
     camera(s->modelMat, s->projMat, s->viewport);
     hsIdentity(s->billboardMat);
-    s->frameTime = 0.0f;   // keeps the flicker where it is
+    /* flare() keeps its flicker in a function static that outlives each test.
+     * frameTime 0 holds it wherever the last call left it, so no assertion
+     * here depends on its value: sizes and colours checked are the ones the
+     * flicker does not scale, and alphas are compared as ratios. */
+    s->frameTime = 0.0f;
     return s;
 }
 }
@@ -319,5 +326,42 @@ TEST(renderer_flare_flicker_stays_between_0_9_and_1_1)
     }
     CHECK(low && high);
     s->frameTime = 0.0f;
+    delete s;
+}
+
+TEST(renderer_flare_elements_sit_along_the_flare_line_in_their_colours)
+{
+    Recorder r;
+    HyperspaceSaverSettings *s = settingsFor(&r);
+    float pos[3] = {1, 0.5f, -5};               /* plane (1.1, 0.55): off centre */
+    flare(pos, 0.5f, 0.6f, 0.7f, 1, s);
+    CHECK(r.strips.size() == 13);
+    if (r.strips.size() != 13) { delete s; return; }
+
+    /* Each element is centred at source + k * (screen centre - source). */
+    const float k[13] = {0, 0, 0, 0.35f, 0.45f, 0.55f, 0.75f, 0.78f, 1.25f, 1.3f, 1.45f, 2.0f, 2.4f};
+    const float x = 1.1f, y = 0.55f, dx = 1.0f - x, dy = 0.5f - y;
+    const float rgb[13][3] = {{1, 1, 0.8f}, {0.3f, 0.3f, 1}, {1, 0.5f, 0.5f}, {0.85f, 0.85f, 1},
+                              {0.7f, 0.7f, 1}, {0.55f, 0.55f, 1}, {0.3f, 0.3f, 0.3f}, {0.3f, 0.4f, 0.4f},
+                              {0.3f, 0.4f, 0.3f}, {0.6f, 0.45f, 0.3f}, {1, 1, 1}, {1, 1, 1}, {1, 1, 1}};
+    const float alpha[13] = {1, 1, 0.4f, 0.5f, 0.4f, 0.3f, 1, 0.5f, 0.5f, 0.5f, 0.4f, 0.2f, 0.3f};
+    const float in[3] = {0.5f, 0.6f, 0.7f};
+    for (int e = 0; e < 13; e++) {
+        const HSVertex *q = r.strips[e].v.data();
+        CHECK_NEAR((q[0].pos[0] + q[3].pos[0]) / 2, x + dx * k[e], 1e-4);
+        CHECK_NEAR((q[0].pos[1] + q[3].pos[1]) / 2, y + dy * k[e], 1e-4);
+        for (int c = 0; c < 3; c++) CHECK_NEAR(r.strips[e].color[c], in[c] * rgb[e][c], kTol);
+        CHECK_NEAR(r.strips[e].color[3] / r.strips[0].color[3], alpha[e], kTol);
+    }
+
+    /* The stretched weird flare scales after rotating by x * 70 degrees, so
+     * its bottom edge is (0.8 cos a, 0.2 sin a); rotating after scaling would
+     * give 0.8 (cos a, sin a). The big one turns by y * 40 degrees. */
+    const float a = 1.1f * 70.0f * float(M_PI / 180.0), b = 0.55f * 40.0f * float(M_PI / 180.0);
+    const HSVertex *w = r.strips[10].v.data(), *big = r.strips[12].v.data();
+    CHECK_NEAR(w[1].pos[0] - w[0].pos[0], 0.8 * cos(a), 1e-4);
+    CHECK_NEAR(w[1].pos[1] - w[0].pos[1], 0.2 * sin(a), 1e-4);
+    CHECK_NEAR(big[1].pos[0] - big[0].pos[0], 0.7 * cos(b), 1e-4);
+    CHECK_NEAR(big[1].pos[1] - big[0].pos[1], 0.7 * sin(b), 1e-4);
     delete s;
 }

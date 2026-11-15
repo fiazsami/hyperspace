@@ -102,15 +102,12 @@ void stretchedParticle::draw(HSRenderer *renderer, unsigned int texture, float* 
 	float darkener = stretch * 0.3f;
 	if(darkener < 1.0f)
 		darkener = 1.0f;
-	HSVertex quad[4];
 	// draw colored aura
 	const float aura[4] = {color[0] / darkener, color[1] / darkener, color[2] / darkener, 1.0f};
-	hsQuad(m, radius, quad);
-	renderer->drawStrip(texture, aura, quad, 4);
+	renderer->drawQuad(texture, aura, m, radius);
 	// draw white center
 	const float center[4] = {1.0f / darkener, 1.0f / darkener, 1.0f / darkener, 1.0f};
-	hsQuad(m, radius * 0.3f, quad);
-	renderer->drawStrip(texture, center, quad, 4);
+	renderer->drawQuad(texture, center, m, radius * 0.3f);
 	
 	lastScreenPos[0] = screenPos[0];
 	lastScreenPos[1] = screenPos[1];

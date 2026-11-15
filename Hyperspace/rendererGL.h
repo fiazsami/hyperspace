@@ -16,13 +16,15 @@
 
 #include <Hyperspace/renderer.h>
 
-// HSRenderer on the current OpenGL context. Blend, texture enable and fog are
-// the caller's for world strips, as they were before the seam: draw() sets
-// them once per frame, not per star.
+// HSRenderer on the current OpenGL context. For world quads the GL state the
+// contract describes -- blending (SRC_ALPHA, ONE), GL_TEXTURE_2D enabled,
+// MODULATE, and linear fog from 0.7 * depth to depth -- is not set here: it is
+// the state draw() and initSaver() leave, set once per frame rather than per
+// star, as it was before the seam. beginOverlay sets its own.
 class HSRendererGL : public HSRenderer{
 public:
 	unsigned int createTexture(int width, int height, const unsigned char *rgba);
-	void drawStrip(unsigned int texture, const float color[4], const HSVertex *v, int count);
+	void drawQuad(unsigned int texture, const float color[4], const float model[16], float half);
 	void beginOverlay(float aspect);
 	void endOverlay();
 };

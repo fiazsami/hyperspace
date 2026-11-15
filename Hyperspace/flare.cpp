@@ -142,9 +142,7 @@ void initFlares(HyperspaceSaverSettings *inSettings){
 static void flareElement(HyperspaceSaverSettings *inSettings, int which, const float m[16],
                          float red, float green, float blue, float alpha){
 	const float color[4] = {red, green, blue, alpha};
-	HSVertex quad[4];
-	hsQuad(m, 0.5f, quad);
-	inSettings->renderer->drawStrip(inSettings->flaretex[which], color, quad, 4);
+	inSettings->renderer->drawQuad(inSettings->flaretex[which], color, m, 0.5f);
 }
 
 

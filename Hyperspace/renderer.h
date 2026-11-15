@@ -34,10 +34,17 @@ public:
 	// An RGBA8 texture, linear min and mag filtering, no mipmaps.
 	virtual unsigned int createTexture(int width, int height, const unsigned char *rgba) = 0;
 
-	// A triangle strip, textured, its texture modulated by color, blended
-	// (SRC_ALPHA, ONE) over what is already drawn. Positions are world space,
-	// through the camera, except between beginOverlay and endOverlay.
-	virtual void drawStrip(unsigned int texture, const float color[4], const HSVertex *v, int count) = 0;
+	// The square hsQuad(model, half) describes, textured, its texture
+	// modulated by color, blended (SRC_ALPHA, ONE) over what is already drawn.
+	// model places it in world space, seen through the camera and fogged
+	// linearly with eye distance -- or, between beginOverlay and endOverlay,
+	// in the overlay plane.
+	//
+	// The quad takes its model matrix rather than finished corners so that a
+	// backend can apply it after the camera's translation, as GL's matrix
+	// stack did. Corners rounded in world space lose precision far from the
+	// origin, where a star's core is only a few float steps wide.
+	virtual void drawQuad(unsigned int texture, const float color[4], const float model[16], float half) = 0;
 
 	// The lens-flare plane: x runs 0..aspect left to right, y 0..1 bottom to
 	// top, with no camera and no fog.
@@ -47,7 +54,7 @@ public:
 
 // The unit-textured square of side 2 * half centred on the origin, through m,
 // in strip order: (-,-) (+,-) (-,+) (+,+), texcoords (0,0) (1,0) (0,1) (1,1).
-// The stars and every flare element are one of these.
+// It is what drawQuad draws.
 void hsQuad(const float m[16], float half, HSVertex out[4]);
 
 #endif

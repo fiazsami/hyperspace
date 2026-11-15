@@ -140,7 +140,6 @@ void starBurst::drawStars(HyperspaceSaverSettings *inSettings){
 
 	// draw stars
 	glEnable(GL_TEXTURE_2D);
-	glBindTexture(GL_TEXTURE_2D, inSettings->flaretex[0]);
 	for(i=0; i<SB_NUM_STARS; i++){
 		stars[i]->pos[0] += stars_velocity[i][0] * inSettings->frameTime;
 		stars[i]->pos[1] += stars_velocity[i][1] * inSettings->frameTime;

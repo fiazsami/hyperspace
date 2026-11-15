@@ -12,6 +12,7 @@
  */
 
 #include <Hyperspace/rendererGL.h>
+#include <Hyperspace/transform.h>
 #include <OpenGL/gl.h>
 
 unsigned int HSRendererGL::createTexture(int width, int height, const unsigned char *rgba){
@@ -24,15 +25,22 @@ unsigned int HSRendererGL::createTexture(int width, int height, const unsigned c
 	return name;
 }
 
-void HSRendererGL::drawStrip(unsigned int texture, const float color[4], const HSVertex *v, int count){
+void HSRendererGL::drawQuad(unsigned int texture, const float color[4], const float model[16], float half){
+	float identity[16];
+	HSVertex v[4];
+	hsIdentity(identity);
+	hsQuad(identity, half, v);
 	glBindTexture(GL_TEXTURE_2D, texture);
 	glColor4fv(color);
+	glPushMatrix();
+	glMultMatrixf(model);
 	glBegin(GL_TRIANGLE_STRIP);
-	for(int i = 0; i < count; i++){
+	for(int i = 0; i < 4; i++){
 		glTexCoord2fv(v[i].uv);
 		glVertex3fv(v[i].pos);
 	}
 	glEnd();
+	glPopMatrix();
 }
 
 void HSRendererGL::beginOverlay(float aspect){

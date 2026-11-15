@@ -230,7 +230,6 @@ void draw(HyperspaceSaverSettings *inSettings){
 	glActiveTextureARB(GL_TEXTURE1_ARB);
 	glBindTexture(GL_TEXTURE_2D, NULL);
 	glActiveTextureARB(GL_TEXTURE0_ARB);
-	glBindTexture(GL_TEXTURE_2D, inSettings->flaretex[0]);
 	static float temppos[2];
 	for(int i=0; i<inSettings->dStars; i++){
 		temppos[0] = inSettings->stars[i]->pos[0] - inSettings->camPos[0];
@@ -362,7 +361,6 @@ void draw(HyperspaceSaverSettings *inSettings){
 	// draw sun with lens flare
 	glDisable(GL_FOG);
 	float flarepos[3] = {0.0f, 2.0f, 0.0f};
-	glBindTexture(GL_TEXTURE_2D, inSettings->flaretex[0]);
 	inSettings->sunStar->draw(inSettings->renderer, inSettings->flaretex[0], inSettings->camPos, inSettings->unroll, inSettings->modelMat, inSettings->projMat, inSettings->viewport);
 	float diff[3] = {flarepos[0] - inSettings->camPos[0], flarepos[1] - inSettings->camPos[1], flarepos[2] - inSettings->camPos[2]};
 	float alpha = 0.5f - 0.005f * sqrtf(diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2]);
@@ -649,6 +647,7 @@ void cleanUp(HyperspaceSaverSettings *inSettings){
 	delete inSettings->thePath;
 	delete inSettings->theWNCM;
 	delete inSettings->renderer;
+	inSettings->renderer = NULL;
 	inSettings->first = 1;
 }
 //#endif
