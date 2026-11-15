@@ -161,8 +161,8 @@ void HSRendererGL::endOffscreen(unsigned char *rgb){
 extern GLhandleARB gooProgram, tunnelProgram;
 
 void HSRendererGL::beginGoo(const float color[4], unsigned int nebula,
-	unsigned int normals0, unsigned int normals1, bool shadedGoo){
-	shaded = shadedGoo;
+	unsigned int normals0, unsigned int normals1, bool shaded){
+	gooShaded = shaded;
 	if(shaded){
 		glDisable(GL_TEXTURE_2D);
 		glEnable(GL_TEXTURE_CUBE_MAP_ARB);
@@ -196,7 +196,7 @@ void HSRendererGL::drawGooSurface(impSurface *surface, const float offset[3]){
 }
 
 void HSRendererGL::endGoo(){
-	if(shaded){
+	if(gooShaded){
 		glDisable(GL_TEXTURE_CUBE_MAP_ARB);
 		glUseProgramObjectARB(0);
 	}
@@ -206,8 +206,8 @@ void HSRendererGL::endGoo(){
 	}
 }
 
-void HSRendererGL::beginTunnel(unsigned int caustic0, unsigned int caustic1, float lerp, bool shadedTunnel){
-	shaded = shadedTunnel;
+void HSRendererGL::beginTunnel(unsigned int caustic0, unsigned int caustic1, float lerp, bool shaded){
+	tunnelShaded = shaded;
 	tunnelAlpha = shaded ? lerp : 1.0f;
 	glCullFace(GL_BACK);
 	glEnable(GL_CULL_FACE);
@@ -234,7 +234,7 @@ void HSRendererGL::drawTunnelStrip(const HSTunnelVertex *v, int count){
 }
 
 void HSRendererGL::endTunnel(){
-	if(shaded)
+	if(tunnelShaded)
 		glUseProgramObjectARB(0);
 	glDisable(GL_CULL_FACE);
 }

@@ -45,6 +45,7 @@ tunnel::tunnel(splinePath* sp, int res){
 
 	numSections = path->numPoints - 5;
 	section = 0;
+	strip.resize(2 * (resolution + 1));
 
 	v = new float***[numSections];
 	t = new float***[numSections];
@@ -175,7 +176,6 @@ void tunnel::make(float frameTime, bool dShaders){
 
 
 void tunnel::draw(HSRenderer *renderer){
-	std::vector<HSTunnelVertex> strip(2 * (resolution + 1));
 	for(int k=0; k<numSections; k++){
 		for(int i=0; i<resolution; i++){
 			for(int j=0; j<=resolution; j++){
