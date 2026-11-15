@@ -39,16 +39,16 @@ public:
 	// stars only stay active while they're within viewing range
 	bool* stars_active;
 	float** stars_velocity;
-	unsigned int call_list;
-	float size;
+	float size;  // the sphere's radius, growing until it has faded
 	float pos[3];
 
 	starBurst();
 	~starBurst();
 	void restart(float* position);
 	void drawStars(HyperspaceSaverSettings *inSettings);
-	void draw(HyperspaceSaverSettings *inSettings);  // draw regular
-	void draw(float lerp, HyperspaceSaverSettings *inSettings);  // draw with shaders
+	// lerp mixes the normal maps when inSettings->dShaders, as for the goo.
+	// Between Hyperspace's goo and tunnel; the stars expect GL_TEXTURE_2D on.
+	void draw(float lerp, HyperspaceSaverSettings *inSettings);
 };
 
 

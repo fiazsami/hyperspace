@@ -172,6 +172,19 @@ parity/seamcheck.sh master stars      # one pass
 
 A `<ref>` older than the `burst` pass does not know it; seamcheck skips that
 pass with a note and compares the rest.
+
+Moving the starburst onto `HSRenderer` -- its sphere drawn in the goo's look
+through `beginGoo`, `drawGooSphere` and `endGoo`, tessellated by `hsSphereBand`
+-- compared at exactly 0 on all four passes against the burst pass's master,
+and at exactly 0 with shaders off (by hand, as before; burst shots up to 94%
+lit). The sphere at 1.1 times its radius comes out DIFFERENT at 89.7%. A first
+version drew the same triangles as a list instead of strips, through
+`impSurface`; the recorder could judge that, and the burst pass passed against
+`Goo.metal`, but the seam check measured 0.032% / 0.012% worst lit>2 / lit>8,
+past the 0.01% limit -- a few pixels whose cube-map lookups land on the other
+side of a face edge. A master build changed only to draw its display list as
+triangles differed from master by 0.171%: the topology alone does it. So the
+sphere is still drawn as strips from a display list, and still refused.
 The burst pass compared with itself is exactly 0, and the starburst's sphere
 scaled by 1.1 comes out DIFFERENT at 99.0%.
 

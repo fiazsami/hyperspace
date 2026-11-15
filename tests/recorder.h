@@ -18,8 +18,15 @@ struct Strip {
 };
 
 struct GooDraw {
-    impSurface *surface;
-    float offset[3];
+    impSurface *surface;   /* NULL for a sphere */
+    float offset[3];       /* a sphere's center */
+    float radius;          /* a sphere's; 0 for a surface */
+};
+
+struct GooBegin {
+    float color[4];
+    unsigned int nebula, normals0, normals1;
+    bool shaded;
 };
 
 struct Offscreen {
@@ -40,6 +47,8 @@ public:
     float aspect = 0.0f;
     unsigned int nextName = 100;
     std::vector<GooDraw> goo;
+    std::vector<GooBegin> gooBegins;
+    int gooEnds = 0;
     std::vector<std::vector<HSTunnelVertex> > tunnel;
 
     unsigned int createTexture(int width, int height, const unsigned char *) override
@@ -90,17 +99,33 @@ public:
     }
     void beginOverlay(float a) override { inOverlay = true; aspect = a; overlays++; }
     void endOverlay() override { inOverlay = false; }
-    /* The goo and the tunnel leave their begin and end calls to Hyperspace's
-     * draw(), so only what they draw in between is recorded. */
-    void beginGoo(const float *, unsigned int, unsigned int, unsigned int, bool) override {}
+    void beginGoo(const float color[4], unsigned int nebula, unsigned int normals0,
+                  unsigned int normals1, bool shaded) override
+    {
+        GooBegin b;
+        memcpy(b.color, color, sizeof b.color);
+        b.nebula = nebula; b.normals0 = normals0; b.normals1 = normals1; b.shaded = shaded;
+        gooBegins.push_back(b);
+    }
     void drawGooSurface(impSurface *surface, const float offset[3]) override
     {
         GooDraw d;
         d.surface = surface;
         memcpy(d.offset, offset, sizeof d.offset);
+        d.radius = 0.0f;
         goo.push_back(d);
     }
-    void endGoo() override {}
+    void drawGooSphere(const float center[3], float radius) override
+    {
+        GooDraw d;
+        d.surface = NULL;
+        memcpy(d.offset, center, sizeof d.offset);
+        d.radius = radius;
+        goo.push_back(d);
+    }
+    void endGoo() override { gooEnds++; }
+    /* The tunnel leaves its begin and end calls to Hyperspace's draw(), so
+     * only what it draws in between is recorded. */
     void beginTunnel(unsigned int, unsigned int, float, bool) override {}
     void drawTunnelStrip(const HSTunnelVertex *v, int count) override
     {

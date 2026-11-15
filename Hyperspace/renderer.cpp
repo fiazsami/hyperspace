@@ -13,6 +13,8 @@
 
 #include <Hyperspace/renderer.h>
 #include <Hyperspace/transform.h>
+#include <rsMath/rsMath.h>
+#include <math.h>
 
 void hsQuad(const float m[16], float half, HSVertex out[4]){
 	for(int i = 0; i < 4; i++){
@@ -44,4 +46,22 @@ bool hsBuildMipmaps(const unsigned char *pixels, int size, int channels, HSMipCh
 		out.levels.push_back(b);
 	}
 	return true;
+}
+
+// The expressions are the display list's, unchanged, so the floats are too.
+void hsSphereBand(int band, float out[HS_SPHERE_BAND_POINTS][3]){
+	const float cj = cosf(float(band) * RS_PIx2 / 32.0f);
+	const float sj = sinf(float(band) * RS_PIx2 / 32.0f);
+	const float cjj = cosf(float(band+1) * RS_PIx2 / 32.0f);
+	const float sjj = sinf(float(band+1) * RS_PIx2 / 32.0f);
+	for(int i=0; i<=32; i++){
+		const float ci = cosf(float(i) * RS_PIx2 / 32.0f);
+		const float si = sinf(float(i) * RS_PIx2 / 32.0f);
+		out[2*i][0] = sj * ci;
+		out[2*i][1] = cj;
+		out[2*i][2] = sj * si;
+		out[2*i+1][0] = sjj * ci;
+		out[2*i+1][1] = cjj;
+		out[2*i+1][2] = sjj * si;
+	}
 }

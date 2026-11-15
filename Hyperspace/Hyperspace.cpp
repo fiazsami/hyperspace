@@ -307,10 +307,8 @@ void draw(HyperspaceSaverSettings *inSettings){
 		inSettings->theStarBurst->restart(pos);  // it won't actually restart unless it's ready to
 		starBurstTime = rsRandf(240.0f) + 60.0f;  // burst again within 1-5 minutes
 	}
-	if(inSettings->dShaders)
-		inSettings->theStarBurst->draw(lerp, inSettings);
-	else
-		inSettings->theStarBurst->draw(inSettings);
+	glEnable(GL_TEXTURE_2D);   // the burst's stars are textured quads
+	inSettings->theStarBurst->draw(lerp, inSettings);
 
 	// draw tunnel
 	if(inSettings->dUseTunnels){

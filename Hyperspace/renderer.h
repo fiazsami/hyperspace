@@ -16,9 +16,10 @@
 // without a context and drawn by another backend later. HSRendererGL is the
 // only implementation; it draws exactly what the code it replaced drew.
 //
-// This covers the stars, the lens flare, the goo, the tunnel and every texture,
-// including the caustics, which are rendered offscreen and read back. The
-// starburst sphere still draws through GL directly.
+// This covers everything Hyperspace draws -- the stars, the lens flare, the
+// goo, the starburst, the tunnel -- and every texture, including the caustics,
+// which are rendered offscreen and read back. Only rsText's statistics overlay
+// still draws through GL directly.
 
 #ifndef HYPERSPACE_RENDERER_H
 #define HYPERSPACE_RENDERER_H
@@ -98,14 +99,17 @@ public:
 	// or GL's fixed function, which is what a user who turns shaders off gets.
 	// Both are seen through the camera, fogged, and blended (SRC_ALPHA, ONE).
 	//
-	// The goo: each surface drawn between beginGoo and endGoo, its vertices
-	// moved by offset, colored by color. Shaded, it reflects the nebula cube
+	// The goo, and the starburst's sphere, which is drawn in the goo's look:
+	// each surface or sphere drawn between beginGoo and endGoo, colored by
+	// color. A surface's vertices are moved by offset; the sphere is the one
+	// hsSphereBand describes, scaled by radius and centred on center. Shaded, it reflects the nebula cube
 	// map through normals perturbed by the two wavy normal cube maps, mixed by
 	// color[3]. Not shaded, nebula is a 2D texture sphere-mapped onto it.
 	// The surface is not const because a backend may cache it for the GPU.
 	virtual void beginGoo(const float color[4], unsigned int nebula,
 		unsigned int normals0, unsigned int normals1, bool shaded) = 0;
 	virtual void drawGooSurface(impSurface *surface, const float offset[3]) = 0;
+	virtual void drawGooSphere(const float center[3], float radius) = 0;
 	virtual void endGoo() = 0;
 
 	// The tunnel: triangle strips with back faces culled, each vertex's color
@@ -128,5 +132,18 @@ void hsQuad(const float m[16], float half, HSVertex out[4]);
 // nothing here does, so texture sizes must be powers of two) or channels is
 // not 1 to 4.
 bool hsBuildMipmaps(const unsigned char *pixels, int size, int channels, HSMipChain &out);
+
+// The unit sphere drawGooSphere draws, as HS_SPHERE_BANDS triangle strips:
+// band b's 66 points in strip order, alternating the rings at latitude angle
+// b and b + 1 (in 32nds of a turn) round 33 longitudes. On a unit sphere each
+// point is its own normal. The angle runs a full turn, not half: bands 0..15
+// go from the +y pole to the -y pole, and bands 16..31 come back up the far
+// side, so every point is drawn twice, and with additive blending that is
+// twice as bright. A backend draws all of them, and as strips: the same
+// triangles as a list rasterize a few pixels differently, which the seam
+// check sees.
+const int HS_SPHERE_BANDS = 32;
+const int HS_SPHERE_BAND_POINTS = 66;
+void hsSphereBand(int band, float out[HS_SPHERE_BAND_POINTS][3]);
 
 #endif
