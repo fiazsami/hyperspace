@@ -73,7 +73,8 @@ Textures and their sampler settings are copied after the frame has drawn, so
 changing a texture during a shot frame fails the shot: the copy would hold the
 final state for draws GL made with the earlier one. That covers `glTexImage2D`,
 `glTexSubImage2D`, `glCopyTex*Image2D`, `glTexParameter{i,f,iv,fv}`,
-`glDeleteTextures`, and Hyperspace's own `gluBuild2DMipmaps` calls. It does not
+`glDeleteTextures`, and `gluBuild2DMipmaps` (which Hyperspace no longer calls:
+its mip chains are built on the CPU and uploaded level by level). It does not
 cover `glGenerateMipmap`, compressed, 1D or 3D uploads,
 `gluBuild2DMipmapLevels`, or `glTexParameterI*`; Hyperspace uses none, and
 changes textures only at start-up. The copies are dropped after every shot, so a change between shots is
@@ -167,6 +168,13 @@ worst lit>2, no pixel more than 3 levels off. (A first version that rounded the
 corners in world space instead measured 0.024% / 0.002% / 0.023%: the seam
 check sees that precision.) A star core 10% too large and a flare plane 2% too
 wide come out DIFFERENT at 9.8% and 43.7%.
+
+Moving every texture onto `HSRenderer` -- mip chains built on the CPU by
+`hsBuildMipmaps`, which matches Apple's `gluBuild2DMipmaps` byte for byte, and
+the caustics rendered offscreen and read back -- compared at exactly 0 against
+the star and flare seam. Mip rounding one level off, the caustics' red
+refraction scaled by 1.1 and two cube-map faces swapped come out DIFFERENT at
+6.4% (goo), 17.9% (tunnel) and 6.8% (goo).
 
 ## Limits
 

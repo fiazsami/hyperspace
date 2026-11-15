@@ -22,3 +22,26 @@ void hsQuad(const float m[16], float half, HSVertex out[4]){
 		out[i].uv[1] = v;
 	}
 }
+
+bool hsBuildMipmaps(const unsigned char *pixels, int size, int channels, HSMipChain &out){
+	if(size < 1 || (size & (size - 1)) != 0 || channels < 1 || channels > 4)
+		return false;
+	out.size = size;
+	out.channels = channels;
+	out.levels.clear();
+	out.levels.push_back(std::vector<unsigned char>(pixels, pixels + size * size * channels));
+	for(int from = size; from > 1; from /= 2){
+		const std::vector<unsigned char> &a = out.levels.back();
+		int to = from / 2;
+		std::vector<unsigned char> b(to * to * channels);
+		for(int y = 0; y < to; y++)
+			for(int x = 0; x < to; x++)
+				for(int c = 0; c < channels; c++){
+					int i = ((2 * y) * from + 2 * x) * channels + c;
+					int row = from * channels;
+					b[(y * to + x) * channels + c] = (unsigned char)((a[i] + a[i + channels] + a[i + row] + a[i + row + channels] + 2) / 4);
+				}
+		out.levels.push_back(b);
+	}
+	return true;
+}

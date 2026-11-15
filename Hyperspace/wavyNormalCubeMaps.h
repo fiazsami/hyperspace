@@ -33,6 +33,8 @@
 
 
 
+class HSRenderer;
+
 class wavyNormalCubeMaps{
 public:
 	int numFrames;
@@ -45,7 +47,9 @@ public:
 	// so that cubemaps have temporal continuity.
 	float phase;
 
-	wavyNormalCubeMaps(int frames, int size);
+	// size is each face's resolution, a power of two: the mip chains are
+	// built without rescaling.
+	wavyNormalCubeMaps(HSRenderer *renderer, int frames, int size);
 	~wavyNormalCubeMaps(){}
 	// Pass a point on a unit sphere and receive the corresponding
 	// normal at that point on the sphere

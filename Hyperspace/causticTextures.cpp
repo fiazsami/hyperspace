@@ -31,13 +31,13 @@
 #include <math.h>
 #include <OpenGL/OpenGL.h>
 #include <rsMath/rsMath.h>
+#include <Hyperspace/renderer.h>
+#include <vector>
 
 
-causticTextures::causticTextures(int keys, int frames, int res, int size, float depth, float wa, float rm){
+causticTextures::causticTextures(HSRenderer *renderer, int keys, int frames, int res, int size, float depth, float wa, float rm){
 	int i, j, k;
 	int xminus, xplus, zminus, zplus;
-	GLint viewport[4];
-	unsigned char* bitmap = new unsigned char[size * size * 3];
 
 	// initialize dimensions
 	numKeys = keys;
@@ -55,8 +55,10 @@ causticTextures::causticTextures(int keys, int frames, int res, int size, float 
 	waveAmp = wa;
 	refractionMult = rm;
 
+	// Sized from the clamped texSize: the readback writes texSize squared.
+	unsigned char* bitmap = new unsigned char[texSize * texSize * 3];
+
 	caustictex = new GLuint[numFrames];
-	glGenTextures(numFrames, caustictex);
 
 	// allocate memory
 	x = new float[geoRes + 1];
@@ -83,27 +85,10 @@ causticTextures::causticTextures(int keys, int frames, int res, int size, float 
 		z[i] = float(i) / float(geoRes);
 	}
 
-	// set y geometry positions (altitudes)
-	// fractal altitudes is sort of ugly, so I don't use it
-	//makeFractalAltitudes();
+	// set y geometry positions (altitudes). Upstream also carried a fractal
+	// generator it never called ("sort of ugly"); the port removed it.
 	makeTrigAltitudes();
 
-	// prepare to draw textures
-	glGetIntegerv(GL_VIEWPORT, viewport);
-	glViewport(0, 0, texSize, texSize);
-	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
-	glLoadIdentity();
-	glOrtho(0.0f, 1.0f, 0.0f, 1.0f, -0.5f, 0.5f);
-	glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
-	glRotatef(-90.0f, 1, 0, 0);
-	glReadBuffer(GL_BACK);
-	//glPixelStorei(GL_UNPACK_ROW_LENGTH, texSize);
-	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-	glDisable(GL_TEXTURE_2D);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-	glEnable(GL_BLEND);
 
 	// project vertices and create textures
 	float recvert = float(geoRes) * 0.5f;  // reciprocal of vertical component of light ray
@@ -154,54 +139,28 @@ causticTextures::causticTextures(int keys, int frames, int res, int size, float 
 			intensity[geoRes][j] = intensity[0][j];
 
 		// draw texture
-		glClear(GL_COLOR_BUFFER_BIT);
+		renderer->beginOffscreen(texSize);
 		// draw most of texture
-		draw(0, geoRes, 0, geoRes);
+		draw(renderer, 0, geoRes, 0, geoRes, 0.0f, 0.0f);
 		// draw edges of texture that wrap around from opposite sides
 		int numRows = geoRes / 10;
-		glPushMatrix();
-			glTranslatef(-1.0f, 0.0f, 0.0f);
-			draw(geoRes - numRows, geoRes, 0, geoRes);
-		glPopMatrix();
-		glPushMatrix();
-			glTranslatef(1.0f, 0.0f, 0.0f);
-			draw(0, numRows, 0, geoRes);
-		glPopMatrix();
-		glPushMatrix();
-			glTranslatef(0.0f, 0.0f, -1.0f);
-			draw(0, geoRes, geoRes - numRows, geoRes);
-		glPopMatrix();
-		glPushMatrix();
-			glTranslatef(0.0f, 0.0f, 1.0f);
-			draw(0, geoRes, 0, numRows);
-		glPopMatrix();
+		draw(renderer, geoRes - numRows, geoRes, 0, geoRes, -1.0f, 0.0f);
+		draw(renderer, 0, numRows, 0, geoRes, 1.0f, 0.0f);
+		draw(renderer, 0, geoRes, geoRes - numRows, geoRes, 0.0f, -1.0f);
+		draw(renderer, 0, geoRes, 0, numRows, 0.0f, 1.0f);
 		// draw corners too
-		glPushMatrix();
-			glTranslatef(-1.0f, 0.0f, -1.0f);
-			draw(geoRes - numRows, geoRes, geoRes - numRows, geoRes);
-		glPopMatrix();
-		glPushMatrix();
-			glTranslatef(1.0f, 0.0f, -1.0f);
-			draw(0, numRows, geoRes - numRows, geoRes);
-		glPopMatrix();
-		glPushMatrix();
-			glTranslatef(-1.0f, 0.0f, 1.0f);
-			draw(geoRes - numRows, geoRes, 0, numRows);
-		glPopMatrix();
-		glPushMatrix();
-			glTranslatef(1.0f, 0.0f, 1.0f);
-			draw(0, numRows, 0, numRows);
-		glPopMatrix();
+		draw(renderer, geoRes - numRows, geoRes, geoRes - numRows, geoRes, -1.0f, -1.0f);
+		draw(renderer, 0, numRows, geoRes - numRows, geoRes, 1.0f, -1.0f);
+		draw(renderer, geoRes - numRows, geoRes, 0, numRows, -1.0f, 1.0f);
+		draw(renderer, 0, numRows, 0, numRows, 1.0f, 1.0f);
 
 		// read back texture
-		glReadPixels(0, 0, texSize, texSize, GL_RGB, GL_UNSIGNED_BYTE, bitmap);
+		renderer->endOffscreen(bitmap);
 
 		// create texture object
-		glBindTexture(GL_TEXTURE_2D, caustictex[k]);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-		gluBuild2DMipmaps(GL_TEXTURE_2D, 3, texSize, texSize, GL_RGB,
-			GL_UNSIGNED_BYTE, bitmap);
+		HSMipChain chain;
+		hsBuildMipmaps(bitmap, texSize, 3, chain);
+		caustictex[k] = renderer->createMipmappedTexture(chain);
 		
 #ifdef WIN32
 		wglSwapLayerBuffers(hdc, WGL_SWAP_MAIN_PLANE);
@@ -211,152 +170,12 @@ causticTextures::causticTextures(int keys, int frames, int res, int size, float 
 #endif
 	}
 
-	// restore matrix stack
-	glPopMatrix();
-	glMatrixMode(GL_PROJECTION);
-	glPopMatrix();
-	glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
-
 	delete[] x;
 	delete[] y;
 	delete[] z;
 	delete[] xz;
 	delete[] intensity;
 	delete[] bitmap;
-}
-
-
-void causticTextures::makeFractalAltitudes(){
-	int i, j, k, a;
-	float keySeparation = float(numFrames) / float(numKeys);
-	int* keyFrame = new int[numKeys+1];
-
-	// generate keyframes
-	float phase = 0.0f;
-	for(k=0; k<numKeys; k++){
-		keyFrame[k] = int(float(k) * keySeparation);
-		// set all keyframe altitudes to 0.0
-		for(i=0; i<geoRes; i++){
-			for(j=0; j<geoRes; j++)
-				y[keyFrame[k]][i][j] = 0.0f;
-		}
-		// generate altitudes in first positions
-		phase = float(k) * RS_PIx2 / float(numKeys);
-		y[keyFrame[k]][0][0] = waveAmp * rsCosf(1.5707f + phase);
-		y[keyFrame[k]][geoRes/2][0] = waveAmp * rsCosf(1.5707f + phase);
-		y[keyFrame[k]][geoRes/2][geoRes/2] = waveAmp * rsCosf(3.1416f + phase);
-		y[keyFrame[k]][0][geoRes/2] = waveAmp * rsCosf(4.7124f + phase);
-		// recurse to find remaining altitudes
-		altitudeSquare(0, geoRes/2, 0, geoRes/2, y[keyFrame[k]]);
-		altitudeSquare(geoRes/2, geoRes, 0, geoRes/2, y[keyFrame[k]]);
-		altitudeSquare(0, geoRes/2, geoRes/2, geoRes, y[keyFrame[k]]);
-		altitudeSquare(geoRes/2, geoRes, geoRes/2, geoRes, y[keyFrame[k]]);
-	}
-
-	// interpolate to find remaining frames
-	int diff, kk;
-	int kf0, kf1, kf2, kf3;  // keyframe indices
-	float where;
-	keyFrame[numKeys] = numFrames;
-	for(k=0; k<numKeys; k++){
-		kf1 = keyFrame[k];
-		kf2 = keyFrame[k+1];
-		diff = kf2 - kf1;
-		if(kf2 == numFrames)
-			kf2 = 0;
-		kk = k - 1;
-		if(kk < 0)
-			kk = numKeys - 1;
-		kf0 = keyFrame[kk];
-		kk = k + 2;
-		if(kk >= numKeys)
-			kk -= numKeys;
-		kf3 = keyFrame[kk];
-		if(diff > 1){
-			for(a=kf1+1; a<kf1+diff; a++){
-				where = float(a-kf1) / float(diff);
-				for(i=0; i<geoRes; i++)
-					for(j=0; j<geoRes; j++)
-						y[a][i][j] = interpolate(y[kf0][i][j], y[kf1][i][j],
-							y[kf2][i][j], y[kf3][i][j], where);
-			}
-		}
-	}
-
-	delete[] keyFrame;
-}
-
-
-void causticTextures::altitudeSquare(int left, int right, int bottom, int top, float** alt){
-	// find wrapped indices
-	int rr = right;
-	if(rr == geoRes)
-		rr = 0;
-	int tt = top;
-	if(tt == geoRes)
-		tt = 0;
-
-	// for determining if there is a gap to be filled
-	int hor = right - left;
-	int vert = top - bottom;
-
-	int centerHor = (left + right) / 2;
-	int centerVert = (bottom + top) / 2;
-	float offset;
-	if(hor > 1){  // find bottom and top altitudes
-		offset = myFabs(waveAmp * float(x[right] - x[left]));
-		if(alt[centerHor][bottom] == 0.0f)
-			alt[centerHor][bottom] = (alt[left][bottom] + alt[rr][bottom]) * 0.5f
-				+ rsRandf(offset+offset) - offset;
-		if(alt[centerHor][tt] == 0.0f)
-			alt[centerHor][tt] = (alt[left][tt] + alt[rr][tt]) * 0.5f
-				+ rsRandf(offset+offset) - offset;
-	}
-	if(vert > 1){  // find left and right altitudes
-		offset = myFabs(waveAmp * float(z[top] - z[bottom]));
-		if(alt[left][centerVert] == 0.0f)
-			alt[left][centerVert] = (alt[left][bottom] + alt[left][tt]) * 0.5f
-				+ rsRandf(offset+offset) - offset;
-		if(alt[rr][centerVert] == 0.0f)
-			alt[rr][centerVert] = (alt[rr][bottom] + alt[rr][tt]) * 0.5f
-				+ rsRandf(offset+offset) - offset;
-	}
-	if(hor > 1 && vert > 1){  // find center altitude
-		offset = waveAmp * 0.5f *
-			(myFabs(float(x[right] - x[left]))
-			+ myFabs(float(z[top] - z[bottom])));
-		alt[centerHor][centerVert] = (alt[left][bottom] + alt[rr][bottom] + alt[left][tt]
-			+ alt[rr][tt]) * 0.25f + rsRandf(offset+offset) - offset;
-	}
-
-	// keep recursing if necessary
-	int quadrant[4] = {0, 0, 0, 0};
-	if(centerHor - left > 1){
-		quadrant[0] ++;
-		quadrant[2] ++;
-	}
-	if(right - centerHor > 1){
-		quadrant[1] ++;
-		quadrant[2] ++;
-	}
-	if(centerVert - bottom > 1){
-		quadrant[0] ++;
-		quadrant[1] ++;
-	}
-	if(top - centerVert > 1){
-		quadrant[2] ++;
-		quadrant[3] ++;
-	}
-	if(quadrant[0])
-		altitudeSquare(left, centerHor, bottom, centerVert, alt);
-	if(quadrant[1])
-		altitudeSquare(centerHor, right, bottom, centerVert, alt);
-	if(quadrant[2])
-		altitudeSquare(left, centerHor, centerVert, top, alt);
-	if(quadrant[3])
-		altitudeSquare(centerHor, right, centerVert, top, alt);
-
-	return;
 }
 
 
@@ -396,40 +215,31 @@ void causticTextures::makeTrigAltitudes(){
 }
 
 
-void causticTextures::draw(int xlo, int xhi, int zlo, int zhi){
+// One row of the caustic mesh per j, as three strips (red, green, blue, each
+// refracted by a different amount), shifted by (dx, dz) for the wrapped
+// edges. The mesh lies in x-z; offscreen x and y are its x and z.
+void causticTextures::draw(HSRenderer *renderer, int xlo, int xhi, int zlo, int zhi, float dx, float dz){
 	int i, j;
-	float mult;
+	std::vector<HSColorVertex> strip((xhi - xlo + 1) * 2);
+	const float mults[3] = {1.0f - refractionMult / float(geoRes), 1.0f, 1.0f + refractionMult / float(geoRes)};
 
 	for(j=zlo; j<zhi; j++){
-		// red
-		mult = 1.0f - refractionMult / float(geoRes);
-		glBegin(GL_TRIANGLE_STRIP);
-		for(i=xlo; i<=xhi; i++){
-			glColor3f(intensity[i][j+1], 0.0f, 0.0f);
-			glVertex3f(x[i] + xz[i][j+1][0] * mult, 0.0f, z[j+1] + xz[i][j+1][1] * mult);
-			glColor3f(intensity[i][j], 0.0f, 0.0f);
-			glVertex3f(x[i] + xz[i][j][0] * mult, 0.0f, z[j] + xz[i][j][1] * mult);
+		for(int c=0; c<3; c++){
+			float mult = mults[c];
+			HSColorVertex *v = &strip[0];
+			for(i=xlo; i<=xhi; i++, v += 2){
+				v[0].pos[0] = x[i] + xz[i][j+1][0] * mult + dx;
+				v[0].pos[1] = z[j+1] + xz[i][j+1][1] * mult + dz;
+				v[1].pos[0] = x[i] + xz[i][j][0] * mult + dx;
+				v[1].pos[1] = z[j] + xz[i][j][1] * mult + dz;
+				v[0].pos[2] = v[1].pos[2] = 0.0f;
+				v[0].color[0] = v[0].color[1] = v[0].color[2] = 0.0f;
+				v[1].color[0] = v[1].color[1] = v[1].color[2] = 0.0f;
+				v[0].color[c] = intensity[i][j+1];
+				v[1].color[c] = intensity[i][j];
+			}
+			renderer->drawColorStrip(&strip[0], int(strip.size()));
 		}
-		glEnd();
-		// green
-		glBegin(GL_TRIANGLE_STRIP);
-		for(i=xlo; i<=xhi; i++){
-			glColor3f(0.0f, intensity[i][j+1], 0.0f);
-			glVertex3f(x[i] + xz[i][j+1][0], 0.0f, z[j+1] + xz[i][j+1][1]);
-			glColor3f(0.0f, intensity[i][j], 0.0f);
-			glVertex3f(x[i] + xz[i][j][0], 0.0f, z[j] + xz[i][j][1]);
-		}
-		glEnd();
-		// blue
-		mult = 1.0f + refractionMult / float(geoRes);
-		glBegin(GL_TRIANGLE_STRIP);
-		for(i=xlo; i<=xhi; i++){
-			glColor3f(0.0f, 0.0f, intensity[i][j+1]);
-			glVertex3f(x[i] + xz[i][j+1][0] * mult, 0.0f, z[j+1] + xz[i][j+1][1] * mult);
-			glColor3f(0.0f, 0.0f, intensity[i][j]);
-			glVertex3f(x[i] + xz[i][j][0] * mult, 0.0f, z[j] + xz[i][j][1] * mult);
-		}
-		glEnd();
 	}
 }
 
@@ -441,20 +251,4 @@ void causticTextures::makeIndices(int index, int* minus, int* plus){
 	*plus = index + 1;
 	if(*plus >= geoRes)
 		*plus = 0;
-}
-
-
-// Here's a little calculus that takes 4 points along a single
-// dimension and interpolates smoothly between the second and third
-// depending on the value of where which can be 0.0 to 1.0.
-// The slope at b is estimated using a and c.  The slope at c
-// is estimated using b and d.
-float causticTextures::interpolate(float a, float b, float c, float d, float where){
-    float q, r, s, t;
-
-    q = (((3.0f * b) + d - a - (3.0f * c)) * (where * where * where)) * 0.5f;
-    r = (((2.0f * a) - (5.0f * b) + (4.0f * c) - d) * (where * where)) * 0.5f;
-    s = ((c - a) * where) * 0.5f;
-    t = b;
-    return(q + r + s + t);
 }

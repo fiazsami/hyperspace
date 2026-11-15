@@ -24,9 +24,20 @@
 class HSRendererGL : public HSRenderer{
 public:
 	unsigned int createTexture(int width, int height, const unsigned char *rgba);
+	unsigned int createMipmappedTexture(const HSMipChain &chain);
+	unsigned int createCubeTexture(const HSMipChain faces[6]);
+	void beginOffscreen(int size);
+	void drawColorStrip(const HSColorVertex *v, int count);
+	void endOffscreen(unsigned char *rgb);
 	void drawQuad(unsigned int texture, const float color[4], const float model[16], float half);
 	void beginOverlay(float aspect);
 	void endOverlay();
+
+	HSRendererGL() : offscreenSize(0) {}
+
+private:
+	int savedViewport[4];
+	int offscreenSize;   // 0 outside beginOffscreen / endOffscreen
 };
 
 #endif

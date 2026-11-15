@@ -16,15 +16,32 @@
 // without a context and drawn by another backend later. HSRendererGL is the
 // only implementation; it draws exactly what the code it replaced drew.
 //
-// This covers the stars and the lens flare. The goo, the tunnel and the
-// starburst sphere still call GL directly.
+// This covers the stars, the lens flare and every texture, including the
+// caustics, which are rendered offscreen and read back. The goo, the tunnel
+// and the starburst sphere still draw through GL directly.
 
 #ifndef HYPERSPACE_RENDERER_H
 #define HYPERSPACE_RENDERER_H
 
+#include <vector>
+
 struct HSVertex{
 	float pos[3];
 	float uv[2];
+};
+
+struct HSColorVertex{
+	float pos[3];
+	float color[3];
+};
+
+// A square, power-of-two image and every mip level down to 1x1, tightly
+// packed bytes, channels per pixel. levels[0] is the image itself.
+struct HSMipChain{
+	int size;
+	int channels;
+	std::vector<std::vector<unsigned char> > levels;
+	HSMipChain() : size(0), channels(0) {}   // empty: a backend uploads nothing
 };
 
 class HSRenderer{
@@ -33,6 +50,23 @@ public:
 
 	// An RGBA8 texture, linear min and mag filtering, no mipmaps.
 	virtual unsigned int createTexture(int width, int height, const unsigned char *rgba) = 0;
+
+	// A texture from a full mip chain: trilinear filtering, repeating.
+	virtual unsigned int createMipmappedTexture(const HSMipChain &chain) = 0;
+
+	// A cube map from six full mip chains, ordered -x +x -y +y -z +z:
+	// trilinear filtering, clamped to the edge.
+	virtual unsigned int createCubeTexture(const HSMipChain faces[6]) = 0;
+
+	// Render into a size x size RGB target and read it back. beginOffscreen
+	// clears to black; strips drawn until endOffscreen are untextured,
+	// per-vertex colored, blended (SRC_ALPHA, ONE), with x and y running 0..1
+	// across the target. endOffscreen writes size * size * 3 bytes, bottom row
+	// first, and restores the viewport and the camera. Other pipeline state
+	// is the backend's to leave: callers set what they draw with next.
+	virtual void beginOffscreen(int size) = 0;
+	virtual void drawColorStrip(const HSColorVertex *v, int count) = 0;
+	virtual void endOffscreen(unsigned char *rgb) = 0;
 
 	// The square hsQuad(model, half) describes, textured, its texture
 	// modulated by color, blended (SRC_ALPHA, ONE) over what is already drawn.
@@ -56,5 +90,13 @@ public:
 // in strip order: (-,-) (+,-) (-,+) (+,+), texcoords (0,0) (1,0) (0,1) (1,1).
 // It is what drawQuad draws.
 void hsQuad(const float m[16], float half, HSVertex out[4]);
+
+// gluBuild2DMipmaps' chain, built on the CPU: each level halves the last,
+// every texel the rounded mean of the 2x2 block above it, (a+b+c+d+2)/4.
+// That matches Apple's GLU byte for byte on power-of-two images. False, and
+// out untouched, when size is not a power of two (GLU would rescale those;
+// nothing here does, so texture sizes must be powers of two) or channels is
+// not 1 to 4.
+bool hsBuildMipmaps(const unsigned char *pixels, int size, int channels, HSMipChain &out);
 
 #endif

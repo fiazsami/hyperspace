@@ -8,6 +8,7 @@
  */
 
 #include "harness.h"
+#include "recorder.h"
 
 #include "Hyperspace/renderer.h"
 #include "Hyperspace/transform.h"
@@ -21,42 +22,6 @@
 
 namespace {
 const double kTol = 1e-5;
-
-struct Strip {
-    unsigned int texture;
-    float color[4];
-    std::vector<HSVertex> v;
-    bool overlay;
-};
-
-class Recorder : public HSRenderer {
-public:
-    std::vector<Strip> strips;
-    std::vector<int> textureSizes;
-    int overlays = 0;
-    bool inOverlay = false;
-    float aspect = 0.0f;
-
-    unsigned int createTexture(int width, int height, const unsigned char *) override
-    {
-        textureSizes.push_back(width * 1000 + height);
-        return 100 + (unsigned int)textureSizes.size();
-    }
-    /* Records the corners drawQuad's contract says it draws. */
-    void drawQuad(unsigned int texture, const float color[4], const float model[16], float half) override
-    {
-        HSVertex v[4];
-        hsQuad(model, half, v);
-        Strip s;
-        s.texture = texture;
-        memcpy(s.color, color, sizeof s.color);
-        s.v.assign(v, v + 4);
-        s.overlay = inOverlay;
-        strips.push_back(s);
-    }
-    void beginOverlay(float a) override { inOverlay = true; aspect = a; overlays++; }
-    void endOverlay() override { inOverlay = false; }
-};
 
 /* A camera at the origin looking down -z: identity view, a 90-degree
  * perspective, a 200x100 viewport. */
