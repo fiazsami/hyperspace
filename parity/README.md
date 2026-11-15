@@ -11,6 +11,7 @@ same process, so the reference is always the real renderer on this machine.
 parity/build.sh                                   # -> .parity-build/parity
 .parity-build/parity goo metal .parity-build/out/goo
 parity/killcheck.sh                               # every rule, both directions (~5 min)
+parity/killcheck.sh inject                        # the recorder's checks alone (~30 s)
 ```
 
 Each shot writes `NNNNN_gl.png`, `NNNNN_metal.png` and `NNNNN_diffx8.png`
@@ -40,8 +41,43 @@ A shot passes when, over pixels lit (any channel > 8) in **either** image:
 Any draw the recorder could not capture -- or captured under GL state the replay
 does not reproduce (a blend other than `(SRC_ALPHA, ONE)`, a texture mode other
 than MODULATE, a program, cube map or texgen on the fixed-function path, an
-alpha-only texture) -- fails the shot as "unrecorded GL draw calls". A pass that
-drew nothing in any shot is an error rather than a pass.
+alpha-only texture, a texture name with no image) -- fails the shot as
+"unrecorded GL draw calls". A pass that drew nothing in any shot is an error
+rather than a pass.
+
+The recorder intercepts a fixed set of GL entry points, so it does not rely on
+that set being complete:
+
+- **Primitive count.** GL counts the primitives it generates in each shot
+  (`GL_PRIMITIVES_GENERATED`), and the shot fails unless the count equals the
+  triangles recorded. A draw through an entry point the recorder does not see
+  (`glDrawArrays`, `glCallLists`, `glVertex2f`) shows up as
+  "GL drew N primitives, M recorded".
+- **Current color and texcoord.** After every recorded draw, GL's current
+  color and texcoord must equal the recorded ones. A mismatch means one was set
+  through an entry point the recorder does not see (`glColor4ub`,
+  `glTexCoord2d`), and the draw is refused.
+- **No GL error.** A shot frame that raises one fails as "GL error": some call,
+  the saver's or the recorder's, did not do what the recording assumes.
+
+Display lists are recorded when compiled and refused if they set their own
+color, bind more than one texture, draw anything but triangle strips, or call
+another list, or change a texture, and a call made between `glBegin` and
+`glEnd` is refused. A `glNewList` that GL refuses (inside an open list, inside
+`glBegin`, list 0) opens nothing, as in GL. Draws made while a
+`GL_COMPILE_AND_EXECUTE` list is open are refused: everything there is compiled
+too, including the calls the recorder makes to inspect state. Compiling a name again replaces its list. Vertices issued before a
+list's first `glTexCoord` take the texcoord current at call time, as GL does.
+
+Textures and their sampler settings are copied after the frame has drawn, so
+changing a texture during a shot frame fails the shot: the copy would hold the
+final state for draws GL made with the earlier one. That covers `glTexImage2D`,
+`glTexSubImage2D`, `glCopyTex*Image2D`, `glTexParameter{i,f,iv,fv}`,
+`glDeleteTextures`, and Hyperspace's own `gluBuild2DMipmaps` calls. It does not
+cover `glGenerateMipmap`, compressed, 1D or 3D uploads,
+`gluBuild2DMipmapLevels`, or `glTexParameterI*`; Hyperspace uses none, and
+changes textures only at start-up. The copies are dropped after every shot, so a change between shots is
+picked up.
 
 Rates are over lit pixels, not the frame. Star frames are 0.3–4% lit, and a
 per-frame rate diluted every defect below 1%.
@@ -64,7 +100,7 @@ symmetric (GL brighter exactly as often as Metal), on goo silhouettes and on
 distant, heavily minified tunnel texture. Nine causes were tested and ruled out —
 MVP precision (three formulations, byte-identical), fast-math, explicit
 gradients, forced level-0 sampling, texture precision, half-precision maths,
-8-bit vertex colour, stale texture copies; forcing GL to seamless cube filtering
+8-bit vertex color, stale texture copies; forcing GL to seamless cube filtering
 moved it only slightly. **The cause is not known.** Because the residual is
 symmetric it averages out, while a real translation error pushes one way, so
 signed bias separates the two cases where the |diff| rates alone do not.
@@ -92,12 +128,23 @@ term. `killcheck.sh` requires every one to FAIL. When a shader in `metal/`
 changes, regenerate the fixtures from the new text rather than editing the
 rule.
 
+The recorder's checks have fixtures too, as `inject=<case>`: parity draws one
+known fault at the end of every shot, through the same interposers the saver
+uses; `parity --inject-cases` lists them, and `killcheck.sh` runs every one. The
+refused cases draw with alpha 0 or off screen, and `killcheck.sh` counts one as
+killed only if the recorder refused it, the image stayed within limits, and no
+GL error was raised, so a case cannot pass by failing for some other reason. The
+`*_ok` cases draw something the recorder must replay correctly, and they must
+pass. Each case is the shape one check exists for, and removing that check lets
+the case through. Where a check spans several entry points (the texture-change
+interposers, the color setters), the case exercises one of them.
+
 ## Limits
 
 - **One machine.** Calibrated on an Apple M5 Max under macOS 26. Another GPU or
   driver may move the residual; rerun the kill-check before trusting a verdict
   there.
-- **Not in CI.** A hosted runner's GPU is virtualised and uncalibrated, so a
+- **Not in CI.** A hosted runner's GPU is virtualized and uncalibrated, so a
   verdict there would mean nothing yet. This runs locally.
 - **The replay reuses GL's matrices.** A real port computes them itself, which
   can add a small error this does not measure.

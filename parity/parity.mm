@@ -8,10 +8,11 @@
 //   goo     goo on:   the GLSL goo program  (metal/Goo.metal)
 //   tunnel  tunnel on: the GLSL tunnel program (metal/Tunnel.metal)
 //
-//   parity <pass> <metal-dir> <outdir> [shader=PATH] [frames=N] [every=N] [w=N] [h=N]
+//   parity <pass> <metal-dir> <outdir> [shader=PATH] [inject=CASE] [frames=N] [every=N] [w=N] [h=N]
 //
-// shader= replaces the judged pass's shader file (parity/killcheck.sh uses it to
-// prove each rule rejects known defects). Exit 0 = PASS, 1 = FAIL, 2 = harness or
+// shader= replaces the judged pass's shader file, and inject= adds one known fault
+// to every shot; parity/killcheck.sh uses both to prove each rule rejects what it
+// is for. Exit 0 = PASS, 1 = FAIL, 2 = harness or
 // shader error. Each shot writes <outdir>/NNNNN_gl.png, _metal.png, _diffx8.png.
 //
 // Nothing here is a golden image: GL and Metal render the same frame in the same
@@ -22,6 +23,7 @@
 #import <Cocoa/Cocoa.h>
 #import <OpenGL/gl.h>
 #import <OpenGL/glext.h>
+#import <OpenGL/glu.h>
 #import <Metal/Metal.h>
 #import <ImageIO/ImageIO.h>
 #import <simd/simd.h>
@@ -65,6 +67,13 @@ extern "C" int rand(void)
 // dlsym(RTLD_NEXT). Any draw this cannot record is counted, and a shot with an
 // unrecorded draw fails: a replay that silently skipped geometry would compare
 // against less than the saver drew.
+//
+// Interposing only catches the entry points named here, so two checks cover the
+// rest. GL counts the primitives it generates in each shot, and the shot fails
+// unless that equals the triangles recorded -- a draw through any other entry point
+// (glDrawArrays, glCallLists, glVertex2f) shows up as a shortfall. And GL's current
+// color and texcoord must equal the recorded ones after every recorded draw, which
+// catches attributes set through an entry point not intercepted (glColor4ub).
 
 enum class DrawKind { Immediate, Goo, Tunnel };
 
@@ -78,7 +87,13 @@ struct Batch {
     std::vector<Vtx> tri;                                            // immediate and tunnel
     std::vector<float> gooVerts; std::vector<uint32_t> gooTri; GLuint cube[3] = {0, 0, 0};
 };
-struct ListOp { GLuint tex = 0; bool hasTex = false, unreplayable = false; std::vector<std::vector<Vtx>> strips; };
+// A list's vertices before its first glTexCoord take the texcoord current when it
+// is called, not when it was compiled; callUV counts them.
+struct ListOp {
+    GLuint tex = 0; bool hasTex = false, unreplayable = false;
+    bool uvSet = false; simd_float2 uv = {0, 0}; size_t callUV = 0;
+    std::vector<std::vector<Vtx>> strips;
+};
 
 static bool gRecording = false;
 static std::vector<Batch> gBatches;
@@ -99,7 +114,22 @@ REAL(glBindTexture, void, (GLenum, GLuint));
 REAL(glNewList, void, (GLuint, GLenum)); REAL(glEndList, void, (void)); REAL(glCallList, void, (GLuint));
 REAL(glMultiDrawElements, void, (GLenum, const GLsizei *, GLenum, const GLvoid *const *, GLsizei));
 REAL(glDrawElements, void, (GLenum, GLsizei, GLenum, const GLvoid *));
+REAL(glTexImage2D, void, (GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const GLvoid *));
+REAL(glTexSubImage2D, void, (GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, const GLvoid *));
+REAL(glCopyTexImage2D, void, (GLenum, GLint, GLenum, GLint, GLint, GLsizei, GLsizei, GLint));
+REAL(glCopyTexSubImage2D, void, (GLenum, GLint, GLint, GLint, GLint, GLint, GLsizei, GLsizei));
+REAL(gluBuild2DMipmaps, GLint, (GLenum, GLint, GLsizei, GLsizei, GLenum, GLenum, const void *));
+REAL(glTexParameteri, void, (GLenum, GLenum, GLint)); REAL(glTexParameterf, void, (GLenum, GLenum, GLfloat));
+REAL(glTexParameteriv, void, (GLenum, GLenum, const GLint *)); REAL(glTexParameterfv, void, (GLenum, GLenum, const GLfloat *));
+REAL(glDeleteTextures, void, (GLsizei, const GLuint *));
 
+static simd_float4 currentColor() { float c[4]; glGetFloatv(GL_CURRENT_COLOR, c); return simd_make_float4(c[0], c[1], c[2], c[3]); }
+static simd_float2 currentUV()   // unit 0's, which is the one glTexCoord2f sets
+{
+    GLint active; glGetIntegerv(GL_ACTIVE_TEXTURE, &active); glActiveTexture(GL_TEXTURE0);
+    float t[4]; glGetFloatv(GL_CURRENT_TEXTURE_COORDS, t); glActiveTexture(active);
+    return simd_make_float2(t[0], t[1]);
+}
 static simd_float4x4 getM(GLenum which) { float m[16]; glGetFloatv(which, m); simd_float4x4 r; memcpy(&r, m, sizeof m); return r; }
 static State snap()
 {
@@ -120,10 +150,34 @@ static bool blendSupported()
     GLint src, dst; glGetIntegerv(GL_BLEND_SRC, &src); glGetIntegerv(GL_BLEND_DST, &dst);
     return glIsEnabled(GL_BLEND) && src == GL_SRC_ALPHA && dst == GL_ONE;
 }
-static GLuint gCompiling = 0;
+static GLuint gCompiling = 0;   // the list being recorded, if GL_COMPILE
+static bool gListOpen = false;  // any list open, in either mode
+static bool gInBegin = false;
+// While a GL_COMPILE_AND_EXECUTE list is open, every call is compiled as well as
+// run -- including the binds and unit switches the recorder makes to inspect
+// state -- so draws there are refused rather than recorded.
+static bool executingList() { return gListOpen && !gCompiling; }
+// One level-0 parameter of a texture, read without disturbing the binding. face is
+// what to query: GL_TEXTURE_2D, or one face of a cube map.
+static GLint level0(GLenum target, GLenum face, GLuint tex, GLenum pname)
+{
+    GLint saved, v = 0; glGetIntegerv(target == GL_TEXTURE_2D ? GL_TEXTURE_BINDING_2D : GL_TEXTURE_BINDING_CUBE_MAP, &saved);
+    if ((GLuint)saved != tex) real_glBindTexture(target, tex);
+    glGetTexLevelParameteriv(face, 0, pname, &v);
+    if ((GLuint)saved != tex) real_glBindTexture(target, saved);
+    return v;
+}
+// Texture name 0, or a name with no image, would be copied as a 0x0 Metal texture.
+static bool hasImage2D(GLuint tex) { return tex && level0(GL_TEXTURE_2D, GL_TEXTURE_2D, tex, GL_TEXTURE_WIDTH) > 0; }
+static bool hasImageCube(GLuint tex)
+{
+    if (!tex) return false;
+    for (int f = 0; f < 6; f++) if (level0(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_CUBE_MAP_POSITIVE_X + f, tex, GL_TEXTURE_WIDTH) <= 0) return false;
+    return true;
+}
 static bool fixedFunctionSupported(GLuint boundTex)
 {
-    if (gCompiling) return false;   // the bind/restore below would be compiled into the open list
+    if (gListOpen) return false;   // the bind/restore below would be compiled into the open list
     if (!blendSupported() || glGetHandleARB(GL_PROGRAM_OBJECT_ARB)) return false;
     if (glIsEnabled(GL_TEXTURE_CUBE_MAP) || glIsEnabled(GL_TEXTURE_GEN_S) || glIsEnabled(GL_TEXTURE_GEN_T)) return false;
     if (!glIsEnabled(GL_TEXTURE_2D)) return true;
@@ -133,13 +187,8 @@ static bool fixedFunctionSupported(GLuint boundTex)
     // RGB and RGBA. Measured on this driver: alpha-only reads back (0,0,0,A), and
     // luminance, luminance-alpha and intensity read back red-only, none of which
     // MODULATE would match.
-    GLint saved, r = 0, l = 0, i = 0; glGetIntegerv(GL_TEXTURE_BINDING_2D, &saved);
-    real_glBindTexture(GL_TEXTURE_2D, boundTex);
-    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_RED_SIZE, &r);
-    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_LUMINANCE_SIZE, &l);
-    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTENSITY_SIZE, &i);
-    real_glBindTexture(GL_TEXTURE_2D, saved);
-    return r && !l && !i;
+    auto param = [&](GLenum pname) { return level0(GL_TEXTURE_2D, GL_TEXTURE_2D, boundTex, pname); };
+    return param(GL_TEXTURE_RED_SIZE) && !param(GL_TEXTURE_LUMINANCE_SIZE) && !param(GL_TEXTURE_INTENSITY_SIZE);
 }
 
 // Odd triangles swap their first two vertices so every triangle keeps the strip's winding.
@@ -151,17 +200,43 @@ template <typename T> static void stripToTris(const std::vector<T> &s, std::vect
     }
 }
 
-extern "C" void glBegin(GLenum mode) { gMode = mode; gStrip.clear(); if (gRecording && mode != GL_TRIANGLE_STRIP) gUnsupported++; real_glBegin(mode); }
-extern "C" void glTexCoord2f(GLfloat s, GLfloat t) { gUV = simd_make_float2(s, t); real_glTexCoord2f(s, t); }
-extern "C" void glTexCoord2fv(const GLfloat *t) { gUV = simd_make_float2(t[0], t[1]); real_glTexCoord2fv(t); }
-// A list that sets its own colour would be replayed with the call-time colour instead.
-static void noteListColour() { if (gCompiling) gLists[gCompiling].unreplayable = true; }
-extern "C" void glColor3f(GLfloat r, GLfloat g, GLfloat b) { noteListColour(); gColor = simd_make_float4(r, g, b, 1); real_glColor3f(r, g, b); }
-extern "C" void glColor3fv(const GLfloat *c) { noteListColour(); gColor = simd_make_float4(c[0], c[1], c[2], 1); real_glColor3fv(c); }
-extern "C" void glColor4f(GLfloat r, GLfloat g, GLfloat b, GLfloat a) { noteListColour(); gColor = simd_make_float4(r, g, b, a); real_glColor4f(r, g, b, a); }
-extern "C" void glColor4fv(const GLfloat *c) { noteListColour(); gColor = simd_make_float4(c[0], c[1], c[2], c[3]); real_glColor4fv(c); }
-extern "C" void glVertex3f(GLfloat x, GLfloat y, GLfloat z) { gStrip.push_back({simd_make_float3(x, y, z), gUV, gColor}); real_glVertex3f(x, y, z); }
-extern "C" void glVertex3fv(const GLfloat *v) { gStrip.push_back({simd_make_float3(v[0], v[1], v[2]), gUV, gColor}); real_glVertex3fv(v); }
+// GL_COMPILE leaves GL's current color and texcoord alone, so while a list compiles
+// they go to the list, not to gColor and gUV.
+extern "C" void glBegin(GLenum mode)
+{
+    gMode = mode; gStrip.clear(); gInBegin = true;
+    if (gCompiling) { if (mode != GL_TRIANGLE_STRIP) gLists[gCompiling].unreplayable = true; }
+    else if (gRecording && executingList()) gUnsupported++;
+    else if (gRecording) {
+        if (mode != GL_TRIANGLE_STRIP) gUnsupported++;
+        // Picks up anything that changed them outside glBegin/glEnd without passing
+        // through here: glPopAttrib, a list, an entry point not intercepted.
+        gColor = currentColor(); gUV = currentUV();
+    }
+    real_glBegin(mode);
+}
+static void setTexCoord(simd_float2 uv)
+{
+    if (gCompiling) { ListOp &l = gLists[gCompiling]; l.uv = uv; l.uvSet = true; }
+    else gUV = uv;
+}
+// A list that sets its own color would be replayed with the call-time color instead.
+static void setColor(simd_float4 c) { if (gCompiling) gLists[gCompiling].unreplayable = true; else gColor = c; }
+static void vertex(simd_float3 p)
+{
+    if (!gCompiling) { gStrip.push_back({p, gUV, gColor}); return; }
+    ListOp &l = gLists[gCompiling];
+    if (!l.uvSet) l.callUV++;
+    gStrip.push_back({p, l.uv, gColor});
+}
+extern "C" void glTexCoord2f(GLfloat s, GLfloat t) { setTexCoord(simd_make_float2(s, t)); real_glTexCoord2f(s, t); }
+extern "C" void glTexCoord2fv(const GLfloat *t) { setTexCoord(simd_make_float2(t[0], t[1])); real_glTexCoord2fv(t); }
+extern "C" void glColor3f(GLfloat r, GLfloat g, GLfloat b) { setColor(simd_make_float4(r, g, b, 1)); real_glColor3f(r, g, b); }
+extern "C" void glColor3fv(const GLfloat *c) { setColor(simd_make_float4(c[0], c[1], c[2], 1)); real_glColor3fv(c); }
+extern "C" void glColor4f(GLfloat r, GLfloat g, GLfloat b, GLfloat a) { setColor(simd_make_float4(r, g, b, a)); real_glColor4f(r, g, b, a); }
+extern "C" void glColor4fv(const GLfloat *c) { setColor(simd_make_float4(c[0], c[1], c[2], c[3])); real_glColor4fv(c); }
+extern "C" void glVertex3f(GLfloat x, GLfloat y, GLfloat z) { vertex(simd_make_float3(x, y, z)); real_glVertex3f(x, y, z); }
+extern "C" void glVertex3fv(const GLfloat *v) { vertex(simd_make_float3(v[0], v[1], v[2])); real_glVertex3fv(v); }
 extern "C" void glBindTexture(GLenum target, GLuint tex)
 {
     if (gCompiling && target == GL_TEXTURE_2D) {
@@ -174,8 +249,12 @@ extern "C" void glBindTexture(GLenum target, GLuint tex)
 extern "C" void glEnd(void)
 {
     real_glEnd();
+    gInBegin = false;
     if (gCompiling) { gLists[gCompiling].strips.push_back(gStrip); return; }
-    if (!gRecording || gMode != GL_TRIANGLE_STRIP) return;
+    if (!gRecording || gMode != GL_TRIANGLE_STRIP || executingList()) return;   // the last was counted in glBegin
+    // After glEnd GL's current values are the last vertex's; a mismatch means one was
+    // set through an entry point not intercepted, so the recorded strip is wrong.
+    if (!simd_equal(currentColor(), gColor) || !simd_equal(currentUV(), gUV)) { gUnsupported++; return; }
     Batch b; b.st = snap();
     GLhandleARB prog = glGetHandleARB(GL_PROGRAM_OBJECT_ARB);
     b.kind = prog == tunnelProgram && prog ? DrawKind::Tunnel : DrawKind::Immediate;
@@ -183,49 +262,73 @@ extern "C" void glEnd(void)
     glActiveTexture(GL_TEXTURE0); glGetIntegerv(GL_TEXTURE_BINDING_2D, &tex); b.tex = (GLuint)tex;
     glActiveTexture(GL_TEXTURE1); glGetIntegerv(GL_TEXTURE_BINDING_2D, &tex); b.tex1 = (GLuint)tex;
     glActiveTexture(active);
-    bool supported = b.kind == DrawKind::Tunnel ? blendSupported() : fixedFunctionSupported(b.tex);
+    bool supported = b.kind == DrawKind::Tunnel ? blendSupported() && hasImage2D(b.tex) && hasImage2D(b.tex1)
+                                                : fixedFunctionSupported(b.tex);
     if (!supported) { gUnsupported++; return; }
     stripToTris(gStrip, b.tri);
     gBatches.push_back(std::move(b));
 }
 // Display lists are recorded when compiled -- every strip in them -- and expanded
-// when called with the current colour. A list that sets its own colour or binds
-// more than one texture is refused. Other state a list changes (glEnable,
-// glBlendFunc) is not intercepted and would go unnoticed; Hyperspace's lists
-// change none.
-extern "C" void glNewList(GLuint list, GLenum mode) { if (mode == GL_COMPILE) gCompiling = list; real_glNewList(list, mode); }
-extern "C" void glEndList(void) { gCompiling = 0; real_glEndList(); }
+// when called with the current color. A list is refused if it sets its own
+// color, binds more than one texture, draws anything but triangle strips, or calls
+// another list (which GL resolves when it runs, not when it compiles). Other state
+// a list changes (glEnable, glBlendFunc) is not intercepted and would go unnoticed;
+// Hyperspace's lists change none.
+extern "C" void glNewList(GLuint list, GLenum mode)
+{
+    // Compiling a name again replaces the list. GL_COMPILE_AND_EXECUTE is not
+    // recorded, so a later call of that name is refused. A call GL refuses -- inside
+    // another list, inside glBegin, list 0, an unknown mode -- opens nothing.
+    if (gListOpen || gInBegin || !list || (mode != GL_COMPILE && mode != GL_COMPILE_AND_EXECUTE)) { real_glNewList(list, mode); return; }
+    gListOpen = true;
+    if (mode == GL_COMPILE) { gCompiling = list; gLists[list] = ListOp{}; }
+    else gLists.erase(list);
+    real_glNewList(list, mode);
+}
+extern "C" void glEndList(void) { gCompiling = 0; gListOpen = false; real_glEndList(); }
 extern "C" void glCallList(GLuint list)
 {
+    if (gCompiling) gLists[gCompiling].unreplayable = true;
     auto it = gLists.find(list);
-    if (gRecording && it != gLists.end()) {
-        Batch b; b.kind = DrawKind::Immediate; b.st = snap();
-        GLint cur; glGetIntegerv(GL_TEXTURE_BINDING_2D, &cur);
-        b.tex = it->second.hasTex ? it->second.tex : (GLuint)cur;
-        if (it->second.unreplayable || !fixedFunctionSupported(b.tex)) gUnsupported++;
-        else {
-            for (std::vector<Vtx> s : it->second.strips) {
-                for (auto &v : s) v.c = b.st.color;
-                stripToTris(s, b.tri);
-            }
-            gBatches.push_back(std::move(b));
-        }
-    } else if (gRecording) gUnsupported++;
+    if (!gRecording || gCompiling) { real_glCallList(list); return; }
+    // Inside glBegin/glEnd GL allows the call but not the state queries below.
+    if (it == gLists.end() || gInBegin || executingList()) { gUnsupported++; real_glCallList(list); return; }
+    const ListOp &l = it->second;
+    Batch b; b.kind = DrawKind::Immediate; b.st = snap();
+    GLint cur; glGetIntegerv(GL_TEXTURE_BINDING_2D, &cur);
+    b.tex = l.hasTex ? l.tex : (GLuint)cur;
+    simd_float2 callUV = currentUV();
+    bool supported = !l.unreplayable && fixedFunctionSupported(b.tex);
     real_glCallList(list);
+    // GL's current values after the call are what the list left them at, which
+    // shows whether it set any through an entry point not intercepted.
+    if (!supported || !simd_equal(currentColor(), b.st.color) || !simd_equal(currentUV(), l.uvSet ? l.uv : callUV)) {
+        gUnsupported++;
+        return;
+    }
+    size_t n = 0;
+    for (std::vector<Vtx> s : l.strips) {
+        for (auto &v : s) { v.c = b.st.color; if (n++ < l.callUV) v.uv = callUV; }
+        stripToTris(s, b.tri);
+    }
+    gBatches.push_back(std::move(b));
 }
 // impSurface builds with USE_TRIANGLE_STRIPS 0 and VBOs on, so goo arrives as one
 // glDrawElements(GL_TRIANGLES, n, GL_UNSIGNED_INT, offset) per surface.
 extern "C" void glMultiDrawElements(GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *offsets, GLsizei n)
 {
+    if (gCompiling) gLists[gCompiling].unreplayable = true;
     if (gRecording) gUnsupported++;
     real_glMultiDrawElements(mode, count, type, offsets, n);
 }
 extern "C" void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid *idx)
 {
+    if (gCompiling) gLists[gCompiling].unreplayable = true;
     if (gRecording) {
         GLhandleARB prog = glGetHandleARB(GL_PROGRAM_OBJECT_ARB);
         GLint ab, eb; glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &ab); glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &eb);
-        if (prog != gooProgram || !prog || mode != GL_TRIANGLES || type != GL_UNSIGNED_INT || !ab || !eb || !blendSupported()) gUnsupported++;
+        if (prog != gooProgram || !prog || mode != GL_TRIANGLES || type != GL_UNSIGNED_INT || !ab || !eb || !blendSupported() || executingList())
+            gUnsupported++;
         else if (count > 0) {
             Batch b; b.kind = DrawKind::Goo; b.st = snap();
             GLint asz; glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &asz);
@@ -234,15 +337,205 @@ extern "C" void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GL
             b.gooTri.resize(count);
             glGetBufferSubData(GL_ELEMENT_ARRAY_BUFFER, (GLintptr)idx, count * sizeof(uint32_t), b.gooTri.data());
             GLint active; glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
+            bool bound = true;
             for (int u = 0; u < 3; u++) {
                 glActiveTexture(GL_TEXTURE0 + u);
                 GLint t; glGetIntegerv(GL_TEXTURE_BINDING_CUBE_MAP, &t); b.cube[u] = (GLuint)t;
+                bound &= hasImageCube(b.cube[u]);
             }
             glActiveTexture(active);
-            gBatches.push_back(std::move(b));
+            if (bound) gBatches.push_back(std::move(b));
+            else gUnsupported++;
         }
     }
     real_glDrawElements(mode, count, type, idx);
+}
+// Textures and their sampler settings are copied after the frame, so a change to
+// either during a shot frame would replay the final state for draws GL made with
+// the earlier one. gluBuild2DMipmaps is caught here, at Hyperspace's call, because
+// its own uploads bypass the rest. A change compiled into a list happens when the
+// list runs, so the list is refused instead -- except for glDeleteTextures, which
+// GL never compiles and always runs at once. Not intercepted: glGenerateMipmap,
+// compressed, 1D and 3D uploads, gluBuild2DMipmapLevels -- Hyperspace uses none.
+static void noteTextureChange(bool compilable)
+{
+    if (compilable && gCompiling) gLists[gCompiling].unreplayable = true;
+    else if (gRecording) gUnsupported++;
+}
+extern "C" void glTexImage2D(GLenum t, GLint l, GLint ifmt, GLsizei w, GLsizei h, GLint b, GLenum f, GLenum ty, const GLvoid *px)
+{ noteTextureChange(true); real_glTexImage2D(t, l, ifmt, w, h, b, f, ty, px); }
+extern "C" void glTexSubImage2D(GLenum t, GLint l, GLint x, GLint y, GLsizei w, GLsizei h, GLenum f, GLenum ty, const GLvoid *px)
+{ noteTextureChange(true); real_glTexSubImage2D(t, l, x, y, w, h, f, ty, px); }
+extern "C" void glCopyTexImage2D(GLenum t, GLint l, GLenum ifmt, GLint x, GLint y, GLsizei w, GLsizei h, GLint b)
+{ noteTextureChange(true); real_glCopyTexImage2D(t, l, ifmt, x, y, w, h, b); }
+extern "C" void glCopyTexSubImage2D(GLenum t, GLint l, GLint xo, GLint yo, GLint x, GLint y, GLsizei w, GLsizei h)
+{ noteTextureChange(true); real_glCopyTexSubImage2D(t, l, xo, yo, x, y, w, h); }
+extern "C" GLint gluBuild2DMipmaps(GLenum t, GLint ifmt, GLsizei w, GLsizei h, GLenum f, GLenum ty, const void *px)
+{ noteTextureChange(true); return real_gluBuild2DMipmaps(t, ifmt, w, h, f, ty, px); }
+extern "C" void glTexParameteri(GLenum t, GLenum p, GLint v) { noteTextureChange(true); real_glTexParameteri(t, p, v); }
+extern "C" void glTexParameterf(GLenum t, GLenum p, GLfloat v) { noteTextureChange(true); real_glTexParameterf(t, p, v); }
+extern "C" void glTexParameteriv(GLenum t, GLenum p, const GLint *v) { noteTextureChange(true); real_glTexParameteriv(t, p, v); }
+extern "C" void glTexParameterfv(GLenum t, GLenum p, const GLfloat *v) { noteTextureChange(true); real_glTexParameterfv(t, p, v); }
+extern "C" void glDeleteTextures(GLsizei n, const GLuint *t) { noteTextureChange(false); real_glDeleteTextures(n, t); }
+
+// ---- injected faults ----
+//
+// inject=<case> draws one more thing at the end of every shot frame, through the
+// interposers above, so parity/killcheck.sh can show each recorder check failing on
+// the shape it exists for. A case named *_ok draws something the recorder must
+// replay correctly and still PASS; every other case must FAIL. The refused cases
+// draw with alpha 0 or off screen, so only the recorder check -- not the image
+// comparison -- can be what fails them.
+static const char *const kInjectCases[] = {
+    "strip_ok", "recompile_ok", "listcalluv_ok",
+    "drawarrays", "colorub", "texcoordd", "listcolorub", "listquads", "nestedlist", "listinbegin",
+    "compileexecute", "nestednewlist", "tunnelnotex", "goopartialcube", "texupload", "listupload", "texparam", "texdelete",
+};
+static GLuint gInjectTex = 0, gInjectCube = 0, gInjectList = 0, gInjectVBO[2] = {0, 0};
+// A case that provokes a GL error on purpose takes it here, and only that error:
+// any other, or none, is reported as the shot's GL error.
+static GLenum gInjectGLError = GL_NO_ERROR;
+static void expectGLError(GLenum want)
+{
+    GLenum e = glGetError();
+    if (e != want && gInjectGLError == GL_NO_ERROR) gInjectGLError = e == GL_NO_ERROR ? 0xFFFF : e;
+}
+// Made before the first frame, because an upload during a shot frame is itself
+// refused, and with every binding put back so the saver draws exactly as it would.
+static void injectSetup(const char *which)
+{
+    GLint saved2D, savedCube, savedAB, savedEB;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &saved2D); glGetIntegerv(GL_TEXTURE_BINDING_CUBE_MAP, &savedCube);
+    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &savedAB); glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &savedEB);
+    uint8_t px[4 * 4 * 4];
+    for (int i = 0; i < 16; i++) { px[i * 4] = (uint8_t)(i * 16); px[i * 4 + 1] = (uint8_t)(255 - i * 16); px[i * 4 + 2] = (uint8_t)((i * 97) & 255); px[i * 4 + 3] = 255; }
+    glGenTextures(1, &gInjectTex); glBindTexture(GL_TEXTURE_2D, gInjectTex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 4, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    // A cube map with only its +X face: the goo check must look at all six.
+    glGenTextures(1, &gInjectCube); glBindTexture(GL_TEXTURE_CUBE_MAP, gInjectCube);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 0, GL_RGBA8, 4, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    // One off-screen goo triangle, laid out as impSurface's VBOs are: normal, then position.
+    static const float verts[] = {0, 0, 1, 5, 5, 0,  0, 0, 1, 6, 5, 0,  0, 0, 1, 5, 6, 0};
+    static const uint32_t idx[] = {0, 1, 2};
+    glGenBuffers(2, gInjectVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, gInjectVBO[0]); glBufferData(GL_ARRAY_BUFFER, sizeof verts, verts, GL_STATIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gInjectVBO[1]); glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof idx, idx, GL_STATIC_DRAW);
+    gInjectList = glGenLists(2);
+    // Compiled here, outside any shot frame, so the upload inside it is seen only
+    // when the list runs.
+    if (!strcmp(which, "listupload")) {
+        static const uint8_t zeros[4 * 4 * 4] = {0};
+        glNewList(gInjectList, GL_COMPILE);
+        glBindTexture(GL_TEXTURE_2D, gInjectTex); glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 4, 4, GL_RGBA, GL_UNSIGNED_BYTE, zeros);
+        glEndList();
+    }
+    glBindTexture(GL_TEXTURE_2D, saved2D); glBindTexture(GL_TEXTURE_CUBE_MAP, savedCube);
+    glBindBuffer(GL_ARRAY_BUFFER, savedAB); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, savedEB);
+}
+static void quad(float x0, float x1) { glVertex3f(x0, -0.5f, 0); glVertex3f(x1, -0.5f, 0); glVertex3f(x0, 0.5f, 0); glVertex3f(x1, 0.5f, 0); }
+static void injectFault(const char *which)
+{
+    const GLuint tex = gInjectTex, list = gInjectList;
+    GLint savedAB, savedEB; glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &savedAB); glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &savedEB);
+    GLhandleARB prog = glGetHandleARB(GL_PROGRAM_OBJECT_ARB);
+    GLint active; glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
+    glPushAttrib(GL_ALL_ATTRIB_BITS); glPushClientAttrib(GL_CLIENT_ALL_ATTRIB_BITS);
+    glUseProgramObjectARB(0); glActiveTexture(GL_TEXTURE0);
+    glDisable(GL_FOG); glDisable(GL_CULL_FACE); glDisable(GL_TEXTURE_2D); glDisable(GL_TEXTURE_CUBE_MAP);
+    glDisable(GL_TEXTURE_GEN_S); glDisable(GL_TEXTURE_GEN_T);
+    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE); glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity();
+    glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity();
+
+    std::string c = which;
+    if (c == "strip_ok") {
+        glColor4f(0.5f, 0.3f, 0.2f, 1); glBegin(GL_TRIANGLE_STRIP); quad(-0.5f, 0.5f); glEnd();
+    } else if (c == "recompile_ok") {   // only the second compile may be drawn
+        glNewList(list, GL_COMPILE); glBegin(GL_TRIANGLE_STRIP); quad(-0.9f, -0.1f); glEnd(); glEndList();
+        glNewList(list, GL_COMPILE); glBegin(GL_TRIANGLE_STRIP); quad(0.1f, 0.9f); glEnd(); glEndList();
+        glColor4f(0.5f, 0.3f, 0.2f, 1); glCallList(list);
+    } else if (c == "listcalluv_ok") {  // the first two vertices take the call-time texcoord
+        glBindTexture(GL_TEXTURE_2D, tex); glEnable(GL_TEXTURE_2D);
+        glTexCoord2f(0.1f, 0.1f);
+        glNewList(list, GL_COMPILE); glBegin(GL_TRIANGLE_STRIP);
+        glVertex3f(-0.5f, -0.5f, 0); glVertex3f(0.5f, -0.5f, 0);
+        glTexCoord2f(0.9f, 0.9f); glVertex3f(-0.5f, 0.5f, 0); glVertex3f(0.5f, 0.5f, 0);
+        glEnd(); glEndList();
+        glColor4f(1, 1, 1, 1); glTexCoord2f(0.6f, 0.4f); glCallList(list);
+    } else if (c == "drawarrays") {     // off screen: only the primitive count sees it
+        static const float tri[] = {5, 5, 0, 6, 5, 0, 5, 6, 0};
+        glEnableClientState(GL_VERTEX_ARRAY); glVertexPointer(3, GL_FLOAT, 0, tri); glDrawArrays(GL_TRIANGLES, 0, 3);
+    } else if (c == "colorub") {
+        glBegin(GL_TRIANGLE_STRIP); glColor4f(1, 1, 1, 0);
+        glVertex3f(-0.5f, -0.5f, 0); glVertex3f(0.5f, -0.5f, 0); glVertex3f(-0.5f, 0.5f, 0);
+        glColor4ub(255, 0, 0, 0); glVertex3f(0.5f, 0.5f, 0); glEnd();
+    } else if (c == "texcoordd") {
+        glColor4f(1, 1, 1, 0); glBegin(GL_TRIANGLE_STRIP); glTexCoord2f(0, 0);
+        glVertex3f(-0.5f, -0.5f, 0); glVertex3f(0.5f, -0.5f, 0); glVertex3f(-0.5f, 0.5f, 0);
+        glTexCoord2d(0.5, 0.5); glVertex3f(0.5f, 0.5f, 0); glEnd();
+    } else if (c == "listcolorub") {
+        glNewList(list, GL_COMPILE); glColor4ub(255, 0, 0, 0); glBegin(GL_TRIANGLE_STRIP); quad(-0.5f, 0.5f); glEnd(); glEndList();
+        glColor4f(1, 1, 1, 0); glCallList(list);
+    } else if (c == "listquads") {
+        glNewList(list, GL_COMPILE); glBegin(GL_QUADS); glVertex3f(-0.5f, -0.5f, 0); glVertex3f(0.5f, -0.5f, 0);
+        glVertex3f(0.5f, 0.5f, 0); glVertex3f(-0.5f, 0.5f, 0); glEnd(); glEndList();
+        glColor4f(1, 1, 1, 0); glCallList(list);
+    } else if (c == "nestedlist") {
+        glNewList(list + 1, GL_COMPILE); glBegin(GL_TRIANGLE_STRIP); quad(-0.5f, 0.5f); glEnd(); glEndList();
+        glNewList(list, GL_COMPILE); glCallList(list + 1); glEndList();
+        glColor4f(1, 1, 1, 0); glCallList(list);
+    } else if (c == "compileexecute") {   // drawn now, but compiled as well
+        glNewList(list, GL_COMPILE_AND_EXECUTE);
+        glColor4f(1, 1, 1, 0); glBegin(GL_TRIANGLE_STRIP); quad(-0.5f, 0.5f); glEnd();
+        glEndList();
+    } else if (c == "nestednewlist") {
+        // GL refuses the inner glNewList, so list + 1 never exists; calling it must
+        // not replay a list the recorder believed it was compiling.
+        glNewList(list, GL_COMPILE_AND_EXECUTE);
+        glNewList(list + 1, GL_COMPILE); expectGLError(GL_INVALID_OPERATION);
+        glEndList();
+        glCallList(list + 1);
+    } else if (c == "listinbegin") {
+        // GL allows a list call there but no state query, so the recorder must
+        // refuse before querying; a query would raise a GL error. The list is
+        // empty, so the primitive count cannot be what fails it.
+        glNewList(list, GL_COMPILE); glEndList();
+        glColor4f(1, 1, 1, 0); glBegin(GL_TRIANGLE_STRIP);
+        glVertex3f(-0.5f, -0.5f, 0); glVertex3f(0.5f, -0.5f, 0); glVertex3f(-0.5f, 0.5f, 0);
+        glCallList(list); glEnd();
+    } else if (c == "goopartialcube") {   // off screen, through the goo program
+        glUseProgramObjectARB(gooProgram);   // main refuses to run this case without one
+        for (int u = 0; u < 3; u++) { glActiveTexture(GL_TEXTURE0 + u); glBindTexture(GL_TEXTURE_CUBE_MAP, gInjectCube); }
+        glActiveTexture(GL_TEXTURE0);
+        glBindBuffer(GL_ARRAY_BUFFER, gInjectVBO[0]); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gInjectVBO[1]);
+        glEnableClientState(GL_VERTEX_ARRAY); glEnableClientState(GL_NORMAL_ARRAY);
+        glNormalPointer(GL_FLOAT, 6 * sizeof(float), (const GLvoid *)0);
+        glVertexPointer(3, GL_FLOAT, 6 * sizeof(float), (const GLvoid *)(3 * sizeof(float)));
+        glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_INT, (const GLvoid *)0);
+    } else if (c == "texupload") {     // any upload during a shot frame is refused, used or not
+        static const uint8_t zeros[4 * 4 * 4] = {0};
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 4, 4, GL_RGBA, GL_UNSIGNED_BYTE, zeros);
+    } else if (c == "listupload") {    // compiled in injectSetup; the upload runs now
+        glColor4f(1, 1, 1, 0); glCallList(list);
+    } else if (c == "texparam") {      // a sampler change; copies are taken after the frame
+        GLint nearest = GL_NEAREST;
+        glBindTexture(GL_TEXTURE_2D, tex); glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, &nearest);
+    } else if (c == "texdelete") {     // runs at once even while a list compiles
+        GLuint t; glGenTextures(1, &t);
+        glNewList(list, GL_COMPILE); glDeleteTextures(1, &t); glEndList();
+    } else if (c == "tunnelnotex") {    // the tunnel program with nothing bound on unit 1
+        glUseProgramObjectARB(tunnelProgram);
+        glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, 0); glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, tex);
+        glBegin(GL_TRIANGLE_STRIP); quad(5, 6); glEnd();
+    }
+
+    glMatrixMode(GL_PROJECTION); glPopMatrix(); glMatrixMode(GL_MODELVIEW); glPopMatrix();
+    glBindBuffer(GL_ARRAY_BUFFER, savedAB); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, savedEB);
+    glPopClientAttrib(); glPopAttrib();
+    glUseProgramObjectARB(prog); glActiveTexture(active);
 }
 
 // ---- passes and their rules ----
@@ -262,7 +555,7 @@ struct Pass {
     double max2, max8, maxBias;
 };
 static const Pass kPasses[] = {
-    // 60 s; stars are tiny, so the lit-pixel normalisation matters most here.
+    // 60 s; stars are tiny, so the lit-pixel normalization matters most here.
     {"stars",  "FixedFunction.metal", "ff_vertex",     "ff_fragment",     false, false, 3600, 300, 1.0, 0.1, 0.06},
     // 60 s; faithful worst 5.28% / 1.35% / bias 0.012, weakest defect bias 0.357.
     {"goo",    "Goo.metal",           "goo_vertex",    "goo_fragment",    true,  false, 3600, 300, 8.0, 2.5, 0.06},
@@ -305,8 +598,9 @@ static NSString *readFile(NSString *path)
 int main(int argc, const char *argv[])
 {
     @autoreleasepool {
+        if (argc == 2 && !strcmp(argv[1], "--inject-cases")) { for (const char *k : kInjectCases) printf("%s\n", k); return 0; }
         if (argc < 4) {
-            fprintf(stderr, "usage: parity <stars|goo|tunnel> <metal-dir> <outdir> [shader=PATH] [frames=N] [every=N] [w=N] [h=N]\n");
+            fprintf(stderr, "usage: parity <stars|goo|tunnel> <metal-dir> <outdir> [shader=PATH] [inject=CASE] [frames=N] [every=N] [w=N] [h=N]\n");
             return 2;
         }
         const Pass *pass = nullptr;
@@ -315,6 +609,7 @@ int main(int argc, const char *argv[])
         NSString *metalDir = @(argv[2]), *outdir = @(argv[3]);
         NSString *shaderPath = [metalDir stringByAppendingPathComponent:@(pass->file)];
         int frames = pass->frames, every = pass->every, w = 1280, h = 720;
+        const char *inject = nullptr;
         auto intOpt = [](const char *arg, const char *key, int &out) {
             size_t n = strlen(key);
             if (strncmp(arg, key, n)) return false;
@@ -324,6 +619,11 @@ int main(int argc, const char *argv[])
         };
         for (int i = 4; i < argc; i++) {
             if (!strncmp(argv[i], "shader=", 7) && argv[i][7]) shaderPath = @(argv[i] + 7);
+            else if (!strncmp(argv[i], "inject=", 7)) {
+                inject = argv[i] + 7;
+                bool known = false; for (const char *k : kInjectCases) known |= !strcmp(k, inject);
+                if (!known) { fprintf(stderr, "unknown inject case %s\n", inject); return 2; }
+            }
             else if (intOpt(argv[i], "frames=", frames) || intOpt(argv[i], "every=", every) ||
                      intOpt(argv[i], "w=", w) || intOpt(argv[i], "h=", h)) {}
             else { fprintf(stderr, "bad option %s\n", argv[i]); return 2; }
@@ -383,8 +683,12 @@ int main(int argc, const char *argv[])
         glClearColor(0, 0, 0, 0); glClear(GL_COLOR_BUFFER_BIT); glFlush();
         initSaver(&s);
         printf("renderer: %s\n", glGetString(GL_RENDERER));
-        printf("config: pass=%s seed=%ld goo=%d tunnels=%d shaders=%d %dx%d frames=%d every=%d shader=%s\n",
-               pass->name, (long)gSeed, s.dUseGoo, s.dUseTunnels, s.dShaders, w, h, frames, every, shaderPath.UTF8String);
+        printf("config: pass=%s seed=%ld goo=%d tunnels=%d shaders=%d %dx%d frames=%d every=%d shader=%s%s%s\n",
+               pass->name, (long)gSeed, s.dUseGoo, s.dUseTunnels, s.dShaders, w, h, frames, every, shaderPath.UTF8String,
+               inject ? " inject=" : "", inject ? inject : "");
+        if (inject) injectSetup(inject);
+        if (inject && !strcmp(inject, "tunnelnotex") && !tunnelProgram) { printf("ERROR inject=tunnelnotex needs the tunnel program\n"); return 2; }
+        if (inject && !strcmp(inject, "goopartialcube") && !gooProgram) { printf("ERROR inject=goopartialcube needs the goo program\n"); return 2; }
 
         MTLTextureDescriptor *cd = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:w height:h mipmapped:NO];
         cd.usage = MTLTextureUsageRenderTarget; cd.storageMode = MTLStorageModeShared;
@@ -398,16 +702,20 @@ int main(int argc, const char *argv[])
 
         // Filters and wrap are queried from GL, not assumed.
         auto sampler = [&](GLenum tgt) {
-            GLint minF, magF, ws, wt;
+            GLint minF, magF, ws, wt, wr;
             glGetTexParameteriv(tgt, GL_TEXTURE_MIN_FILTER, &minF); glGetTexParameteriv(tgt, GL_TEXTURE_MAG_FILTER, &magF);
             glGetTexParameteriv(tgt, GL_TEXTURE_WRAP_S, &ws); glGetTexParameteriv(tgt, GL_TEXTURE_WRAP_T, &wt);
+            glGetTexParameteriv(tgt, GL_TEXTURE_WRAP_R, &wr);
             MTLSamplerDescriptor *sd = [MTLSamplerDescriptor new];
             sd.minFilter = mmf(minF); sd.magFilter = mmf(magF); sd.mipFilter = mipf(minF);
-            sd.sAddressMode = addr(ws); sd.tAddressMode = addr(wt); sd.rAddressMode = addr(wt);
+            sd.sAddressMode = addr(ws); sd.tAddressMode = addr(wt); sd.rAddressMode = addr(wr);
             return [dev newSamplerStateWithDescriptor:sd];
         };
         // Textures are copied out of GL with every mip level it holds, so neither
         // texture generation nor mip generation can differ between the two sides.
+        // A texture changed during a shot frame fails the shot (noteTextureChange); the
+        // copies are dropped after every shot so that one changed between shots
+        // is copied again.
         auto copyCube = [&](GLuint t) {
             real_glBindTexture(GL_TEXTURE_CUBE_MAP, t);
             GLint sz, minF; glGetTexLevelParameteriv(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 0, GL_TEXTURE_WIDTH, &sz);
@@ -450,15 +758,32 @@ int main(int argc, const char *argv[])
         std::vector<uint8_t> glbuf(npx * 4), glflip(npx * 4), mtl(npx * 4), heat(npx * 4);
         printf(" shot  judged-draws  max   lit%%  lit>2%%  lit>8%%   bias  verdict\n");
         bool ok = true; int shots = 0; double worst2 = 0, worst8 = 0, worstBias = 0; long judgedTotal = 0;
+        GLuint primQuery; glGenQueries(1, &primQuery);
 
         for (int f = 0; f < frames; f++) {
             bool shot = f > 0 && (f % every == 0 || f == frames - 1);
             gRecording = shot; gBatches.clear(); gUnsupported = 0;
             s.frameTime = dt;
+            if (shot) while (glGetError() != GL_NO_ERROR) {}
+            if (shot) glBeginQuery(GL_PRIMITIVES_GENERATED_EXT, primQuery);
             draw(&s);
+            if (shot && inject) injectFault(inject);
+            if (shot) glEndQuery(GL_PRIMITIVES_GENERATED_EXT);
             glFinish();
             gRecording = false;
             if (!shot) continue;
+
+            // A GL error means some call -- the saver's or the recorder's -- did not do
+            // what the recording assumes it did.
+            GLenum glErr = glGetError();
+            if (glErr == GL_NO_ERROR) glErr = gInjectGLError;
+            gInjectGLError = GL_NO_ERROR;
+            // Every primitive GL generated must be a recorded triangle.
+            GLuint generated = 0; glGetQueryObjectuiv(primQuery, GL_QUERY_RESULT, &generated);
+            size_t recorded = 0;
+            for (auto &b : gBatches) recorded += (b.kind == DrawKind::Goo ? b.gooTri.size() : b.tri.size()) / 3;
+            bool complete = gUnsupported == 0 && generated == recorded && glErr == GL_NO_ERROR;
+            tex2d.clear(); texCube.clear(); samp2d.clear(); sampCube.clear();
 
             glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, glbuf.data());
             for (int y = 0; y < h; y++) memcpy(&glflip[(size_t)y * w * 4], &glbuf[(size_t)(h - 1 - y) * w * 4], (size_t)w * 4);
@@ -540,11 +865,15 @@ int main(int argc, const char *argv[])
             }
             double bias = 0; for (int c = 0; c < 3; c++) bias = MAX(bias, fabs(sb[c] / MAX((size_t)1, lit)));
             double p2 = lit ? 100.0 * l2 / lit : 0, p8 = lit ? 100.0 * l8 / lit : 0;
-            bool shotOk = p2 <= pass->max2 && p8 <= pass->max8 && bias <= pass->maxBias && gUnsupported == 0;
+            bool shotOk = p2 <= pass->max2 && p8 <= pass->max8 && bias <= pass->maxBias && complete;
             ok &= shotOk; shots++; judgedTotal += judged;
             worst2 = MAX(worst2, p2); worst8 = MAX(worst8, p8); worstBias = MAX(worstBias, bias);
-            printf("%5d  %12d  %3d  %5.2f  %6.2f  %6.2f  %5.3f  %s%s\n", f, judged, maxd, 100.0 * lit / npx, p2, p8, bias,
-                   shotOk ? "ok" : "FAIL", gUnsupported ? " (unrecorded GL draw calls)" : "");
+            printf("%5d  %12d  %3d  %5.2f  %6.2f  %6.2f  %5.3f  %s", f, judged, maxd, 100.0 * lit / npx, p2, p8, bias, shotOk ? "ok" : "FAIL");
+            if (!(p2 <= pass->max2 && p8 <= pass->max8 && bias <= pass->maxBias)) printf(" (outside limits)");
+            if (gUnsupported) printf(" (unrecorded GL draw calls)");
+            if (glErr != GL_NO_ERROR) printf(" (GL error 0x%x)", glErr);
+            if (!gUnsupported && generated != recorded) printf(" (GL drew %u primitives, %zu recorded)", generated, recorded);
+            printf("\n");
             NSString *base = [outdir stringByAppendingPathComponent:[NSString stringWithFormat:@"%05d", f]];
             writePNG([base stringByAppendingString:@"_gl.png"], glflip.data(), w, h);
             writePNG([base stringByAppendingString:@"_metal.png"], mtl.data(), w, h);

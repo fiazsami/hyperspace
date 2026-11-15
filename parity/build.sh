@@ -13,7 +13,7 @@ INC=(-I. -IHyperspace -IrsMath -IImplicit -IrsText -Iutil -include Hyperspace_Pr
 # under comparison lives in Hyperspace/shaders.h, and a stale object would compare
 # against a renderer that no longer exists.
 newest=parity/build.sh
-for f in Hyperspace_Prefix.pch Hyperspace/*.h rsMath/*.h Implicit/*.h rsText/*.h Rgbhsl/*.h util/*.h; do
+for f in Hyperspace_Prefix.pch *.h *.hh Hyperspace/*.h rsMath/*.h Implicit/*.h rsText/*.h Rgbhsl/*.h util/*.h; do
     if [ -e "$f" ] && [ "$f" -nt "$newest" ]; then newest=$f; fi
 done
 objs=()
