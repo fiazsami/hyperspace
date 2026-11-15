@@ -15,7 +15,7 @@ vertex GooVaryings goo_vertex(uint vid [[vertex_id]],
     float4 glVertex = float4(float3(v[vid].position), 1.0);
     GooVaryings out;
     out.vsPosition = u.modelview * glVertex;
-    // Fixed-function vertex colour clamping (GL_CLAMP_VERTEX_COLOR defaults to TRUE).
+    // Fixed-function vertex color clamping (GL_CLAMP_VERTEX_COLOR defaults to TRUE).
     out.color = saturate(u.color);
     out.texCoord0 = float4(float3(v[vid].normal), 1.0);
     out.position = u.mvp * glVertex; // ftransform()

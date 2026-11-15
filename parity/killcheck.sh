@@ -6,18 +6,35 @@
 # then PASS. A rule that a known defect gets through is not a rule, so a defect
 # that passes fails this script.
 #
-#   parity/killcheck.sh [stars|goo|tunnel ...]     default: all three
+# The recorder's own checks are proved the same way, with parity's inject= cases
+# (one short stars run each): a *_ok case must PASS, every other case must FAIL.
 #
-# About 5 minutes for all three on an M-series Mac; images go to .parity-build/out.
+#   parity/killcheck.sh [stars|goo|tunnel ...]     default: all three, plus inject
+#   parity/killcheck.sh inject                     the recorder cases alone
+#
+# About 5 minutes for everything on an M-series Mac; images go to .parity-build/out.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 parity/build.sh >/dev/null || exit 2
 
-passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo tunnel)
+passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo tunnel inject)
 OUT=.parity-build/out
 mkdir -p "$OUT"
 bad=0
 for pass in "${passes[@]}"; do
+    if [ "$pass" = inject ]; then
+        for case in strip_ok recompile_ok listcalluv_ok drawarrays colorub texcoordd listcolorub listquads nestedlist tunnelnotex; do
+            name=inject_$case
+            rm -rf "$OUT/$name"
+            .parity-build/parity stars metal "$OUT/$name" inject="$case" frames=301 every=300 > "$OUT/$name.log" 2>&1; code=$?
+            result=$(tail -1 "$OUT/$name.log")
+            want=1; [[ $case == *_ok ]] && want=0
+            if [ "$code" -eq "$want" ] && [ "$want" -eq 0 ]; then printf 'pass       %-26s %s\n' "$name" "${result#PASS }"
+            elif [ "$code" -eq "$want" ]; then printf 'killed     %-26s %s\n' "$name" "$(grep -m1 -oE '\((unrecorded|GL drew)[^)]*\)' "$OUT/$name.log")"
+            else printf 'WRONG      %-26s exit %s, wanted %s: %s\n' "$name" "$code" "$want" "$result"; bad=1; fi
+        done
+        continue
+    fi
     for defect in parity/defects/"$pass"_*.metal; do
         name=$(basename "$defect" .metal)
         rm -rf "$OUT/$name"

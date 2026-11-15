@@ -11,6 +11,7 @@ same process, so the reference is always the real renderer on this machine.
 parity/build.sh                                   # -> .parity-build/parity
 .parity-build/parity goo metal .parity-build/out/goo
 parity/killcheck.sh                               # every rule, both directions (~5 min)
+parity/killcheck.sh inject                        # the recorder's checks alone (~30 s)
 ```
 
 Each shot writes `NNNNN_gl.png`, `NNNNN_metal.png` and `NNNNN_diffx8.png`
@@ -40,8 +41,31 @@ A shot passes when, over pixels lit (any channel > 8) in **either** image:
 Any draw the recorder could not capture -- or captured under GL state the replay
 does not reproduce (a blend other than `(SRC_ALPHA, ONE)`, a texture mode other
 than MODULATE, a program, cube map or texgen on the fixed-function path, an
-alpha-only texture) -- fails the shot as "unrecorded GL draw calls". A pass that
-drew nothing in any shot is an error rather than a pass.
+alpha-only texture, a texture name with no image) -- fails the shot as
+"unrecorded GL draw calls". A pass that drew nothing in any shot is an error
+rather than a pass.
+
+The recorder intercepts a fixed set of GL entry points, so it does not rely on
+that set being complete:
+
+- **Primitive count.** GL counts the primitives it generates in each shot
+  (`GL_PRIMITIVES_GENERATED`), and the shot fails unless the count equals the
+  triangles recorded. A draw through an entry point the recorder does not see
+  (`glDrawArrays`, `glCallLists`, `glVertex2f`) shows up as
+  "GL drew N primitives, M recorded".
+- **Current color and texcoord.** After every recorded draw, GL's current
+  color and texcoord must equal the recorded ones. A mismatch means one was set
+  through an entry point the recorder does not see (`glColor4ub`,
+  `glTexCoord2d`), and the draw is refused.
+
+Display lists are recorded when compiled and refused if they set their own
+color, bind more than one texture, draw anything but triangle strips, or call
+another list. Compiling a name again replaces its list. Vertices issued before a
+list's first `glTexCoord` take the texcoord current at call time, as GL does.
+
+Texture copies are dropped after every shot. Hyperspace uploads through
+`gluBuild2DMipmaps`, which reaches GL without passing through the recorder, so a
+copy kept across shots could not tell that its texture had been replaced.
 
 Rates are over lit pixels, not the frame. Star frames are 0.3–4% lit, and a
 per-frame rate diluted every defect below 1%.
@@ -64,7 +88,7 @@ symmetric (GL brighter exactly as often as Metal), on goo silhouettes and on
 distant, heavily minified tunnel texture. Nine causes were tested and ruled out —
 MVP precision (three formulations, byte-identical), fast-math, explicit
 gradients, forced level-0 sampling, texture precision, half-precision maths,
-8-bit vertex colour, stale texture copies; forcing GL to seamless cube filtering
+8-bit vertex color, stale texture copies; forcing GL to seamless cube filtering
 moved it only slightly. **The cause is not known.** Because the residual is
 symmetric it averages out, while a real translation error pushes one way, so
 signed bias separates the two cases where the |diff| rates alone do not.
@@ -92,12 +116,20 @@ term. `killcheck.sh` requires every one to FAIL. When a shader in `metal/`
 changes, regenerate the fixtures from the new text rather than editing the
 rule.
 
+The recorder's checks have fixtures too, as `inject=<case>`: parity draws one
+known fault at the end of every shot, through the same interposers the saver
+uses. The refused cases (`drawarrays`, `colorub`, `texcoordd`, `listcolorub`,
+`listquads`, `nestedlist`, `tunnelnotex`) draw with alpha 0 or off screen, so the
+recorder check is the only thing that can fail them. The `*_ok` cases
+(`strip_ok`, `recompile_ok`, `listcalluv_ok`) draw something the recorder must
+replay correctly, and they must pass.
+
 ## Limits
 
 - **One machine.** Calibrated on an Apple M5 Max under macOS 26. Another GPU or
   driver may move the residual; rerun the kill-check before trusting a verdict
   there.
-- **Not in CI.** A hosted runner's GPU is virtualised and uncalibrated, so a
+- **Not in CI.** A hosted runner's GPU is virtualized and uncalibrated, so a
   verdict there would mean nothing yet. This runs locally.
 - **The replay reuses GL's matrices.** A real port computes them itself, which
   can add a small error this does not measure.

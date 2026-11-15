@@ -16,7 +16,7 @@ vertex TunnelVaryings tunnel_vertex(uint vid [[vertex_id]],
     float4 glVertex = float4(float3(vert.position), 1.0);
     TunnelVaryings out;
     out.vsPosition = u.modelview * glVertex;
-    // GL_CLAMP_VERTEX_COLOR defaults to TRUE: front/back colours are clamped to [0,1].
+    // GL_CLAMP_VERTEX_COLOR defaults to TRUE: front/back colors are clamped to [0,1].
     out.color = saturate(vert.color);
     out.texcoord0 = float4(vert.texcoord, 0.0, 1.0);
     // ftransform() == gl_ModelViewProjectionMatrix * gl_Vertex.

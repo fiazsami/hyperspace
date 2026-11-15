@@ -1,5 +1,5 @@
 // The GL fixed-function path Hyperspace uses for stars, sun and lens flare:
-// vertex colour MODULATE texture, then linear fog on eye-plane depth (Apple's GL
+// vertex color MODULATE texture, then linear fog on eye-plane depth (Apple's GL
 // fogs on |z_eye|, not radial distance -- measured, see parity/README.md).
 
 struct FFOut { float4 position [[position]]; float2 texcoord; float4 color; float depth; };

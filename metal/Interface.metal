@@ -38,7 +38,7 @@ struct GooVertex { packed_float3 normal; packed_float3 position; };
 struct GooUniforms {
     float4x4 mvp;        // projection * modelview, remapped to Metal clip space
     float4x4 modelview;  // gl_ModelViewMatrix
-    float4   color;      // gl_Color (rgb = goo colour, a = normal-map lerp)
+    float4   color;      // gl_Color (rgb = goo color, a = normal-map lerp)
     float4   fogColor;   // gl_Fog.color
     float    fogEnd;     // gl_Fog.end
     float    fogScale;   // gl_Fog.scale = 1 / (end - start)
