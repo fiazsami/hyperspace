@@ -6,16 +6,17 @@
 # `parity --compare`. Both sides are the GL renderer, so the two should agree to
 # within float rounding; the Metal images are not compared. Each run still builds
 # its own tree's Metal pipelines, so <ref> must be a commit whose parity runs --
-# any master commit is.
+# any master commit is. A pass <ref>'s parity does not know (burst, before it was
+# added) is skipped with a note, not compared.
 #
-#   parity/seamcheck.sh <ref> [stars|goo|tunnel ...]    default: all three
+#   parity/seamcheck.sh <ref> [stars|goo|tunnel|burst ...]    default: all four
 #
 # Exit 0 = the same picture, 1 = different, 2 = a run or build failed.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 [ $# -ge 1 ] || { echo "usage: parity/seamcheck.sh <ref> [pass ...]" >&2; exit 2; }
 ref=$1; shift
-passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo tunnel)
+passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo tunnel burst)
 sha=$(git rev-parse --verify "$ref^{commit}") || exit 2
 
 OUT=.parity-build/seam
@@ -29,8 +30,14 @@ fi
 (cd "$WT" && parity/build.sh >/dev/null) || { echo "reference build failed" >&2; exit 2; }
 parity/build.sh >/dev/null || exit 2
 
+# The passes <ref> knows, from its usage line: "parity <stars|goo|tunnel> ...".
+known=$("$WT/.parity-build/parity" 2>&1 | sed -n 's/^usage: parity <\([^>]*\)>.*/|\1|/p')
 bad=0
 for pass in "${passes[@]}"; do
+    if [[ $known != *"|$pass|"* ]]; then
+        printf '%-7s skipped: %s predates it\n' "$pass" "$ref"
+        continue
+    fi
     for side in ref new; do
         bin=.parity-build/parity; metal=metal
         [ $side = ref ] && { bin=$WT/.parity-build/parity; metal=$WT/metal; }   # each side with its own shaders
