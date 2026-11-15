@@ -61,17 +61,29 @@ void hsScale(float m[16], float x, float y, float z)
 	}
 }
 
-void hsPerspective(double m[16], double fovyDegrees, double aspect, double zNear, double zFar)
+void hsRotationInverse(float out[16], const float m[16])
 {
+	hsIdentity(out);
+	for(int c = 0; c < 3; c++)
+		for(int row = 0; row < 3; row++)
+			out[c * 4 + row] = m[row * 4 + c];
+}
+
+void hsPerspective(float m[16], double fovyDegrees, double aspect, double zNear, double zFar)
+{
+	hsIdentity(m);
 	double radians = fovyDegrees / 2.0 * M_PI / 180.0;
 	double deltaZ = zFar - zNear;
-	double cotangent = cos(radians) / sin(radians);
-	memset(m, 0, 16 * sizeof(double));
-	m[0] = cotangent / aspect;
-	m[5] = cotangent;
-	m[10] = -(zFar + zNear) / deltaZ;
-	m[11] = -1.0;
-	m[14] = -2.0 * zNear * zFar / deltaZ;
+	double sine = sin(radians);
+	if(deltaZ == 0.0 || sine == 0.0 || aspect == 0.0)
+		return;
+	double cotangent = cos(radians) / sine;
+	m[0] = float(cotangent / aspect);
+	m[5] = float(cotangent);
+	m[10] = float(-(zFar + zNear) / deltaZ);
+	m[11] = -1.0f;
+	m[14] = float(-2.0 * zNear * zFar / deltaZ);
+	m[15] = 0.0f;
 }
 
 static void transformPoint(const double m[16], const double in[4], double out[4])

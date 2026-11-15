@@ -50,9 +50,9 @@ stretchedParticle::stretchedParticle(){
 
 
 void stretchedParticle::draw(float* eyepoint, float unroll, double *modelMat, double *projMat, GLint *viewport){
-	static double win[3];
-	hsProject(pos[0], pos[1], pos[2], modelMat, projMat, viewport, win);
-	if(win[2] > 0.0f){
+	double win[3];
+	// Where the projection fails (w = 0) the star keeps last frame's position.
+	if(hsProject(pos[0], pos[1], pos[2], modelMat, projMat, viewport, win) && win[2] > 0.0f){
 		screenPos[0] = win[0];
 		screenPos[1] = win[1];
 	}

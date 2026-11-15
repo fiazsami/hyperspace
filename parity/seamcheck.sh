@@ -30,10 +30,11 @@ parity/build.sh >/dev/null || exit 2
 bad=0
 for pass in "${passes[@]}"; do
     for side in ref new; do
-        bin=.parity-build/parity; [ $side = ref ] && bin=$WT/.parity-build/parity
+        bin=.parity-build/parity; metal=metal
+        [ $side = ref ] && { bin=$WT/.parity-build/parity; metal=$WT/metal; }   # each side with its own shaders
         rm -rf "$OUT/$side/$pass"
         # Exit 1 is a parity FAIL (GL vs Metal), irrelevant here; only 2 is fatal.
-        "$bin" "$pass" metal "$OUT/$side/$pass" > "$OUT/$side-$pass.log"; code=$?
+        "$bin" "$pass" "$metal" "$OUT/$side/$pass" > "$OUT/$side-$pass.log"; code=$?
         [ $code -le 1 ] || { echo "$side $pass run failed (exit $code): $(tail -1 "$OUT/$side-$pass.log")" >&2; exit 2; }
     done
     .parity-build/parity --compare "$OUT/ref/$pass" "$OUT/new/$pass" > "$OUT/$pass.compare"; code=$?

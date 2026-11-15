@@ -29,8 +29,14 @@ void hsRotate(float m[16], float degrees, float x, float y, float z); // glRotat
 void hsTranslate(float m[16], float x, float y, float z);           // glTranslatef
 void hsScale(float m[16], float x, float y, float z);               // glScalef
 
-// gluPerspective's matrix, on its own (GLU multiplies it onto the current one).
-void hsPerspective(double m[16], double fovyDegrees, double aspect, double zNear, double zFar);
+// The inverse of a rotation-only matrix: its transpose. Translation is dropped.
+void hsRotationInverse(float out[16], const float m[16]);
+
+// gluPerspective's matrix as GL stores it after glLoadIdentity + gluPerspective:
+// computed in double, kept in float. Degenerate input (zNear == zFar, a zero
+// field of view, aspect 0) leaves the identity, because GLU returns before
+// multiplying in that case.
+void hsPerspective(float m[16], double fovyDegrees, double aspect, double zNear, double zFar);
 
 // gluProject: false where GLU returns GL_FALSE (w = 0), leaving win untouched.
 bool hsProject(double objx, double objy, double objz, const double model[16], const double proj[16],

@@ -615,6 +615,10 @@ static int compareRuns(NSString *refDir, NSString *newDir)
                                   filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"self ENDSWITH '_gl.png'"]];
     names = [names sortedArrayUsingSelector:@selector(compare:)];
     if (!names.count) { printf("ERROR no *_gl.png in %s\n", refDir.UTF8String); return 2; }
+    NSArray<NSString *> *newNames = [[[[NSFileManager defaultManager] contentsOfDirectoryAtPath:newDir error:nil]
+                                     filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"self ENDSWITH '_gl.png'"]]
+                                    sortedArrayUsingSelector:@selector(compare:)];
+    if (![names isEqualToArray:newNames]) { printf("ERROR the two runs shot different frames\n"); return 2; }
     const double max2 = 0.1, max8 = 0.01, maxBias = 0.06;
     bool ok = true; double worst2 = 0, worst8 = 0, worstBias = 0; int worstMax = 0;
     for (NSString *n in names) {

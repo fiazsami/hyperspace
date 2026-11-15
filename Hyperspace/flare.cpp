@@ -185,7 +185,8 @@ void flare(float *pos, float red, float green, float blue, float alpha, Hyperspa
 	float fadewidth, temp;
 	static float flicker = 0.95f;
 
-	hsProject(pos[0], pos[1], pos[2], inSettings->modelMat, inSettings->projMat, inSettings->viewport, win);
+	if(!hsProject(pos[0], pos[1], pos[2], inSettings->modelMat, inSettings->projMat, inSettings->viewport, win))
+		return;   // in the eye plane: no screen position to draw at
 	x = (float(win[0]) / float(inSettings->xsize)) * inSettings->aspectRatio;
 	y = float(win[1]) / float(inSettings->ysize);
 	float diff[3] = {pos[0] - inSettings->camPos[0], pos[1] - inSettings->camPos[1], pos[2] - inSettings->camPos[2]};

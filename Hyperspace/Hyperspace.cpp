@@ -194,13 +194,11 @@ void draw(HyperspaceSaverSettings *inSettings){
 	inSettings->thePath->getBaseDirection(inSettings->dDepth + 2, inSettings->thePath->step, pathDir);
 	float pathAngle = atan2f(-pathDir[0], -pathDir[2]);
 
-	hsIdentity(inSettings->billboardMat);
-	hsRotate(inSettings->billboardMat, (pathAngle + camHeading[0]) * RS_RAD2DEG, 0, 1, 0);
-	hsRotate(inSettings->billboardMat, camRoll[0] * RS_RAD2DEG, 0, 0, 1);
 	float view[16];
 	hsIdentity(view);
 	hsRotate(view, -camRoll[0] * RS_RAD2DEG, 0, 0, 1);
 	hsRotate(view, (-pathAngle - camHeading[0]) * RS_RAD2DEG, 0, 1, 0);
+	hsRotationInverse(inSettings->billboardMat, view);   // faces the camera: undoes the view's rotation
 	hsTranslate(view, inSettings->camPos[0]*-1, inSettings->camPos[1]*-1, inSettings->camPos[2]*-1);
 	for(int i=0; i<16; i++)
 		inSettings->modelMat[i] = view[i];
@@ -479,13 +477,12 @@ void reshape(int width, int height, HyperspaceSaverSettings *inSettings){
 	inSettings->viewport[3] = height;
 
 	// setup projection matrix
-	// Rounded through float, as the GL matrix stack this used to be read back from
-	// stored it: gluProject on these must see the values GL draws with.
-	hsPerspective(inSettings->projMat, float(inSettings->dFov), inSettings->aspectRatio, 0.001f, 200.0f);
+	float proj[16];
+	hsPerspective(proj, float(inSettings->dFov), inSettings->aspectRatio, 0.001f, 200.0f);
 	for(int i=0; i<16; i++)
-		inSettings->projMat[i] = float(inSettings->projMat[i]);
+		inSettings->projMat[i] = proj[i];
 	glMatrixMode(GL_PROJECTION);
-	glLoadMatrixd(inSettings->projMat);
+	glLoadMatrixf(proj);
 	glMatrixMode(GL_MODELVIEW);
 }
 
