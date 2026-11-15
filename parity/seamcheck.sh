@@ -4,7 +4,9 @@
 # Builds parity at <ref> in a scratch worktree, runs the requested passes there and
 # on the working tree, and compares the GL images shot by shot with
 # `parity --compare`. Both sides are the GL renderer, so the two should agree to
-# within float rounding; the Metal side of each run is not involved.
+# within float rounding; the Metal images are not compared. Each run still builds
+# its own tree's Metal pipelines, so <ref> must be a commit whose parity runs --
+# any master commit is.
 #
 #   parity/seamcheck.sh <ref> [stars|goo|tunnel ...]    default: all three
 #

@@ -63,10 +63,12 @@ void hsScale(float m[16], float x, float y, float z)
 
 void hsRotationInverse(float out[16], const float m[16])
 {
-	hsIdentity(out);
+	float r[16];   // out may be m
+	hsIdentity(r);
 	for(int c = 0; c < 3; c++)
 		for(int row = 0; row < 3; row++)
-			out[c * 4 + row] = m[row * 4 + c];
+			r[c * 4 + row] = m[row * 4 + c];
+	memcpy(out, r, sizeof r);
 }
 
 void hsPerspective(float m[16], double fovyDegrees, double aspect, double zNear, double zFar)

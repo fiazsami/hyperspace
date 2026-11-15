@@ -83,12 +83,6 @@ int dUseGoo;
 int dShaders;
 
 
-float unroll;
-float billboardMat[16];
-double modelMat[16];
-double projMat[16];
-int viewport[4];
-
 float camPos[3] = {0.0f, 0.0f, 0.0f};
 float depth;
 int numAnimTexFrames = 20;

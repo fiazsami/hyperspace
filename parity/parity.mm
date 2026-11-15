@@ -611,14 +611,22 @@ static std::vector<uint8_t> readPNG(NSString *path, int &w, int &h)
 // shot missing from either side is an error.
 static int compareRuns(NSString *refDir, NSString *newDir)
 {
-    NSArray<NSString *> *names = [[[NSFileManager defaultManager] contentsOfDirectoryAtPath:refDir error:nil]
-                                  filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"self ENDSWITH '_gl.png'"]];
-    names = [names sortedArrayUsingSelector:@selector(compare:)];
-    if (!names.count) { printf("ERROR no *_gl.png in %s\n", refDir.UTF8String); return 2; }
-    NSArray<NSString *> *newNames = [[[[NSFileManager defaultManager] contentsOfDirectoryAtPath:newDir error:nil]
-                                     filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"self ENDSWITH '_gl.png'"]]
-                                    sortedArrayUsingSelector:@selector(compare:)];
-    if (![names isEqualToArray:newNames]) { printf("ERROR the two runs shot different frames\n"); return 2; }
+    auto shots = [](NSString *dir) -> NSArray<NSString *> * {
+        NSArray<NSString *> *all = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:nil];
+        if (!all) { printf("ERROR cannot read %s\n", dir.UTF8String); return nil; }
+        NSArray<NSString *> *gl = [all filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"self ENDSWITH '_gl.png'"]];
+        if (!gl.count) { printf("ERROR no *_gl.png in %s\n", dir.UTF8String); return nil; }
+        return [gl sortedArrayUsingSelector:@selector(compare:)];
+    };
+    NSArray<NSString *> *names = shots(refDir), *newNames = shots(newDir);
+    if (!names || !newNames) return 2;
+    if (![names isEqualToArray:newNames]) {
+        NSMutableSet *onlyRef = [NSMutableSet setWithArray:names], *onlyNew = [NSMutableSet setWithArray:newNames];
+        [onlyRef minusSet:[NSSet setWithArray:newNames]]; [onlyNew minusSet:[NSSet setWithArray:names]];
+        printf("ERROR the two runs shot different frames: only in ref %s; only in new %s\n",
+               [[onlyRef.allObjects componentsJoinedByString:@" "] UTF8String], [[onlyNew.allObjects componentsJoinedByString:@" "] UTF8String]);
+        return 2;
+    }
     const double max2 = 0.1, max8 = 0.01, maxBias = 0.06;
     bool ok = true; double worst2 = 0, worst8 = 0, worstBias = 0; int worstMax = 0;
     for (NSString *n in names) {

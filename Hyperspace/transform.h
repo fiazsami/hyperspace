@@ -30,6 +30,7 @@ void hsTranslate(float m[16], float x, float y, float z);           // glTransla
 void hsScale(float m[16], float x, float y, float z);               // glScalef
 
 // The inverse of a rotation-only matrix: its transpose. Translation is dropped.
+// out and m may be the same matrix.
 void hsRotationInverse(float out[16], const float m[16]);
 
 // gluPerspective's matrix as GL stores it after glLoadIdentity + gluPerspective:

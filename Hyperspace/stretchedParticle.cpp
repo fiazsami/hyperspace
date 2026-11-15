@@ -27,7 +27,6 @@
 #include <stdio.h>
 #include <math.h>
 #include <OpenGL/gl.h>
-#include <OpenGL/glu.h>
 
 
 
@@ -43,6 +42,9 @@ stretchedParticle::stretchedParticle(){
 	pos[0] = pos[1] = pos[2] = 0.0f;
 	lastPos[0] = lastPos[1] = lastPos[2] = 0.0f;
 	drawPos[0] = drawPos[1] = drawPos[2] = 0.0f;
+	// A star whose first projection fails has no last frame to keep.
+	screenPos[0] = screenPos[1] = 0.0;
+	lastScreenPos[0] = lastScreenPos[1] = 0.0;
 	
 	radius = 0.03f;
 	color[0] = color[1] = color[2] = 1.0f;

@@ -152,6 +152,9 @@ TEST(transform_rotation_inverse_undoes_the_rotation)
     apply(inv, p[0], p[1], p[2], q);
     CHECK_NEAR(q[0], 0.2, kTol); CHECK_NEAR(q[1], -0.5, kTol); CHECK_NEAR(q[2], 0.9, kTol);
     CHECK(inv[12] == 0.0f && inv[13] == 0.0f && inv[14] == 0.0f && inv[15] == 1.0f);
+
+    hsRotationInverse(r, r);                 /* in place */
+    for (int i = 0; i < 16; i++) CHECK(r[i] == inv[i]);
 }
 
 TEST(transform_project_matches_gluProject)
