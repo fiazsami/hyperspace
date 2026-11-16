@@ -54,6 +54,18 @@ static_assert(sizeof(GooUniforms) == 240 && offsetof(GooUniforms, color) == 128 
 	offsetof(GooUniforms, fogEnd) == 160 && offsetof(GooUniforms, fogScale) == 164 &&
 	offsetof(GooUniforms, projection) == 176, "GooUniforms must match Interface.metal");
 
+struct TunnelUniforms {
+	simd_float4x4 mvp;
+	simd_float4x4 modelview;
+	simd_float4x4 projection;
+	simd_float4 fogColor;
+	float fogEnd;
+	float fogScale;
+};
+static_assert(sizeof(TunnelUniforms) == 224 && offsetof(TunnelUniforms, fogColor) == 192 &&
+	offsetof(TunnelUniforms, fogEnd) == 208 && offsetof(TunnelUniforms, fogScale) == 212,
+	"TunnelUniforms must match Interface.metal");
+
 struct Texture {
 	id<MTLTexture> texture;
 	id<MTLSamplerState> sampler;
@@ -62,10 +74,6 @@ struct Texture {
 [[noreturn]] void fail(const char *what, const char *detail){
 	fprintf(stderr, "HSRendererMetal: %s%s%s\n", what, detail ? ": " : "", detail ? detail : "");
 	abort();
-}
-
-[[noreturn]] void notYet(const char *call){
-	fail(call, "not implemented on Metal yet (ss-a4a.4.2)");
 }
 
 simd_float4x4 fromGL(const float m[16]){
@@ -117,8 +125,8 @@ std::vector<unsigned char> rgbaLevel(const HSMipChain &chain, int level){
 struct HSRendererMetalState {
 	id<MTLDevice> device;
 	id<MTLCommandQueue> queue;
-	id<MTLLibrary> ffLibrary, gooLibrary;
-	id<MTLRenderPipelineState> ffPipeline, gooPipeline;
+	id<MTLLibrary> ffLibrary, gooLibrary, tunnelLibrary;
+	id<MTLRenderPipelineState> ffPipeline, gooPipeline, tunnelPipeline;
 	MTLPixelFormat pipelineFormat;
 	id<MTLTexture> target;
 	id<MTLCommandBuffer> commands;
@@ -148,6 +156,9 @@ struct HSRendererMetalState {
 	std::vector<ImmediateVertex> offscreenVertices;   // the pass's strips, uploaded once at the end
 	std::vector<int> offscreenStrips;                 // each strip's vertex count, in order
 	id<MTLTexture> blank;   // bound where a shader declares a texture it is told not to sample
+	bool inTunnel;
+	float tunnelAlpha;   // the caustics' mix, carried in every vertex's alpha
+	std::vector<ImmediateVertex> tunnelStrip;   // reused: a tunnel draws about 200 strips a frame
 };
 
 static NSString *readSource(const char *dir, const char *file){
@@ -212,7 +223,8 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->queue = [st->device newCommandQueue];
 	st->ffLibrary = compilePass(st->device, metalDir, "FixedFunction.metal");
 	st->gooLibrary = compilePass(st->device, metalDir, "Goo.metal");
-	st->ffPipeline = st->gooPipeline = nil;
+	st->tunnelLibrary = compilePass(st->device, metalDir, "Tunnel.metal");
+	st->ffPipeline = st->gooPipeline = st->tunnelPipeline = nil;
 	st->pipelineFormat = MTLPixelFormatInvalid;
 	st->target = nil;
 	st->commands = nil;
@@ -249,6 +261,8 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->blank = [st->device newTextureWithDescriptor:bd];
 	const unsigned char white[4] = {255, 255, 255, 255};
 	[st->blank replaceRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0 withBytes:white bytesPerRow:4];
+	st->inTunnel = false;
+	st->tunnelAlpha = 1.0f;
 }
 
 HSRendererMetal::~HSRendererMetal(){
@@ -268,6 +282,7 @@ void HSRendererMetal::setTarget(void *target){
 		return;
 	st->ffPipeline = additivePipeline(st->device, st->ffLibrary, @"ff_vertex", @"ff_fragment", st->target.pixelFormat);
 	st->gooPipeline = additivePipeline(st->device, st->gooLibrary, @"goo_vertex", @"goo_fragment", st->target.pixelFormat);
+	st->tunnelPipeline = additivePipeline(st->device, st->tunnelLibrary, @"tunnel_vertex", @"tunnel_fragment", st->target.pixelFormat);
 	st->pipelineFormat = st->target.pixelFormat;
 }
 
@@ -315,6 +330,8 @@ void HSRendererMetal::endFrame(){
 		fail("endFrame", "no frame was begun");
 	if(st->inGoo)
 		fail("endFrame", "beginGoo was not ended");
+	if(st->inTunnel)
+		fail("endFrame", "beginTunnel was not ended");
 	if(st->inOverlay)
 		fail("endFrame", "beginOverlay was not ended");
 	[st->encoder endEncoding];
@@ -387,8 +404,8 @@ void HSRendererMetal::drawQuad(unsigned int texture, const float color[4], const
 	if(!st->encoder)
 		fail("drawQuad", "outside a frame");
 	// The goo's pipeline and cube textures are bound until endGoo.
-	if(st->inGoo)
-		fail("drawQuad", "inside beginGoo/endGoo");
+	if(st->inGoo || st->inTunnel)
+		fail("drawQuad", "inside beginGoo/endGoo or beginTunnel/endTunnel");
 	std::map<unsigned int, Texture>::const_iterator tex = st->textures.find(texture);
 	if(tex == st->textures.end())
 		fail("drawQuad", "unknown texture");
@@ -431,6 +448,8 @@ void HSRendererMetal::beginOverlay(float aspect){
 	// GL's matrix stack would nest; one saved camera cannot.
 	if(st->inOverlay)
 		fail("beginOverlay", "already in the overlay");
+	if(st->inGoo || st->inTunnel)
+		fail("beginOverlay", "inside the goo or the tunnel");
 	st->savedProjection = st->projection;
 	st->savedView = st->view;
 	st->projection = overlayProjection(aspect);
@@ -545,6 +564,8 @@ void HSRendererMetal::beginGoo(const float color[4], unsigned int nebula,
 	unsigned int normals0, unsigned int normals1, bool shaded){
 	if(!st->encoder)
 		fail("beginGoo", "outside a frame");
+	if(st->inGoo || st->inTunnel || st->inOverlay)
+		fail("beginGoo", "inside the goo, the tunnel or the overlay");
 	// The Metal port draws the shaded look only; the shaders-off look is ss-5dl.
 	if(!shaded)
 		fail("beginGoo", "the shaders-off goo is not drawn on Metal (ss-5dl)");
@@ -637,6 +658,74 @@ void HSRendererMetal::endGoo(){
 	st->inGoo = false;
 	[st->encoder setRenderPipelineState:st->ffPipeline];
 }
-void HSRendererMetal::beginTunnel(unsigned int, unsigned int, float, bool){ notYet("beginTunnel"); }
-void HSRendererMetal::drawTunnelStrip(const HSTunnelVertex *, int){ notYet("drawTunnelStrip"); }
-void HSRendererMetal::endTunnel(){ notYet("endTunnel"); }
+void HSRendererMetal::beginTunnel(unsigned int caustic0, unsigned int caustic1, float lerp, bool shaded){
+	if(!st->encoder)
+		fail("beginTunnel", "outside a frame");
+	if(st->inGoo || st->inTunnel || st->inOverlay)
+		fail("beginTunnel", "inside the goo, the tunnel or the overlay");
+	// The Metal port draws the shaded look only; the shaders-off look is ss-5dl.
+	if(!shaded)
+		fail("beginTunnel", "the shaders-off tunnel is not drawn on Metal (ss-5dl)");
+	const unsigned int names[2] = {caustic0, caustic1};
+	for(int t = 0; t < 2; t++){
+		std::map<unsigned int, Texture>::const_iterator tex = st->textures.find(names[t]);
+		if(tex == st->textures.end() || tex->second.texture.textureType != MTLTextureType2D)
+			fail("beginTunnel", "a caustic texture is not a 2D texture this backend made");
+		[st->encoder setFragmentTexture:tex->second.texture atIndex:t];
+		[st->encoder setFragmentSamplerState:tex->second.sampler atIndex:t];
+	}
+	st->tunnelAlpha = lerp;
+	st->inTunnel = true;
+	[st->encoder setRenderPipelineState:st->tunnelPipeline];
+	// GL culls back faces, front faces counter-clockwise; Metal's default
+	// winding is clockwise.
+	[st->encoder setFrontFacingWinding:MTLWindingCounterClockwise];
+	[st->encoder setCullMode:MTLCullModeBack];
+	// The tunnel is in world space: the camera is its whole modelview.
+	TunnelUniforms u;
+	u.modelview = st->view;
+	u.mvp = simd_mul(st->clipProjection, st->view);
+	u.projection = st->clipProjection;
+	u.fogColor = simd_make_float4(0, 0, 0, 1);
+	u.fogEnd = st->fogEnd;
+	u.fogScale = 1.0f / (st->fogEnd - st->fogStart);
+	[st->encoder setVertexBytes:&u length:sizeof u atIndex:1];
+	[st->encoder setFragmentBytes:&u length:sizeof u atIndex:1];
+}
+
+void HSRendererMetal::drawTunnelStrip(const HSTunnelVertex *v, int count){
+	if(!st->inTunnel)
+		fail("drawTunnelStrip", "outside beginTunnel/endTunnel");
+	if(count < 3)
+		return;
+	std::vector<ImmediateVertex> &verts = st->tunnelStrip;
+	verts.resize(count);
+	for(int i = 0; i < count; i++){
+		ImmediateVertex &o = verts[i];
+		o.position[0] = v[i].pos[0]; o.position[1] = v[i].pos[1]; o.position[2] = v[i].pos[2];
+		o.pad0 = 0.0f;
+		o.texcoord[0] = v[i].uv[0]; o.texcoord[1] = v[i].uv[1];
+		o.pad1[0] = o.pad1[1] = 0.0f;
+		o.color[0] = v[i].color[0]; o.color[1] = v[i].color[1]; o.color[2] = v[i].color[2];
+		o.color[3] = st->tunnelAlpha;
+	}
+	// The saver's strips are 42 vertices, about 2 KB: small enough for
+	// setVertexBytes, which Metal limits to 4 KB. A longer strip gets a buffer.
+	const size_t bytes = verts.size() * sizeof(ImmediateVertex);
+	if(bytes <= 4096)
+		[st->encoder setVertexBytes:verts.data() length:bytes atIndex:0];
+	else
+		[st->encoder setVertexBuffer:[st->device newBufferWithBytes:verts.data() length:bytes
+			options:MTLResourceStorageModeShared] offset:0 atIndex:0];
+	[st->encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:NSUInteger(count)];
+	st->draws++;
+}
+
+void HSRendererMetal::endTunnel(){
+	if(!st->inTunnel)
+		fail("endTunnel", "no beginTunnel");
+	st->inTunnel = false;
+	[st->encoder setCullMode:MTLCullModeNone];
+	[st->encoder setFrontFacingWinding:MTLWindingClockwise];   // Metal's default, as beginFrame left it
+	[st->encoder setRenderPipelineState:st->ffPipeline];
+}

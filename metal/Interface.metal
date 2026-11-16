@@ -8,8 +8,9 @@
 #include <metal_stdlib>
 using namespace metal;
 
-// Immediate-mode vertex as issued by glColor*/glTexCoord*/glVertex*, expanded
-// from triangle strips into a triangle list. Stars, sun, flare and tunnel use it.
+// Immediate-mode vertex as issued by glColor*/glTexCoord*/glVertex*. Stars,
+// sun, flare and tunnel use it. The replay expands strips into a triangle list;
+// HSRendererMetal draws them as strips. The layout is the same either way.
 struct ImmediateVertex {
     packed_float3 position;
     float         pad0;

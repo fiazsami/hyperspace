@@ -9,8 +9,7 @@
 # Then every parity/defects/backend_<pass>_*.sed is applied to a copy of
 # Hyperspace/rendererMetal.mm, built into its own parity (build.sh --backend),
 # and must FAIL its pass against the same GL images. A fixture that changes
-# nothing is an error, not a survivor. The backend has no tunnel yet, so stars,
-# goo, burst and sun run; tunnel does not.
+# nothing is an error, not a survivor.
 #
 # textures and caustics are not passes but the same shape. `parity
 # --backend-textures` uploads mip chains and six different cube faces through
@@ -19,16 +18,16 @@
 # caustic textures through both backends' offscreen targets and compares every
 # level. Their fixtures are backend_textures_*.sed and backend_caustics_*.sed.
 #
-# About 2 minutes for everything (2m05s measured on an M5 Max, all six).
+# About 4 minutes for everything (3m46s measured on an M5 Max, all seven).
 #
-#   parity/backendcheck.sh [stars|goo|burst|sun|textures|caustics ...]    default: all six
+#   parity/backendcheck.sh [stars|goo|tunnel|burst|sun|textures|caustics ...]    default: all seven
 #
 # Exit 0 = the backend passes and every fixture is killed, 1 = otherwise,
 # 2 = a run or build failed.
 set -uo pipefail
 shopt -s nullglob
 cd "$(dirname "$0")/.."
-passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo burst sun textures caustics)
+passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo tunnel burst sun textures caustics)
 
 OUT=.parity-build/backend
 rm -rf "$OUT"; mkdir -p "$OUT/variants"

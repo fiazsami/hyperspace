@@ -888,11 +888,8 @@ int main(int argc, const char *argv[])
                      intOpt(argv[i], "w=", w) || intOpt(argv[i], "h=", h)) {}
             else { fprintf(stderr, "bad option %s\n", argv[i]); return 2; }
         }
-        // The backend draws with metal/ as it stands, and has no tunnel yet.
+        // The backend draws with metal/ as it stands.
         if (backend && (shaderGiven || inject)) { fprintf(stderr, "renderer=metal takes no shader= or inject=\n"); return 2; }
-        if (backend && pass->tunnels) {
-            fprintf(stderr, "renderer=metal cannot draw the %s pass yet: the backend has no tunnel\n", pass->name); return 2;
-        }
         const float dt = 1.0f / 60.0f;
         [[NSFileManager defaultManager] createDirectoryAtPath:outdir withIntermediateDirectories:YES attributes:nil error:nil];
 
@@ -944,6 +941,11 @@ int main(int argc, const char *argv[])
         static HyperspaceSaverSettings s;
         setDefaults(&s);
         s.dUseGoo = pass->goo; s.dUseTunnels = pass->tunnels;
+        // The backend stops the process on the shaders-off goo and tunnel
+        // (ss-5dl); say so here, with the exit code a failed run has.
+        if (backend && !s.dShaders && (s.dUseGoo || s.dUseTunnels)) {
+            fprintf(stderr, "renderer=metal draws the shaded look only; the shaders-off goo and tunnel are ss-5dl\n"); return 2;
+        }
         s.first = 1;
         reshape(w, h, &s);
         glClearColor(0, 0, 0, 0); glClear(GL_COLOR_BUFFER_BIT); glFlush();

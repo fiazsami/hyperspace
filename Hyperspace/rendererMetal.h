@@ -1,11 +1,9 @@
 /*
  * HSRenderer on Metal, drawing with the shaders in metal/.
  *
- * Not every draw is here yet: frames, fog, textures, quads, the overlay, the
- * shaded goo and sphere, and the offscreen target are; the tunnel is not, nor
- * the shaders-off goo (ss-5dl), and calling them stops the process with a
- * message saying so. parity/backendcheck.sh judges
- * this backend against HSRendererGL on the passes it can draw.
+ * It draws the shaded look only: the shaders-off goo and tunnel are ss-5dl,
+ * and asking for them stops the process with a message saying so.
+ * parity/backendcheck.sh judges this backend against HSRendererGL.
  */
 
 #ifndef HYPERSPACE_RENDERER_METAL_H
