@@ -26,9 +26,14 @@
 #import "HyperspaceView.h"
 #import "Hyperspace.h"
 #import "flare.h"
-#import <sys/time.h>
 #import <Metal/Metal.h>
+#import <QuartzCore/QuartzCore.h>
 #import "Hyperspace/rendererMetal.h"
+
+// The most time one frame may move the scene by.
+static const CFTimeInterval kMaxFrameTime = 0.1;
+// The frame interval when no screen answers with its refresh.
+static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 
 @interface HyperspaceView (Private)
 - (void)readDefaults:(ScreenSaverDefaults *)inDefaults;
@@ -79,7 +84,7 @@
 				// Metal draws the shaded look only, whatever an older version saved.
 				lSettings.dShaders = 1;
                 
-				self.animationTimeInterval = 1.0/60.0;
+				self.animationTimeInterval = kFallbackInterval;
 				lSettings.first = 1;
             }
 		}
@@ -94,6 +99,22 @@
 	if (lView)
 		[lView setFrameSize:size];
 	[self matchBacking];
+}
+
+
+// Paces frames to the fastest refresh of the screen the view is on.
+// minimumRefreshInterval is the shortest interval; maximumRefreshInterval is
+// the longest, the slowest rate a variable-refresh display drops to. The
+// window's screen is nil for most windows inside legacyScreenSaver (hills
+// measured 25 in 32), and a nil screen answers 0 -- a timer that runs flat
+// out -- so the main screen is used instead, then kFallbackInterval.
+- (void)matchRefresh
+{
+	if (lView == nil)
+		return;	// nothing draws here: main screen only, or Metal failed
+	NSScreen *screen = self.window.screen ?: [NSScreen mainScreen];
+	NSTimeInterval refresh = screen.minimumRefreshInterval;
+	self.animationTimeInterval = refresh > 0 ? refresh : kFallbackInterval;
 }
 
 
@@ -135,16 +156,17 @@
 - (void)viewDidMoveToWindow
 {
 	[super viewDidMoveToWindow];
-	if (@available(macOS 12.0, *))	// on Monterey and later, update the time interval for the window's screen's refresh rate
-	{
-		self.animationTimeInterval = self.window.screen.maximumRefreshInterval;
-	}
+	[self matchRefresh];
 	[self matchBacking];
 }
 
 
 - (void)startAnimation
 {
+	// Before super, which starts the timer at the interval set now. The window,
+	// and so the screen, may have changed since the view moved to it.
+	[self matchRefresh];
+	lLastFrame = 0;	// the first frame after a start takes no step
     [super startAnimation];
 	
 	if (lIsConfiguring == NO && lView)
@@ -171,7 +193,6 @@
 				return;
 			}
 			[self matchBacking];
-			gettimeofday(&timer.prev_tv, NULL);	// reset the timer
         }
     }
 }
@@ -239,10 +260,24 @@
 					// Waits while every drawable is in flight, which is what paces
 					// the saver to the display; nil only after the layer's
 					// one-second timeout, as when the display sleeps.
+					CFTimeInterval asked = CACurrentMediaTime();
 					id<CAMetalDrawable> drawable = [lLayer nextDrawable];
+					CFTimeInterval now = CACurrentMediaTime();
+					// A long wait for a drawable is a stall, and it is dropped,
+					// not replayed: only the wait leaves the step, so the scene
+					// resumes where it stopped. Alike whether the wait timed
+					// out (nil) or ended just short of it.
+					if (lLastFrame > 0 && now - asked > kMaxFrameTime)
+						lLastFrame += now - asked;
 					if (drawable == nil)
-						return;	// no frame, so no time passes: the next tick carries it
-					lSettings.frameTime = timer.tick();
+						return;
+					// The step is the time since the last frame, from a
+					// monotonic clock, so never negative. A throttled host
+					// would otherwise move the scene by a whole gap at once;
+					// past kMaxFrameTime the scene slows instead, which also
+					// slows it on a host drawing under 10 fps.
+					lSettings.frameTime = lLastFrame > 0 ? float(fmin(now - lLastFrame, kMaxFrameTime)) : 0.0f;
+					lLastFrame = now;
 					try
 					{
 						lRenderer->setDrawable((__bridge void *)drawable);
