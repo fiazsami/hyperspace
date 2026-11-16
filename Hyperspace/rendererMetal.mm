@@ -771,16 +771,20 @@ void HSRendererMetal::drawGooField(const HSGooField &field){
 	id<MTLComputeCommandEncoder> ce = [build computeCommandEncoder];
 	[ce setComputePipelineState:st->gooBuild];
 	[ce setBytes:&u length:sizeof u atIndex:0];
-	// setBytes takes 4 KB at most: 512 blocks. The saver's settings allow
-	// 400 at most (arraySize 20).
-	const NSUInteger offsetBytes = field.offsets.size() * sizeof(float);
-	if(offsetBytes > 4096)
-		fail("drawGooField", "more blocks than setBytes can carry");
-	[ce setBytes:field.offsets.data() length:offsetBytes atIndex:1];
 	[ce setBuffer:st->gooTable offset:0 atIndex:2];
 	[ce setBuffer:st->gooCounter offset:0 atIndex:3];
 	[ce setBuffer:st->gooVertices offset:0 atIndex:4];
-	[ce dispatchThreads:MTLSizeMake(res, res, res * blocks) threadsPerThreadgroup:MTLSizeMake(4, 4, 4)];
+	// setBytes carries 4 KB at most, 512 blocks' offsets, so the blocks go in
+	// dispatches of that many. The saver's own settings choose 400 at most, so
+	// it is one dispatch; a Depth written to the defaults directly is not
+	// clamped, and can choose more. All share the counter, so their triangles
+	// land one after another.
+	const NSUInteger kBlocksPerDispatch = 4096 / (2 * sizeof(float));
+	for(NSUInteger first = 0; first < blocks; first += kBlocksPerDispatch){
+		const NSUInteger n = std::min(kBlocksPerDispatch, blocks - first);
+		[ce setBytes:field.offsets.data() + 2 * first length:n * 2 * sizeof(float) atIndex:1];
+		[ce dispatchThreads:MTLSizeMake(res, res, res * n) threadsPerThreadgroup:MTLSizeMake(4, 4, 4)];
+	}
 	[ce setComputePipelineState:st->gooBuildCount];
 	[ce setBuffer:st->gooArgs offset:0 atIndex:5];
 	[ce setBuffer:st->gooPeak offset:0 atIndex:6];

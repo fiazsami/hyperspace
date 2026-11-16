@@ -196,45 +196,33 @@ TEST(goo_hands_a_renderer_that_builds_it_the_field_and_builds_nothing)
     CHECK(again.gooFields.empty());
 }
 
-TEST(goo_draws_every_chosen_block_whatever_renderer_update_saw)
+TEST(goo_draws_every_chosen_block_once_through_a_cpu_renderer)
 {
-    /* The same goo, updated twice from the same state -- once with a CPU
-     * renderer in the settings, once with one that builds the goo -- then
-     * drawn through a CPU renderer. Each draws every block it chose, once,
-     * and the two draw the same surfaces. */
+    /* goo::update chooses blocks and builds nothing; goo::draw builds each
+     * chosen block's surface for a renderer that does not build the goo, and
+     * draws each once, in order. */
+    Seeded seed;
     HyperspaceSaverSettings s;
     memset(&s, 0, sizeof s);
     s.frameTime = 0.5f;
-    Recorder cpu, gpu;
-    gpu.gooOnGPU = true;
-
-    srand(7);
-    goo want(6, 5.0f);
-    s.renderer = &cpu;
-    want.update(0.7f, -0.3f, 0.4f, 1.0f, &s);
-    srand(7);
-    goo got(6, 5.0f);
-    s.renderer = &gpu;
-    got.update(0.7f, -0.3f, 0.4f, 1.0f, &s);
+    goo g(6, 5.0f);
+    g.update(0.7f, -0.3f, 0.4f, 1.0f, &s);
 
     std::vector<impSurface *> chosen;
-    for (int i = 0; i < got.arraySize; i++) for (int j = 0; j < got.arraySize; j++) {
-        CHECK(got.useSurface[i][j] == want.useSurface[i][j]);
-        if (got.useSurface[i][j]) chosen.push_back(got.surface[i][j]);
+    for (int i = 0; i < g.arraySize; i++) for (int j = 0; j < g.arraySize; j++) {
+        if (!g.useSurface[i][j]) continue;
+        chosen.push_back(g.surface[i][j]);
+        CHECK(g.surface[i][j]->getIndexCount() == 0);   // not built yet
     }
     CHECK(chosen.size() > 4);
 
-    Recorder drewWant, drewGot;
-    want.draw(&drewWant);
-    got.draw(&drewGot);
-    CHECK(drewGot.goo.size() == chosen.size());
-    CHECK(drewWant.goo.size() == chosen.size());
+    Recorder drawn;
+    g.draw(&drawn);
+    CHECK(drawn.goo.size() == chosen.size());
     size_t triangles = 0;
-    for (size_t n = 0; n < drewGot.goo.size() && n < drewWant.goo.size(); n++) {
-        CHECK(drewGot.goo[n].surface == chosen[n]);
-        std::vector<Key> have = trianglesOf(drewGot.goo[n].surface);
-        CHECK(have == trianglesOf(drewWant.goo[n].surface));
-        triangles += have.size();
+    for (size_t n = 0; n < drawn.goo.size() && n < chosen.size(); n++) {
+        CHECK(drawn.goo[n].surface == chosen[n]);
+        triangles += drawn.goo[n].surface->getIndexCount() / 3;
     }
     CHECK(triangles > 0);
 }

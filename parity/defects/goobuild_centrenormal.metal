@@ -1,4 +1,4 @@
-// Kill-check fixture: goo build kernel with one deliberate defect (centrenormal): the normal's neighbour taken half a cell along, not one. parity/backendcheck.sh requires it to FAIL. base=7826f41e5244c27a222f3fd6bc0a6a01c25e21e6
+// Kill-check fixture: goo build kernel with one deliberate defect (centrenormal): the normal's neighbour taken half a cell along, not one. parity/backendcheck.sh requires it to FAIL. base=9b8b85b7a2410622d83923f77974f7e17ece0278
 // The goo's surface, built on the GPU: impCubeVolume's polygonization of
 // goo::function, one thread per cell, for HSRendererMetal::drawGooField.
 // Compiled with Interface.metal prepended.
@@ -104,9 +104,18 @@ kernel void goo_build(constant GooBuildUniforms &u      [[buffer(0)]],
             out[v].position = out[v].normal = packed_float3(0.0f);
         return;
     }
+    // Each corner's normal once, and only for the corners on an edge the
+    // surface crosses: a corner past the cell costs a field evaluation per
+    // axis.
+    uint used = 0;
+    for (uint v = 0; v < vertices; v++) {
+        const uchar2 e = kEdge[row[1 + v]];
+        used |= (1u << e.x) | (1u << e.y);
+    }
     float3 normal[8];
     for (uint i = 0; i < 8; i++)
-        normal[i] = cornerNormal(i, base, value, u);
+        if (used & (1u << i))
+            normal[i] = cornerNormal(i, base, value, u);
     for (uint v = 0; v < vertices; v++) {
         const uchar2 e = kEdge[row[1 + v]];
         const float t = (u.surface - value[e.x]) / (value[e.y] - value[e.x]);
