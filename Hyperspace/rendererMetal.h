@@ -41,8 +41,11 @@ public:
 	// presents it without waiting for the GPU; a frame the GPU fails is logged
 	// and skipped. Call it before every beginFrame: a drawable is one frame's.
 	void setDrawable(void *drawable);
-	// Draws issued since the last beginFrame.
+	// Draws issued since the last beginFrame: all of them, and the goo
+	// surfaces and tunnel strips among them.
 	int drawCount() const;
+	int gooDrawCount() const;
+	int tunnelDrawCount() const;
 	// The id<MTLTexture> a create* call returned name for, or NULL.
 	void *texture(unsigned int name) const;
 

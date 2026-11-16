@@ -83,7 +83,12 @@ A shot passes when, over pixels lit (any channel > 8) in **either** image:
 - the signed mean difference, Metal minus GL, worst channel, is at most 0.06 levels.
 
 A pass that drew nothing in any shot is an error rather than a pass, and so is
-a GL error in a GL shot. In `renderer=metal` a shot in which GL generated any
+a GL error in a GL shot. In backend mode "nothing" is counted on the pass's own
+surface: a `goo` or `burst` run with no goo surface drawn, or a `tunnel` run with
+no tunnel strip, is an error, since the stars alone would still compare.
+A shot outside the rule writes `NNNNN_diffx8.png` (per-pixel difference ×8)
+beside the new run's images; it is the first thing to look at when a pass
+fails. In `renderer=metal` a shot in which GL generated any
 primitive (`GL_PRIMITIVES_GENERATED`) is an error: a draw that slipped past the
 backend into GL cannot go unnoticed. Rates are over lit pixels, not the frame.
 Star frames are 0.3–4% lit, and a per-frame rate diluted every defect below 1%.
@@ -240,13 +245,18 @@ with one deliberate translation defect: constants carried over from the other
 shader, swapped or flipped texture coordinates, radial instead of planar fog, a
 dropped term. backendcheck copies `metal/`, puts the fixture in place of
 `FixedFunction.metal`, `Goo.metal` or `Tunnel.metal`, and draws the pass
-through the committed backend from that copy. `sun` judges with the `stars`
+through the committed backend from that copy. Line 1 of each fixture records the
+git blob of the shader it was made from (`base=`); one whose base is not the
+shader as it stands is reported STALE, since it would differ by the change as
+well as by its defect. `burst` draws with `Goo.metal` but has no shader
+fixtures of its own: its sphere and goo share the goo's shader, which the `goo`
+fixtures cover. `sun` judges with the `stars`
 pass's shader, and its one fixture is the defect only it can see:
 `sun_fogalways` fogs every draw, the sun's included. The only other draws with
 fog off are the lens flares, in the overlay plane at eye depth 0, where fog
 changes nothing -- so under `stars` that fixture passes. When a shader in
-`metal/` changes, regenerate the fixtures from the new text rather than editing
-the rule. These fixtures were written for the replay and now run here; all 29
+`metal/` changes, regenerate the fixtures from the new text, with the new
+`base=`, rather than editing the rule. These fixtures were written for the replay and now run here; all 29
 are killed. The
 narrowest by lit>2 are `tunnel_fog110` (3.72% against 3%) and
 `tunnel_radialfog` (4.28%), and both are far outside on bias (0.219 and 0.200

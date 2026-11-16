@@ -14,7 +14,9 @@
 // Plain, it draws through HSRendererGL and writes <outdir>/NNNNN_gl.png.
 // renderer=metal draws through HSRendererMetal, compiled from <metal-dir>, and
 // writes NNNNN_backend.png; a shot in which anything still drew through GL is
-// an error. Both share the seed, so they draw the same frames, and
+// an error, and so is a goo or tunnel pass whose goo or tunnel never drew.
+// A plain run does not read <metal-dir>: it stays in the usage so that
+// seamcheck.sh can run older parity builds, which did, with the same arguments. Both share the seed, so they draw the same frames, and
 // `parity --compare-backend <pass> <gl-dir> <backend-dir>` judges one against the
 // other under the pass's rules (parity/backendcheck.sh). `parity --compare` judges
 // two GL runs against each other (parity/seamcheck.sh). `--backend-textures` and
@@ -29,14 +31,10 @@
 #import <Cocoa/Cocoa.h>
 #import <OpenGL/gl.h>
 #import <OpenGL/glext.h>
-#import <OpenGL/glu.h>
 #import <Metal/Metal.h>
 #import <ImageIO/ImageIO.h>
-#import <simd/simd.h>
 #include <dlfcn.h>
 #include <ctime>
-#include <map>
-#include <string>
 #include <vector>
 #include "Hyperspace.h"
 #include "splinePath.h"
@@ -153,7 +151,8 @@ static std::vector<uint8_t> readPNG(NSString *path, int &w, int &h)
 // here is a translation residual: the rule is the tightest any pass uses.
 // parity --compare-backend compares one run's GL images with another's
 // _backend.png (renderer=metal), under the pass's rules. Either way a shot
-// missing from either side is an error.
+// missing from either side is an error, and a shot outside the rule writes
+// <new-dir>/NNNNN_diffx8.png: the per-pixel difference, times 8.
 static int compareRuns(NSString *refDir, NSString *newDir, NSString *newSuffix,
                        double max2, double max8, double maxBias, const char *same, const char *different)
 {
@@ -182,6 +181,7 @@ static int compareRuns(NSString *refDir, NSString *newDir, NSString *newSuffix,
         std::vector<uint8_t> b = readPNG([newDir stringByAppendingPathComponent:[n stringByAppendingString:newSuffix]], nw, nh);
         if (a.empty() || b.empty() || rw != nw || rh != nh) { printf("ERROR %s missing or a different size\n", n.UTF8String); return 2; }
         size_t lit = 0, l2 = 0, l8 = 0; int maxd = 0; double sb[3] = {0, 0, 0};
+        std::vector<uint8_t> heat((size_t)rw * rh * 4);
         for (size_t i = 0; i < (size_t)rw * rh; i++) {
             int pm = 0; bool isLit = false;
             for (int c = 0; c < 3; c++) {
@@ -189,6 +189,7 @@ static int compareRuns(NSString *refDir, NSString *newDir, NSString *newSuffix,
                 isLit |= a[i * 4 + c] > 8 || b[i * 4 + c] > 8;
             }
             maxd = MAX(maxd, pm);
+            heat[i * 4] = heat[i * 4 + 1] = heat[i * 4 + 2] = (uint8_t)MIN(255, pm * 8); heat[i * 4 + 3] = 255;
             if (isLit) { lit++; l2 += pm > 2; l8 += pm > 8; for (int c = 0; c < 3; c++) sb[c] += (int)b[i * 4 + c] - (int)a[i * 4 + c]; }
         }
         double bias = 0; for (int c = 0; c < 3; c++) bias = MAX(bias, fabs(sb[c] / MAX((size_t)1, lit)));
@@ -196,6 +197,7 @@ static int compareRuns(NSString *refDir, NSString *newDir, NSString *newSuffix,
         bool shotOk = p2 <= max2 && p8 <= max8 && bias <= maxBias;
         ok &= shotOk; worst2 = MAX(worst2, p2); worst8 = MAX(worst8, p8); worstBias = MAX(worstBias, bias); worstMax = MAX(worstMax, maxd);
         printf("%s  max %3d  lit>2 %6.3f%%  lit>8 %6.3f%%  bias %5.3f  %s\n", n.UTF8String, maxd, p2, p8, bias, shotOk ? "ok" : "FAIL");
+        if (!shotOk) writePNG([newDir stringByAppendingPathComponent:[n stringByAppendingString:@"_diffx8.png"]], heat.data(), rw, rh);
     }
     printf("%s shots=%lu worst_max=%d worst_lit>2=%.3f%% worst_lit>8=%.3f%% worst_bias=%.3f (limits %.2f%% / %.2f%% / %.3f)\n",
            ok ? same : different, (unsigned long)names.count, worstMax, worst2, worst8, worstBias, max2, max8, maxBias);
@@ -417,7 +419,8 @@ int main(int argc, const char *argv[])
 
         size_t npx = (size_t)w * h;
         std::vector<uint8_t> px(npx * 4), flip(npx * 4);
-        printf(" shot  %s\n", backend ? "backend draws" : "GL primitives");
+        const char *judgedKind = pass->goo ? "goo" : pass->tunnels ? "tunnel" : "all";
+        if (backend) printf(" shot  backend draws (%s)\n", judgedKind); else printf(" shot  GL primitives\n");
         int shots = 0; long drawnTotal = 0;
         // Counts every primitive GL generates, whatever entry point drew it.
         GLuint primQuery; glGenQueries(1, &primQuery);
@@ -482,9 +485,11 @@ int main(int argc, const char *argv[])
                 // Nothing may draw through GL: every draw goes to the backend.
                 if (generated) { printf("ERROR frame %d drew through GL in backend mode (%u primitives)\n", f, generated); return 2; }
                 [backendTarget getBytes:px.data() bytesPerRow:(size_t)w * 4 fromRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0];
-                int draws = metalRenderer->drawCount();
+                // The pass's own surface: stars draw in every pass, so the
+                // goo or tunnel failing to draw would leave a stars comparison.
+                int draws = pass->goo ? metalRenderer->gooDrawCount() : pass->tunnels ? metalRenderer->tunnelDrawCount() : metalRenderer->drawCount();
                 drawnTotal += draws;
-                printf("%5d  %d\n", f, draws);
+                printf("%5d  %d of %d\n", f, draws, metalRenderer->drawCount());
                 writePNG([base stringByAppendingString:@"_backend.png"], px.data(), w, h);
                 continue;
             }
@@ -497,8 +502,14 @@ int main(int argc, const char *argv[])
             for (int y = 0; y < h; y++) memcpy(&flip[(size_t)y * w * 4], &px[(size_t)(h - 1 - y) * w * 4], (size_t)w * 4);
             writePNG([base stringByAppendingString:@"_gl.png"], flip.data(), w, h);
         }
-        // A pass that drew nothing would compare black with black and pass.
-        if (drawnTotal == 0) { printf("ERROR the %s pass drew nothing in any shot\n", pass->name); return 2; }
+        // A pass that drew nothing would compare black with black and pass. In
+        // backend mode, nothing of the pass's own surface (judgedKind); a GL run
+        // counts every primitive, and the backend run it is compared with
+        // carries that check.
+        if (drawnTotal == 0) {
+            printf("ERROR the %s pass drew %s in any shot\n", pass->name, backend && strcmp(judgedKind, "all") ? (pass->goo ? "no goo" : "no tunnel") : "nothing");
+            return 2;
+        }
         printf("WROTE pass=%s shots=%d through %s\n", pass->name, shots, backend ? "HSRendererMetal" : "HSRendererGL");
         return 0;
     }

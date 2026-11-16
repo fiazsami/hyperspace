@@ -61,11 +61,18 @@ for pass in "${passes[@]}"; do
             # A shader defect: the committed backend, drawing from a metal/ with
             # the defect in place of the pass's shader file.
             name=$(basename "$fixture" .metal); bin=.parity-build/parity; metal=$OUT/variants/$name-metal
-            case $pass in goo) file=Goo.metal;; tunnel) file=Tunnel.metal;; *) file=FixedFunction.metal;; esac
-            rm -rf "$metal"; mkdir -p "$metal"; cp metal/*.metal "$metal/"; cp "$fixture" "$metal/$file"
-            if cmp -s "$fixture" "metal/$file"; then
+            case $pass in goo|burst) file=Goo.metal;; tunnel) file=Tunnel.metal;; *) file=FixedFunction.metal;; esac
+            # Line 1 names the blob of metal/$file the fixture was made from. A
+            # shader changed since then would make the fixture differ by the
+            # change as well as by its defect, and it would be killed for that.
+            base=$(head -1 "$fixture" | sed -n 's/.* base=\([0-9a-f]\{40\}\)$/\1/p')
+            if [ "$base" != "$(git hash-object "metal/$file")" ]; then
+                printf 'STALE      %-25s made from %s, not metal/%s as it is; regenerate it\n' "$name" "${base:-no base}" "$file"; bad=1; continue
+            fi
+            if tail -n +2 "$fixture" | cmp -s - "metal/$file"; then
                 printf 'NO CHANGE  %-25s the fixture is metal/%s as committed\n' "$name" "$file"; bad=1; continue
             fi
+            rm -rf "$metal"; mkdir -p "$metal"; cp metal/*.metal "$metal/"; cp "$fixture" "$metal/$file"
         else
             name=$(basename "$fixture" .sed); bin=$OUT/variants/$name; metal=metal
             src=$OUT/variants/$name.mm
