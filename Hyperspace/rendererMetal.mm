@@ -109,6 +109,9 @@ struct HSRendererMetalState {
 	id<MTLCommandBuffer> commands;
 	id<MTLRenderCommandEncoder> encoder;
 	std::map<unsigned int, Texture> textures;
+	// GL's filters and wraps, as the create* calls set them: linear with no
+	// mipmaps and REPEAT; linear mipmapped and REPEAT; and the cube's.
+	id<MTLSamplerState> linear, mipmapped, cube;
 	unsigned int nextName;
 	simd_float4x4 projection, view;   // the frame's, as GL takes them
 	simd_float4x4 clipProjection;     // projection, with clip z mapped to Metal's
@@ -178,6 +181,18 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->fog = true;
 	st->fogStart = st->fogEnd = 0.0f;
 	st->draws = 0;
+	MTLSamplerDescriptor *sd = [MTLSamplerDescriptor new];
+	sd.minFilter = sd.magFilter = MTLSamplerMinMagFilterLinear;
+	sd.mipFilter = MTLSamplerMipFilterNotMipmapped;
+	sd.sAddressMode = sd.tAddressMode = MTLSamplerAddressModeRepeat;
+	st->linear = [st->device newSamplerStateWithDescriptor:sd];
+	sd.mipFilter = MTLSamplerMipFilterLinear;
+	st->mipmapped = [st->device newSamplerStateWithDescriptor:sd];
+	// GL clamps s and t and leaves r at REPEAT, and filters each face alone;
+	// Metal filters cube maps across faces. Whether either shows is the goo's
+	// parity to judge (ss-a4a.4.2 slice 3): nothing samples a cube before it.
+	sd.sAddressMode = sd.tAddressMode = sd.rAddressMode = MTLSamplerAddressModeClampToEdge;
+	st->cube = [st->device newSamplerStateWithDescriptor:sd];
 	st->inGoo = false;
 	st->gooColor = simd_make_float4(1, 1, 1, 1);
 	st->gooTextures[0] = st->gooTextures[1] = st->gooTextures[2] = 0;
@@ -194,6 +209,9 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 }
 
 HSRendererMetal::~HSRendererMetal(){
+	// An encoder released mid-frame asserts; end it, and drop the frame.
+	if(st->encoder)
+		[st->encoder endEncoding];
 	delete st;
 }
 
@@ -269,12 +287,8 @@ unsigned int HSRendererMetal::createTexture(int width, int height, const unsigne
 	id<MTLTexture> t = [st->device newTextureWithDescriptor:td];
 	[t replaceRegion:MTLRegionMake2D(0, 0, width, height) mipmapLevel:0 withBytes:rgba bytesPerRow:size_t(width) * 4];
 	// Linear, no mipmaps, and GL's default wrap, repeat.
-	MTLSamplerDescriptor *sd = [MTLSamplerDescriptor new];
-	sd.minFilter = sd.magFilter = MTLSamplerMinMagFilterLinear;
-	sd.mipFilter = MTLSamplerMipFilterNotMipmapped;
-	sd.sAddressMode = sd.tAddressMode = MTLSamplerAddressModeRepeat;
 	unsigned int name = st->nextName++;
-	st->textures[name] = Texture{t, [st->device newSamplerStateWithDescriptor:sd]};
+	st->textures[name] = Texture{t, st->linear};
 	return name;
 }
 
@@ -290,12 +304,8 @@ unsigned int HSRendererMetal::createMipmappedTexture(const HSMipChain &chain){
 		std::vector<unsigned char> px = rgbaLevel(chain, int(l));
 		[t replaceRegion:MTLRegionMake2D(0, 0, s, s) mipmapLevel:l withBytes:px.data() bytesPerRow:size_t(s) * 4];
 	}
-	MTLSamplerDescriptor *sd = [MTLSamplerDescriptor new];
-	sd.minFilter = sd.magFilter = MTLSamplerMinMagFilterLinear;
-	sd.mipFilter = MTLSamplerMipFilterLinear;
-	sd.sAddressMode = sd.tAddressMode = MTLSamplerAddressModeRepeat;
 	unsigned int name = st->nextName++;
-	st->textures[name] = Texture{t, [st->device newSamplerStateWithDescriptor:sd]};
+	st->textures[name] = Texture{t, st->mipmapped};
 	return name;
 }
 
@@ -319,15 +329,8 @@ unsigned int HSRendererMetal::createCubeTexture(const HSMipChain faces[6]){
 				withBytes:px.data() bytesPerRow:size_t(s) * 4 bytesPerImage:0];
 		}
 	}
-	MTLSamplerDescriptor *sd = [MTLSamplerDescriptor new];
-	sd.minFilter = sd.magFilter = MTLSamplerMinMagFilterLinear;
-	sd.mipFilter = MTLSamplerMipFilterLinear;
-	// GL clamps s and t and leaves r at REPEAT, and filters each face alone;
-	// Metal filters cube maps across faces. Whether either shows is the goo's
-	// parity to judge (ss-a4a.4.2 slice 3): nothing samples a cube before it.
-	sd.sAddressMode = sd.tAddressMode = sd.rAddressMode = MTLSamplerAddressModeClampToEdge;
 	unsigned int name = st->nextName++;
-	st->textures[name] = Texture{t, [st->device newSamplerStateWithDescriptor:sd]};
+	st->textures[name] = Texture{t, st->cube};
 	return name;
 }
 
@@ -371,6 +374,11 @@ void HSRendererMetal::drawQuad(unsigned int texture, const float color[4], const
 }
 
 void HSRendererMetal::beginOverlay(float aspect){
+	if(!st->encoder)
+		fail("beginOverlay", "outside a frame");
+	// GL's matrix stack would nest; one saved camera cannot.
+	if(st->inOverlay)
+		fail("beginOverlay", "already in the overlay");
 	st->savedProjection = st->projection;
 	st->savedView = st->view;
 	st->projection = overlayProjection(aspect);
@@ -380,6 +388,8 @@ void HSRendererMetal::beginOverlay(float aspect){
 }
 
 void HSRendererMetal::endOverlay(){
+	if(!st->inOverlay)
+		fail("endOverlay", "no beginOverlay");
 	st->projection = st->savedProjection;
 	st->clipProjection = simd_mul(clipZ(), st->projection);
 	st->view = st->savedView;
