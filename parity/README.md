@@ -26,7 +26,7 @@ pass fails.
 | `goo` | the GLSL goo program: cube-mapped normals, reflection, Fresnel | `metal/Goo.metal` | 60 s, 12 shots |
 | `tunnel` | the GLSL tunnel program: two caustic textures, two octaves | `metal/Tunnel.metal` | 2 min, 36 shots |
 | `burst` | the goo, once the starburst's sphere is gone; the sphere is refused (below) | `metal/Goo.metal` | 8 s, 16 shots |
-| `sun` | `stars`, with the sun held in view | `metal/FixedFunction.metal` | 60 s, 12 shots |
+| `sun` | `stars`, with the sun held in view | `metal/FixedFunction.metal` | 20 s, 12 shots |
 
 Stars draw in every pass, through `FixedFunction.metal`. The tunnel needs two
 minutes because one rarely puts the camera inside a tunnel; most shots of the
@@ -50,12 +50,16 @@ frame: at every one the path has left it behind the camera or off to the side
 (its eye-space depth and projection, printed per shot). Its lens flare still
 draws, since the flare needs the sun only in front of the camera, not on
 screen. Commenting out the sun's draw compared at exactly 0 on all four passes,
-and so did a sun 20 times the size (`stars`, `goo`) and 1000 times (`stars`). `sun` is the `stars` pass with the sun
-moved, before every frame, 2 units along the last frame's view direction, so
-it is near the middle of every shot, about 30 pixels across. Where the saver
-puts it, at the 30 to 60 units it usually is from the camera, it is 1 to 2
-pixels across at 1280x720 (radius 0.04, a 50 degree field of view). Without the sun's draw, every `sun` shot
-comes out DIFFERENT, by 1.6% to 19.9% of lit pixels.
+and so did a sun 20 times the size (`stars`, `goo`) and 1000 times (`stars`).
+`sun` runs the first 20 s of `stars` with the sun moved, before every frame,
+2 units along the last frame's view direction. It is drawn from its last two
+positions and stretched by its motion on screen, as every star is; measured,
+it lands in a box about 28 pixels across at the middle of every shot. Where the
+saver puts it, at the 30 to 60 units it usually is from the camera, it is 1 to
+2 pixels across at 1280x720 (radius 0.04, a 50 degree field of view). Without
+the sun's draw, every `sun` shot comes out DIFFERENT, by 8.9% to 22.9% of lit
+pixels. Only the sun moves: its lens flare is still drawn for (0, 2, 0), so
+the sun and its flare are never judged together.
 
 ## The rule
 
@@ -154,7 +158,9 @@ with one deliberate defect: constants carried over from the other shader,
 swapped or flipped texture coordinates, radial instead of planar fog, a dropped
 term. `killcheck.sh` requires every one to FAIL. `sun` has no fixtures of its
 own: its shader is the `stars` pass's, whose fixtures are killed there, so
-`killcheck.sh` runs only its `metal/` check. When a shader in `metal/`
+`killcheck.sh` runs only its `metal/` check. No shader defect can touch the sun
+alone, since the shader cannot tell its quad from a star's; run once under
+`sun`, every `stars_*` fixture FAILs there too. When a shader in `metal/`
 changes, regenerate the fixtures from the new text rather than editing the
 rule.
 
@@ -181,7 +187,7 @@ translation residual and its rule is tighter than any pass's: per shot, at most
 bias of 0.06.
 
 ```bash
-parity/seamcheck.sh master            # every pass, ~4 min
+parity/seamcheck.sh master            # every pass, ~3.5 min
 parity/seamcheck.sh master stars      # one pass
 ```
 

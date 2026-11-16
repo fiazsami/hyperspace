@@ -575,10 +575,11 @@ static const Pass kPasses[] = {
     // The pass is there for seamcheck.sh, which compares GL with GL and ignores
     // that verdict.
     {"burst",  "Goo.metal",           "goo_vertex",    "goo_fragment",    true,  false, 480,  30,  8.0, 2.5, 0.06, 60},
-    // The stars pass with the sun 2 units ahead of the camera. Where the saver
-    // puts it, at (0, 2, 0), no stars-pass shot has it in frame: the path leaves
-    // it behind or off to the side at every one. The stars pass's shader and limits.
-    {"sun",    "FixedFunction.metal", "ff_vertex",     "ff_fragment",     false, false, 3600, 300, 1.0, 0.1, 0.06, 0, 2.0f},
+    // 20 s of the stars pass with the sun held 2 units ahead of the camera. Where
+    // the saver puts it, at (0, 2, 0), no stars-pass shot has it in frame: the path
+    // leaves it behind or off to the side at every one. The stars pass's shader
+    // and limits. Its lens flare stays at (0, 2, 0).
+    {"sun",    "FixedFunction.metal", "ff_vertex",     "ff_fragment",     false, false, 1200, 100, 1.0, 0.1, 0.06, 0, 2.0f},
 };
 
 // ---- Metal ----
@@ -719,9 +720,10 @@ int main(int argc, const char *argv[])
         // Two libraries, each with the interface prepended: the fixed-function path
         // (always needed -- stars draw in every pass) and the judged pass's shader.
         NSString *iface = readFile([metalDir stringByAppendingPathComponent:@"Interface.metal"]);
-        bool starsPass = !strcmp(pass->file, "FixedFunction.metal");   // stars and sun
-        NSString *ffPath = starsPass ? shaderPath : [metalDir stringByAppendingPathComponent:@"FixedFunction.metal"];
-        NSString *ffSrc = readFile(ffPath), *passSrc = starsPass ? ffSrc : readFile(shaderPath);
+        // The passes whose judged shader is the fixed-function one: stars and sun.
+        bool ffPass = !strcmp(pass->file, "FixedFunction.metal");
+        NSString *ffPath = ffPass ? shaderPath : [metalDir stringByAppendingPathComponent:@"FixedFunction.metal"];
+        NSString *ffSrc = readFile(ffPath), *passSrc = ffPass ? ffSrc : readFile(shaderPath);
         if (!iface || !ffSrc || !passSrc) return 2;
 
         NSError *err = nil;
@@ -742,7 +744,7 @@ int main(int argc, const char *argv[])
             return ps;
         };
         id<MTLRenderPipelineState> ffPS = pipeline(ffSrc, ffPath, "ff_vertex", "ff_fragment");
-        id<MTLRenderPipelineState> passPS = starsPass ? ffPS : pipeline(passSrc, shaderPath, pass->vfn, pass->ffn);
+        id<MTLRenderPipelineState> passPS = ffPass ? ffPS : pipeline(passSrc, shaderPath, pass->vfn, pass->ffn);
         if (!ffPS || !passPS) return 2;
 
         // The saver's pixel format has no depth buffer, so neither does this target.
@@ -946,7 +948,7 @@ int main(int argc, const char *argv[])
                     [enc setVertexBytes:&u length:sizeof u atIndex:1]; [enc setFragmentBytes:&u length:sizeof u atIndex:1];
                     if (b.st.texOn) { [enc setFragmentTexture:tex2d[b.tex] atIndex:0]; [enc setFragmentSamplerState:samp2d[b.tex] atIndex:0]; }
                     [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:b.tri.size()];
-                    judged += starsPass;
+                    judged += ffPass;
                 }
             }
             [enc endEncoding]; [cb commit]; [cb waitUntilCompleted];

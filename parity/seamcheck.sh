@@ -6,8 +6,8 @@
 # `parity --compare`. Both sides are the GL renderer, so the two should agree to
 # within float rounding; the Metal images are not compared. Each run still builds
 # its own tree's Metal pipelines, so <ref> must be a commit whose parity runs --
-# any master commit is. A pass <ref>'s parity does not know (burst, before it was
-# added) is skipped with a note, not compared.
+# any master commit is. A pass <ref>'s parity does not know (burst or sun, before
+# they were added) is skipped with a note, not compared.
 #
 #   parity/seamcheck.sh <ref> [stars|goo|tunnel|burst|sun ...]    default: all five
 #
