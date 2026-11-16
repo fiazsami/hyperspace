@@ -579,7 +579,7 @@ static const Pass kPasses[] = {
     // 20 s of the stars pass with the sun held 12 units ahead of the camera. Where
     // the saver puts it, at (0, 2, 0), no stars-pass shot has it in frame: the path
     // leaves it behind or off to the side at every one. 12 is past the fog's end
-    // (depth, 9.9 by default), as the saver's sun usually is, so a sun drawn with
+    // (depth, 9.8 by default), as the saver's sun usually is, so a sun drawn with
     // fog on comes out black. The stars pass's shader and limits. Its lens flare
     // stays at (0, 2, 0): drawn on the sun, its core hides it.
     {"sun",    "FixedFunction.metal", "ff_vertex",     "ff_fragment",     false, false, 1200, 100, 1.0, 0.1, 0.06, 0, 12.0f},
@@ -776,10 +776,6 @@ int main(int argc, const char *argv[])
         printf("config: pass=%s seed=%ld goo=%d tunnels=%d shaders=%d %dx%d frames=%d every=%d shader=%s%s%s\n",
                pass->name, (long)gSeed, s.dUseGoo, s.dUseTunnels, s.dShaders, w, h, frames, every, shaderPath.UTF8String,
                inject ? " inject=" : "", inject ? inject : "");
-        if (pass->sunAhead > 0 && pass->sunAhead <= s.depth) {
-            printf("ERROR the sun at %.1f is inside the fog's end (%.1f), where fog does not black it out\n", pass->sunAhead, s.depth);
-            return 2;
-        }
         if (inject) injectSetup(inject);
         if (inject && !strcmp(inject, "tunnelnotex") && !tunnelProgram) { printf("ERROR inject=tunnelnotex needs the tunnel program\n"); return 2; }
         if (inject && !strcmp(inject, "goopartialcube") && !gooProgram) { printf("ERROR inject=goopartialcube needs the goo program\n"); return 2; }
@@ -876,20 +872,30 @@ int main(int argc, const char *argv[])
             }
             if (pass->sunAhead > 0 && f > 0) {
                 // Along last frame's view direction (the view matrix's third row,
-                // negated), so the sun is near the middle of this frame.
+                // negated), so the sun is near the middle of this frame. The first
+                // time, its last position moves too, or it would draw stretched
+                // from where the saver put it.
                 const double *m = s.modelMat;
-                for (int i = 0; i < 3; i++)
+                for (int i = 0; i < 3; i++) {
                     s.sunStar->pos[i] = s.camPos[i] - float(m[4 * i + 2]) * pass->sunAhead;
+                    if (f == 1) s.sunStar->lastPos[i] = s.sunStar->pos[i];
+                }
             }
             draw(&s);
             if (shot && pass->sunAhead > 0) {
-                // A shot without the sun would judge the stars alone and pass.
-                const double *m = s.modelMat; const float *p = s.sunStar->pos; double win[3];
-                double eyeZ = m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14];
-                if (eyeZ >= 0 || !hsProject(p[0], p[1], p[2], s.modelMat, s.projMat, s.viewport, win) ||
-                    win[0] < 0 || win[0] >= w || win[1] < 0 || win[1] >= h) {
-                    printf("ERROR the sun is not in frame at frame %d\n", f);
-                    return 2;
+                // Checked where the sun was drawn this frame, drawPos. A sun off
+                // to the side would leave a shot judging the stars alone, and one
+                // inside the fog's end would not show whether it draws unfogged.
+                const float *p = s.sunStar->drawPos; double win[3];
+                bool inFront = hsProject(p[0], p[1], p[2], s.modelMat, s.projMat, s.viewport, win) && win[2] > 0 && win[2] < 1;
+                if (!inFront || fabs(win[0] - w / 2.0) > w / 4.0 || fabs(win[1] - h / 2.0) > h / 4.0) {
+                    printf("ERROR the sun is not in the middle of frame %d\n", f); return 2;
+                }
+                // Fog runs on eye-plane depth: the view matrix's third row.
+                const double *m = s.modelMat;
+                double depth = -(m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14]);
+                if (depth <= s.depth) {
+                    printf("ERROR the sun at depth %.2f is inside the fog's end (%.2f) at frame %d\n", depth, s.depth, f); return 2;
                 }
             }
             if (shot && inject) injectFault(inject);

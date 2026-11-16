@@ -53,14 +53,14 @@ screen. Commenting out the sun's draw compared at exactly 0 on all four passes,
 and so did a sun 20 times the size (`stars`, `goo`) and 1000 times (`stars`).
 `sun` runs the first 20 s of `stars` with the sun moved, before every frame,
 12 units along the last frame's view direction. That is past the fog's end
-(`depth`, 9.9 by default), as the saver's sun usually is -- 30 to 60 units out,
+(`depth`, 9.8 by default), as the saver's sun usually is -- 30 to 60 units out,
 1 to 2 pixels across at 1280x720 -- so the pass sees whether the sun draws
-unfogged: with fog on it comes out black. parity refuses to run the pass if the
-distance is not past the fog's end, and fails a shot whose sun is behind the
-camera or outside the viewport, so it cannot quietly become a stars pass. The
-sun is drawn from its last two positions and stretched by its motion on
-screen, as every star is; measured, it lands within 5 by 4 pixels of the middle
-of every shot. Without the sun's draw, or with `setFog(false)` doing nothing,
+unfogged: with fog on it comes out black. The sun is drawn from its last two
+positions and stretched by its motion on screen, as every star is; measured, it
+lands within 5 by 4 pixels of the middle of every shot. At every shot parity
+checks the sun where it was drawn -- in front of the camera, within the middle
+half of the frame each way, and farther than the fog's end -- and the run
+errors out (exit 2) if not, so the pass cannot quietly become a stars pass. Without the sun's draw, or with `setFog(false)` doing nothing,
 every shot comes out DIFFERENT, by 0.26% to 0.75% of lit pixels.
 
 Only the sun moves: its lens flare is still drawn for (0, 2, 0). Drawn on the
@@ -164,9 +164,10 @@ Two runs of the same pass produce identical output.
 with one deliberate defect: constants carried over from the other shader,
 swapped or flipped texture coordinates, radial instead of planar fog, a dropped
 term. `killcheck.sh` requires every one to FAIL. `sun` judges with the
-`stars` pass's shader, so `killcheck.sh` runs the `stars_*` fixtures under it
-too, as `sun_stars_*`. No shader defect can touch the sun alone, since the
-shader cannot tell its quad from a star's. When a shader in `metal/`
+`stars` pass's shader, and its one fixture is the defect only it can see:
+`sun_fogalways` fogs every draw, the sun's included. The only other draws with
+fog off are the lens flares, in the overlay plane at eye depth 0, where fog
+changes nothing -- so under `stars` that fixture passes. When a shader in `metal/`
 changes, regenerate the fixtures from the new text rather than editing the
 rule.
 
