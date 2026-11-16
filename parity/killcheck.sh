@@ -14,7 +14,7 @@
 #   parity/killcheck.sh [stars|goo|tunnel|sun ...] default: all four, plus inject
 #   parity/killcheck.sh inject                     the recorder cases alone
 #
-# About 6 minutes for everything on an M-series Mac; images go to .parity-build/out.
+# About 7 minutes for everything on an M-series Mac; images go to .parity-build/out.
 set -uo pipefail
 shopt -s nullglob
 cd "$(dirname "$0")/.."
@@ -44,14 +44,16 @@ for pass in "${passes[@]}"; do
         done
         continue
     fi
-    fixtures=(parity/defects/"$pass"_*.metal)
-    # sun judges with the stars pass's shader, whose fixtures run under stars. Any
-    # other pass without fixtures has lost them, which is a failure, not a pass.
-    if [ ${#fixtures[@]} -eq 0 ] && [ "$pass" != sun ]; then
-        printf 'NO FIXTURES %-25s parity/defects/%s_*.metal matches nothing\n' "$pass" "$pass"; bad=1
+    # sun judges with the stars pass's shader, so its fixtures are the stars
+    # pass's, run with the sun in frame. A pass without fixtures has lost them,
+    # which is a failure, not a pass.
+    family=$pass; [ "$pass" = sun ] && family=stars
+    fixtures=(parity/defects/"$family"_*.metal)
+    if [ ${#fixtures[@]} -eq 0 ]; then
+        printf 'NO FIXTURES %-25s parity/defects/%s_*.metal matches nothing\n' "$pass" "$family"; bad=1
     fi
     for defect in ${fixtures[@]+"${fixtures[@]}"}; do
-        name=$(basename "$defect" .metal)
+        name=$(basename "$defect" .metal); [ "$pass" = sun ] && name="sun_$name"
         rm -rf "$OUT/$name"
         .parity-build/parity "$pass" metal "$OUT/$name" shader="$defect" > "$OUT/$name.log"; code=$?
         result=$(tail -1 "$OUT/$name.log")

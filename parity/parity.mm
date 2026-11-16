@@ -36,6 +36,7 @@
 #include "Hyperspace.h"
 #include "splinePath.h"
 #include "starBurst.h"
+#include "transform.h"
 
 extern GLhandleARB gooProgram, tunnelProgram;
 
@@ -575,11 +576,13 @@ static const Pass kPasses[] = {
     // The pass is there for seamcheck.sh, which compares GL with GL and ignores
     // that verdict.
     {"burst",  "Goo.metal",           "goo_vertex",    "goo_fragment",    true,  false, 480,  30,  8.0, 2.5, 0.06, 60},
-    // 20 s of the stars pass with the sun held 2 units ahead of the camera. Where
+    // 20 s of the stars pass with the sun held 12 units ahead of the camera. Where
     // the saver puts it, at (0, 2, 0), no stars-pass shot has it in frame: the path
-    // leaves it behind or off to the side at every one. The stars pass's shader
-    // and limits. Its lens flare stays at (0, 2, 0).
-    {"sun",    "FixedFunction.metal", "ff_vertex",     "ff_fragment",     false, false, 1200, 100, 1.0, 0.1, 0.06, 0, 2.0f},
+    // leaves it behind or off to the side at every one. 12 is past the fog's end
+    // (depth, 9.9 by default), as the saver's sun usually is, so a sun drawn with
+    // fog on comes out black. The stars pass's shader and limits. Its lens flare
+    // stays at (0, 2, 0): drawn on the sun, its core hides it.
+    {"sun",    "FixedFunction.metal", "ff_vertex",     "ff_fragment",     false, false, 1200, 100, 1.0, 0.1, 0.06, 0, 12.0f},
 };
 
 // ---- Metal ----
@@ -773,6 +776,10 @@ int main(int argc, const char *argv[])
         printf("config: pass=%s seed=%ld goo=%d tunnels=%d shaders=%d %dx%d frames=%d every=%d shader=%s%s%s\n",
                pass->name, (long)gSeed, s.dUseGoo, s.dUseTunnels, s.dShaders, w, h, frames, every, shaderPath.UTF8String,
                inject ? " inject=" : "", inject ? inject : "");
+        if (pass->sunAhead > 0 && pass->sunAhead <= s.depth) {
+            printf("ERROR the sun at %.1f is inside the fog's end (%.1f), where fog does not black it out\n", pass->sunAhead, s.depth);
+            return 2;
+        }
         if (inject) injectSetup(inject);
         if (inject && !strcmp(inject, "tunnelnotex") && !tunnelProgram) { printf("ERROR inject=tunnelnotex needs the tunnel program\n"); return 2; }
         if (inject && !strcmp(inject, "goopartialcube") && !gooProgram) { printf("ERROR inject=goopartialcube needs the goo program\n"); return 2; }
@@ -875,6 +882,16 @@ int main(int argc, const char *argv[])
                     s.sunStar->pos[i] = s.camPos[i] - float(m[4 * i + 2]) * pass->sunAhead;
             }
             draw(&s);
+            if (shot && pass->sunAhead > 0) {
+                // A shot without the sun would judge the stars alone and pass.
+                const double *m = s.modelMat; const float *p = s.sunStar->pos; double win[3];
+                double eyeZ = m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14];
+                if (eyeZ >= 0 || !hsProject(p[0], p[1], p[2], s.modelMat, s.projMat, s.viewport, win) ||
+                    win[0] < 0 || win[0] >= w || win[1] < 0 || win[1] >= h) {
+                    printf("ERROR the sun is not in frame at frame %d\n", f);
+                    return 2;
+                }
+            }
             if (shot && inject) injectFault(inject);
             if (shot) glEndQuery(GL_PRIMITIVES_GENERATED_EXT);
             glFinish();

@@ -52,14 +52,21 @@ draws, since the flare needs the sun only in front of the camera, not on
 screen. Commenting out the sun's draw compared at exactly 0 on all four passes,
 and so did a sun 20 times the size (`stars`, `goo`) and 1000 times (`stars`).
 `sun` runs the first 20 s of `stars` with the sun moved, before every frame,
-2 units along the last frame's view direction. It is drawn from its last two
-positions and stretched by its motion on screen, as every star is; measured,
-it lands in a box about 28 pixels across at the middle of every shot. Where the
-saver puts it, at the 30 to 60 units it usually is from the camera, it is 1 to
-2 pixels across at 1280x720 (radius 0.04, a 50 degree field of view). Without
-the sun's draw, every `sun` shot comes out DIFFERENT, by 8.9% to 22.9% of lit
-pixels. Only the sun moves: its lens flare is still drawn for (0, 2, 0), so
-the sun and its flare are never judged together.
+12 units along the last frame's view direction. That is past the fog's end
+(`depth`, 9.9 by default), as the saver's sun usually is -- 30 to 60 units out,
+1 to 2 pixels across at 1280x720 -- so the pass sees whether the sun draws
+unfogged: with fog on it comes out black. parity refuses to run the pass if the
+distance is not past the fog's end, and fails a shot whose sun is behind the
+camera or outside the viewport, so it cannot quietly become a stars pass. The
+sun is drawn from its last two positions and stretched by its motion on
+screen, as every star is; measured, it lands within 5 by 4 pixels of the middle
+of every shot. Without the sun's draw, or with `setFog(false)` doing nothing,
+every shot comes out DIFFERENT, by 0.26% to 0.75% of lit pixels.
+
+Only the sun moves: its lens flare is still drawn for (0, 2, 0). Drawn on the
+sun instead, at 20 units, the flare's core hides it -- removing the sun's draw
+then compared at exactly 0 -- so judging the two together would judge the
+flare alone.
 
 ## The rule
 
@@ -156,11 +163,10 @@ Two runs of the same pass produce identical output.
 `parity/defects/<pass>_<defect>.metal` is the committed shader for that pass
 with one deliberate defect: constants carried over from the other shader,
 swapped or flipped texture coordinates, radial instead of planar fog, a dropped
-term. `killcheck.sh` requires every one to FAIL. `sun` has no fixtures of its
-own: its shader is the `stars` pass's, whose fixtures are killed there, so
-`killcheck.sh` runs only its `metal/` check. No shader defect can touch the sun
-alone, since the shader cannot tell its quad from a star's; run once under
-`sun`, every `stars_*` fixture FAILs there too. When a shader in `metal/`
+term. `killcheck.sh` requires every one to FAIL. `sun` judges with the
+`stars` pass's shader, so `killcheck.sh` runs the `stars_*` fixtures under it
+too, as `sun_stars_*`. No shader defect can touch the sun alone, since the
+shader cannot tell its quad from a star's. When a shader in `metal/`
 changes, regenerate the fixtures from the new text rather than editing the
 rule.
 
