@@ -714,6 +714,9 @@ bool HSRendererMetal::buildsGoo() const{
 	return true;
 }
 
+// metal/GooBuild.metal reads the table's rows 16 entries apart.
+static_assert(HS_GOO_TABLE_ROW == 16, "GooBuild.metal's goo_build hardcodes the table's row length");
+
 // A block's surface measured 6 triangles per res^2 on average (2407 a block at
 // resolution 20); the buffer starts at 8, and grows when a frame needed more.
 static const NSUInteger kGooTrianglesPerSquare = 8;
@@ -751,9 +754,13 @@ void HSRendererMetal::drawGooField(const HSGooField &field){
 	u.maxVertices = uint32_t(st->gooCapacity);
 	u.pad[0] = u.pad[1] = u.pad[2] = 0;
 
-	// Built in a command buffer of its own, committed now: the frame's is
-	// committed at endFrame, and a queue runs its buffers in commit order, so
-	// the build is done before the frame draws it. Building inside the frame's
+	// Built in a command buffer of its own, committed now, ahead of the
+	// frame's, which is committed at endFrame. Commit order alone only orders
+	// when the two start: what makes the frame's draw wait for the build, and
+	// the next build wait for this frame's draw, is Metal's hazard tracking on
+	// gooVertices, gooArgs and gooCounter -- the default for buffers made with
+	// newBuffer, as these are. Moving them onto a heap, or making them
+	// untracked, needs an MTLEvent in its place. Building inside the frame's
 	// buffer would mean ending its render pass and reloading the target.
 	id<MTLCommandBuffer> build = [st->queue commandBuffer];
 	id<MTLBlitCommandEncoder> blit = [build blitCommandEncoder];

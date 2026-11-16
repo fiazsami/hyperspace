@@ -26,8 +26,7 @@
 
 //extern float frameTime, simulationTime;
 
-// The value of goo::function on the surface.
-static const float kGooSurface = 0.4f;
+const float goo::isoValue = 0.4f;
 
 
 
@@ -43,7 +42,6 @@ goo::goo(int res, float rad){
 	if(res < 5)
 		res = 5;
 	resolution = res;
-	surfacesBuilt = true;
 	radius = rad;
 	unitSize = volumeSize / float(res);
 	arraySize = 2 * int(0.99f + radius / volumeSize);
@@ -57,7 +55,7 @@ goo::goo(int res, float rad){
 	volume->setCrawlFromSides(true);
 	volume->function = function;
 	volume->contextInfoForFunction = this;
-	volume->setSurfaceValue(kGooSurface);
+	volume->setSurfaceValue(isoValue);
 	surface = new impSurface**[arraySize];
 	useSurface = new bool*[arraySize];
 	for(i=0; i<arraySize; i++){
@@ -103,9 +101,6 @@ void goo::update(float x, float z, float heading, float fov, HyperspaceSaverSett
 	clip[2][0] = sinf(heading);
 	clip[2][1] = -cosf(heading);
 
-	// A renderer that builds the goo itself needs only the blocks chosen.
-	surfacesBuilt = !(inSettings->renderer && inSettings->renderer->buildsGoo());
-
 	for(i=0; i<arraySize; i++){
 		for(j=0; j<arraySize; j++){
 			shiftx = volumeSize * (0.5f + float(i - arraySize / 2));
@@ -113,8 +108,6 @@ void goo::update(float x, float z, float heading, float fov, HyperspaceSaverSett
 			if(shiftx * clip[0][0] + shiftz * clip[0][1] > volumeSize * -1.41421f){
 				if(shiftx * clip[1][0] + shiftz * clip[1][1] > volumeSize * -1.41421f){
 					if(shiftx * clip[2][0] + shiftz * clip[2][1] < radius + volumeSize * 1.41421f){
-						if(surfacesBuilt)
-							buildSurface(i, j);
 						useSurface[i][j] = true;
 					}
 				}
@@ -151,10 +144,14 @@ float goo::function(float* position, void *contextInfo){
 }
 
 
+void goo::blockCentre(int i, int j, float &x, float &z) const{
+	x = centerx + volumeSize * (0.5f + float(i - arraySize / 2));
+	z = centerz + volumeSize * (0.5f + float(j - arraySize / 2));
+}
+
 void goo::buildSurface(int i, int j){
 	// goo::function reads the block's place from shiftx and shiftz.
-	shiftx = centerx + volumeSize * (0.5f + float(i - arraySize / 2));
-	shiftz = centerz + volumeSize * (0.5f + float(j - arraySize / 2));
+	blockCentre(i, j, shiftx, shiftz);
 	// Empty crawl point vector.
 	// This is only needed so that the right version of impCubeVolume::makeSurface() is called.
 	impCrawlPointVector cpv;
@@ -176,13 +173,15 @@ void goo::draw(HSRenderer *renderer){
 		field.origin[1] = centerz;
 		field.unitSize = unitSize;
 		field.volumeSize = volumeSize;
-		field.surface = kGooSurface;
+		field.surface = isoValue;
 		field.resolution = resolution;
 		for(i=0; i<arraySize; i++){
 			for(j=0; j<arraySize; j++){
 				if(useSurface[i][j]){
-					field.offsets.push_back(centerx + volumeSize * (0.5f + float(i - arraySize / 2)));
-					field.offsets.push_back(centerz + volumeSize * (0.5f + float(j - arraySize / 2)));
+					float x, z;
+					blockCentre(i, j, x, z);
+					field.offsets.push_back(x);
+					field.offsets.push_back(z);
 					useSurface[i][j] = false;
 				}
 			}
@@ -195,10 +194,7 @@ void goo::draw(HSRenderer *renderer){
 	for(i=0; i<arraySize; i++){
 		for(j=0; j<arraySize; j++){
 			if(useSurface[i][j]){
-				if(!surfacesBuilt)
-					buildSurface(i, j);
-				shiftx = centerx + volumeSize * (0.5f + float(i - arraySize / 2));
-				shiftz = centerz + volumeSize * (0.5f + float(j - arraySize / 2));
+				buildSurface(i, j);
 				const float offset[3] = {shiftx, 0.0f, shiftz};
 				renderer->drawGooSurface(surface[i][j], offset);
 				useSurface[i][j] = false;

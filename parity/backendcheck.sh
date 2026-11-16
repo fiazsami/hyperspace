@@ -24,7 +24,7 @@
 #
 # About 7.5 minutes for everything (7m23s measured on an M5 Max: seven passes,
 # 27 backend and 29 shader fixtures; since then the goo build kernel's
-# 3 and one more backend fixture).
+# 4 and one more backend fixture).
 #
 #   parity/backendcheck.sh [stars|goo|tunnel|burst|sun|textures|caustics ...]    default: all seven
 #

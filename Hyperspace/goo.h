@@ -60,16 +60,17 @@ public:
 
 	goo(int res, float rad);
 	~goo();
-	bool surfacesBuilt;  // whether update() built the chosen blocks' surfaces
+	static const float isoValue;  // goo::function's value on the surface
 
-	// Chooses the blocks in view, and builds their surfaces unless the
-	// settings' renderer builds them itself (HSRenderer::buildsGoo).
+	// Chooses the blocks in view. draw() builds their surfaces, for a
+	// renderer that does not build the goo itself (HSRenderer::buildsGoo).
 	void update(float x, float z, float heading, float fov, HyperspaceSaverSettings *inSettings);
+	// Block (i, j)'s centre in x and z, and its surface built there.
+	void blockCentre(int i, int j, float &x, float &z) const;
 	void buildSurface(int i, int j);
 	static float function(float* position, void *contextInfo);
 	// Each block update() chose, between the caller's beginGoo and endGoo: its
-	// surface, or for a renderer that builds the goo, the field. A renderer
-	// that wants surfaces update() skipped gets them built here.
+	// surface, built here, or for a renderer that builds the goo, the field.
 	void draw(HSRenderer *renderer);
 };
 

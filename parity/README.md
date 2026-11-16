@@ -278,8 +278,9 @@ built, and the `goo` pass judges the kernel as much as the shader.
 `parity/defects/goobuild_<defect>.metal` is that kernel with one defect, made
 and checked like the shader fixtures (`base=` is `GooBuild.metal`'s blob), and
 run under `goo`. Killed: each vertex at its edge's midpoint, each vertex taking
-its edge's first corner's normal unmixed, and the normal's neighbour half a
-cell along instead of one. The kernel's first cut used the field's exact
+its edge's first corner's normal unmixed, the normal's neighbour half a
+cell along instead of one, and two edges swapped in the kernel's own edge
+table, which the unit tests cannot see. The kernel's first cut used the field's exact
 gradient for normals, and this pass failed it at 98% lit>2 -- the reflections
 moved across the whole surface -- which is why it copies impCubeVolume's
 forward differences instead.

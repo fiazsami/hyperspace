@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <algorithm>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -60,13 +61,13 @@ std::vector<Key> buildLikeTheKernel(goo &g, short table[256][HS_GOO_TABLE_ROW])
             corner[i][1] = (y + ((i >> 1) & 1)) * g.unitSize - half;
             corner[i][2] = (z + (i & 1)) * g.unitSize - half;
             value[i] = goo::function(corner[i], &g);
-            if (value[i] < 0.4f) mask |= 1 << i;
+            if (value[i] < goo::isoValue) mask |= 1 << i;
         }
         for (int t = 0; t < table[mask][0]; t++) {
             float tri[3][3];
             for (int v = 0; v < 3; v++) {
                 const int *e = kEdge[table[mask][1 + 3 * t + v]];
-                const float f = (0.4f - value[e[0]]) / (value[e[1]] - value[e[0]]);
+                const float f = (goo::isoValue - value[e[0]]) / (value[e[1]] - value[e[0]]);
                 for (int k = 0; k < 3; k++)
                     tri[v][k] = corner[e[0]][k] + f * (corner[e[1]][k] - corner[e[0]][k]);
             }
@@ -119,16 +120,20 @@ TEST(goo_built_from_the_table_is_the_surface_impcubevolume_builds)
     memset(&s, 0, sizeof s);
     s.frameTime = 1.0f / 60.0f;
     goo g(12, 6.0f);
-    g.update(0.3f, 0.2f, 0.1f, 1.75f, &s);   // no renderer: built on the CPU
+    g.update(0.3f, 0.2f, 0.1f, 1.75f, &s);
+    std::vector<std::pair<int, int> > chosen;
+    for (int i = 0; i < g.arraySize; i++) for (int j = 0; j < g.arraySize; j++)
+        if (g.useSurface[i][j]) chosen.push_back(std::make_pair(i, j));
+    Recorder r;
+    g.draw(&r);   // builds them on the CPU
 
     int blocks = 0;
     size_t triangles = 0;
-    for (int i = 0; i < g.arraySize; i++) for (int j = 0; j < g.arraySize; j++) {
-        if (!g.useSurface[i][j]) continue;
-        /* goo::function reads the block's shift, which update leaves at the
+    for (size_t n = 0; n < chosen.size(); n++) {
+        const int i = chosen[n].first, j = chosen[n].second;
+        /* goo::function reads the block's shift, which draw leaves at the
          * last block it built. */
-        g.shiftx = g.centerx + g.volumeSize * (0.5f + float(i - g.arraySize / 2));
-        g.shiftz = g.centerz + g.volumeSize * (0.5f + float(j - g.arraySize / 2));
+        g.blockCentre(i, j, g.shiftx, g.shiftz);
         std::vector<Key> cpu = trianglesOf(g.surface[i][j]);
         std::vector<Key> gpu = buildLikeTheKernel(g, table);
         std::sort(cpu.begin(), cpu.end());
@@ -187,11 +192,12 @@ TEST(goo_hands_a_renderer_that_builds_it_the_field_and_builds_nothing)
     CHECK(again.gooFields.empty());
 }
 
-TEST(goo_builds_the_surfaces_it_skipped_for_a_renderer_that_wants_them)
+TEST(goo_draws_every_chosen_block_whatever_renderer_update_saw)
 {
-    /* The same goo, updated twice from the same state: once for a CPU
-     * renderer, once for one that builds the goo -- then drawn through a CPU
-     * renderer, which must get the surfaces the first built. */
+    /* The same goo, updated twice from the same state -- once with a CPU
+     * renderer in the settings, once with one that builds the goo -- then
+     * drawn through a CPU renderer. Each draws every block it chose, once,
+     * and the two draw the same surfaces. */
     HyperspaceSaverSettings s;
     memset(&s, 0, sizeof s);
     s.frameTime = 0.5f;
@@ -207,19 +213,24 @@ TEST(goo_builds_the_surfaces_it_skipped_for_a_renderer_that_wants_them)
     s.renderer = &gpu;
     got.update(0.7f, -0.3f, 0.4f, 1.0f, &s);
 
-    Recorder drawn;
-    got.draw(&drawn);
-    CHECK(!drawn.goo.empty());
-    for (size_t n = 0; n < drawn.goo.size(); n++) {
-        const impSurface *a = drawn.goo[n].surface;
-        bool found = false;
-        for (int i = 0; i < want.arraySize; i++) for (int j = 0; j < want.arraySize; j++) {
-            if (got.surface[i][j] != a) continue;
-            found = true;
-            std::vector<Key> have = trianglesOf(a), expect = trianglesOf(want.surface[i][j]);
-            CHECK(!expect.empty() || want.surface[i][j]->getIndexCount() == 0);
-            CHECK(have == expect);
-        }
-        CHECK(found);
+    std::vector<impSurface *> chosen;
+    for (int i = 0; i < got.arraySize; i++) for (int j = 0; j < got.arraySize; j++) {
+        CHECK(got.useSurface[i][j] == want.useSurface[i][j]);
+        if (got.useSurface[i][j]) chosen.push_back(got.surface[i][j]);
     }
+    CHECK(chosen.size() > 4);
+
+    Recorder drewWant, drewGot;
+    want.draw(&drewWant);
+    got.draw(&drewGot);
+    CHECK(drewGot.goo.size() == chosen.size());
+    CHECK(drewWant.goo.size() == chosen.size());
+    size_t triangles = 0;
+    for (size_t n = 0; n < drewGot.goo.size() && n < drewWant.goo.size(); n++) {
+        CHECK(drewGot.goo[n].surface == chosen[n]);
+        std::vector<Key> have = trianglesOf(drewGot.goo[n].surface);
+        CHECK(have == trianglesOf(drewWant.goo[n].surface));
+        triangles += have.size();
+    }
+    CHECK(triangles > 0);
 }

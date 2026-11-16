@@ -2,9 +2,12 @@
 // goo::function, one thread per cell, for HSRendererMetal::drawGooField.
 // Compiled with Interface.metal prepended.
 //
-// The CPU crawls from the volume's sides and shares vertices between cells;
-// this visits every cell and writes each triangle's three vertices, so the
-// same triangles come out in another order, with nothing shared. Measured
+// The CPU crawls from surface it finds on the volume's sides and shares
+// vertices between cells; this visits every cell and writes each triangle's
+// three vertices, so the same triangles come out in another order, with
+// nothing shared. Visiting every cell also finds a closed pocket that touches
+// no side, which the CPU's crawl never reaches: measured over 300 frames,
+// 5 of 12772 blocks at resolution 10 and 4 at 20, a dozen triangles in all. Measured
 // against impCubeVolume on the same frames: equal triangle counts at
 // resolutions 10 to 30. cos is precise here, where the CPU's rsCosf is a table
 // lookup good to about 1e-4; at resolution 40 that moved 4 triangles of
@@ -81,7 +84,7 @@ kernel void goo_build(constant GooBuildUniforms &u      [[buffer(0)]],
         if (value[i] < u.surface)
             mask |= 1u << i;
     }
-    constant short *row = table + mask * 16;
+    constant short *row = table + mask * 16;   // HS_GOO_TABLE_ROW, which rendererMetal.mm asserts is 16
     const uint vertices = uint(row[0]) * 3;
     if (vertices == 0)
         return;
