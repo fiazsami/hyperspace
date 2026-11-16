@@ -51,10 +51,14 @@ struct FrameRecorder : Recorder {
     std::vector<HSFrame> frames;
     std::vector<bool> fog;
     std::vector<TunnelBegin> tunnelBegins;
+    // On-screen draws so far, sampled at each call that brackets them.
+    std::vector<size_t> drawsAtBegin, drawsAtEnd, drawsAtFog;
     int *deletions = nullptr;
     ~FrameRecorder() override { if (deletions) ++*deletions; }
-    void beginFrame(const HSFrame &f) override { frames.push_back(f); }
-    void setFog(bool on) override { fog.push_back(on); }
+    size_t draws() const { return strips.size() + goo.size() + spheres.size() + tunnel.size(); }
+    void beginFrame(const HSFrame &f) override { frames.push_back(f); drawsAtBegin.push_back(draws()); }
+    void endFrame() override { drawsAtEnd.push_back(draws()); }
+    void setFog(bool on) override { fog.push_back(on); drawsAtFog.push_back(draws()); }
     void beginTunnel(unsigned int c0, unsigned int c1, float lerp, bool shaded) override
     {
         TunnelBegin b = {c0, c1, lerp, shaded};
@@ -304,6 +308,26 @@ TEST(draw_hands_the_renderer_one_frame_in_the_settings_view)
         }
     // the sun and its flare are drawn unfogged, and fog is back on after
     CHECK(r->fog.size() == 2 && !r->fog[0] && r->fog[1]);
+    cleanUp(s);
+    delete s;
+}
+
+TEST(draw_brackets_every_on_screen_draw_inside_its_frame)
+{
+    FrameRecorder *r = new FrameRecorder;
+    HyperspaceSaverSettings *s = started(r, true, false, false);
+    frame(s, 0.0f);
+    size_t total = r->draws();
+    CHECK(total > 0);
+    CHECK(r->drawsAtBegin.size() == 1 && r->drawsAtEnd.size() == 1);
+    CHECK(r->drawsAtBegin[0] == 0);       // nothing on screen before the frame begins
+    CHECK(r->drawsAtEnd[0] == total);     // nor after it ends
+    // fog goes off for the sun and its flare, which draw something, and comes
+    // back on after them, with nothing drawn after it in this frame
+    CHECK(r->drawsAtFog.size() == 2);
+    CHECK(r->drawsAtFog[0] < r->drawsAtFog[1]);
+    CHECK(r->drawsAtFog[1] == total);
+    CHECK(r->drawsAtFog[0] > 0);          // the stars and goo come first, fogged
     cleanUp(s);
     delete s;
 }
