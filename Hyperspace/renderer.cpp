@@ -50,13 +50,14 @@ bool hsBuildMipmaps(const unsigned char *pixels, int size, int channels, HSMipCh
 
 // The expressions are the display list's, unchanged, so the floats are too.
 void hsSphereBand(int band, float out[HS_SPHERE_BAND_POINTS][3]){
-	const float cj = cosf(float(band) * RS_PIx2 / 32.0f);
-	const float sj = sinf(float(band) * RS_PIx2 / 32.0f);
-	const float cjj = cosf(float(band+1) * RS_PIx2 / 32.0f);
-	const float sjj = sinf(float(band+1) * RS_PIx2 / 32.0f);
-	for(int i=0; i<=32; i++){
-		const float ci = cosf(float(i) * RS_PIx2 / 32.0f);
-		const float si = sinf(float(i) * RS_PIx2 / 32.0f);
+	const float n = float(HS_SPHERE_BANDS);   // 32: also the longitude count
+	const float cj = cosf(float(band) * RS_PIx2 / n);
+	const float sj = sinf(float(band) * RS_PIx2 / n);
+	const float cjj = cosf(float(band+1) * RS_PIx2 / n);
+	const float sjj = sinf(float(band+1) * RS_PIx2 / n);
+	for(int i=0; i<=HS_SPHERE_BANDS; i++){
+		const float ci = cosf(float(i) * RS_PIx2 / n);
+		const float si = sinf(float(i) * RS_PIx2 / n);
 		out[2*i][0] = sj * ci;
 		out[2*i][1] = cj;
 		out[2*i][2] = sj * si;

@@ -16,10 +16,13 @@
 // without a context and drawn by another backend later. HSRendererGL is the
 // only implementation; it draws exactly what the code it replaced drew.
 //
-// This covers everything Hyperspace draws -- the stars, the lens flare, the
-// goo, the starburst, the tunnel -- and every texture, including the caustics,
-// which are rendered offscreen and read back. Only rsText's statistics overlay
-// still draws through GL directly.
+// Every draw Hyperspace makes goes through here -- the stars, the lens flare,
+// the goo, the starburst, the tunnel -- and every texture is created here,
+// including the caustics, which are rendered offscreen and read back. Only
+// rsText's statistics overlay still draws through GL directly. What is not
+// here yet is the frame's fixed state: Hyperspace.cpp's draw() still sets the
+// camera, fog, blending, MODULATE and 2D texturing in GL each frame, and
+// HSRendererGL relies on it (see rendererGL.h).
 
 #ifndef HYPERSPACE_RENDERER_H
 #define HYPERSPACE_RENDERER_H
@@ -143,7 +146,7 @@ bool hsBuildMipmaps(const unsigned char *pixels, int size, int channels, HSMipCh
 // triangles as a list rasterize a few pixels differently, which the seam
 // check sees.
 const int HS_SPHERE_BANDS = 32;
-const int HS_SPHERE_BAND_POINTS = 66;
+const int HS_SPHERE_BAND_POINTS = 2 * (HS_SPHERE_BANDS + 1);   // longitudes 0..32, two rings
 void hsSphereBand(int band, float out[HS_SPHERE_BAND_POINTS][3]);
 
 #endif

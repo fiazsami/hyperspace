@@ -18,9 +18,13 @@ struct Strip {
 };
 
 struct GooDraw {
-    impSurface *surface;   /* NULL for a sphere */
-    float offset[3];       /* a sphere's center */
-    float radius;          /* a sphere's; 0 for a surface */
+    impSurface *surface;
+    float offset[3];
+};
+
+struct GooSphere {
+    float center[3];
+    float radius;
 };
 
 struct GooBegin {
@@ -47,6 +51,7 @@ public:
     float aspect = 0.0f;
     unsigned int nextName = 100;
     std::vector<GooDraw> goo;
+    std::vector<GooSphere> spheres;
     std::vector<GooBegin> gooBegins;
     int gooEnds = 0;
     std::vector<std::vector<HSTunnelVertex> > tunnel;
@@ -112,16 +117,14 @@ public:
         GooDraw d;
         d.surface = surface;
         memcpy(d.offset, offset, sizeof d.offset);
-        d.radius = 0.0f;
         goo.push_back(d);
     }
     void drawGooSphere(const float center[3], float radius) override
     {
-        GooDraw d;
-        d.surface = NULL;
-        memcpy(d.offset, center, sizeof d.offset);
+        GooSphere d;
+        memcpy(d.center, center, sizeof d.center);
         d.radius = radius;
-        goo.push_back(d);
+        spheres.push_back(d);
     }
     void endGoo() override { gooEnds++; }
     /* The tunnel leaves its begin and end calls to Hyperspace's draw(), so

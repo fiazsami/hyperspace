@@ -222,6 +222,7 @@ void HSRendererGL::endGoo(){
 	if(gooShaded){
 		glDisable(GL_TEXTURE_CUBE_MAP_ARB);
 		glUseProgramObjectARB(0);
+		glEnable(GL_TEXTURE_2D);   // beginGoo turned it off; drawQuad needs it
 	}
 	else{
 		glDisable(GL_TEXTURE_GEN_S);

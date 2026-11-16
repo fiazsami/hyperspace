@@ -197,8 +197,8 @@ TEST(starburst_sphere_grows_and_fades_in_the_goos_look)
     CHECK_NEAR(sb.size, 0.05, kTol);
     CHECK(r.overlays == 1);                        /* its lens flare */
     CHECK(r.gooBegins.size() == 1 && r.gooEnds == 1);
-    CHECK(r.goo.size() == 1);
-    if (r.gooBegins.size() == 1 && r.goo.size() == 1) {
+    CHECK(r.spheres.size() == 1 && r.goo.empty());
+    if (r.gooBegins.size() == 1 && r.spheres.size() == 1) {
         const GooBegin &b = r.gooBegins[0];
         double bright = 1.0 - 0.05 * 0.333333;
         for (int k = 0; k < 3; k++) CHECK_NEAR(b.color[k], bright, kTol);
@@ -207,9 +207,8 @@ TEST(starburst_sphere_grows_and_fades_in_the_goos_look)
         CHECK(b.nebula == 7);
         CHECK(b.normals0 == wncm.texture[3]);
         CHECK(b.normals1 == wncm.texture[0]);      /* the next frame, wrapping */
-        CHECK(r.goo[0].surface == NULL);
-        for (int k = 0; k < 3; k++) CHECK(r.goo[0].offset[k] == at[k]);
-        CHECK_NEAR(r.goo[0].radius, 0.05, kTol);
+        for (int k = 0; k < 3; k++) CHECK(r.spheres[0].center[k] == at[k]);
+        CHECK_NEAR(r.spheres[0].radius, 0.05, kTol);
     }
 
     /* Without shaders: opaque colour, no normal maps. */
@@ -217,12 +216,12 @@ TEST(starburst_sphere_grows_and_fades_in_the_goos_look)
     s->renderer = &plain;
     s->dShaders = false;
     sb.draw(0.25f, s);
-    CHECK(plain.gooBegins.size() == 1);
-    if (plain.gooBegins.size() == 1) {
+    CHECK(plain.gooBegins.size() == 1 && plain.spheres.size() == 1);
+    if (plain.gooBegins.size() == 1 && plain.spheres.size() == 1) {
         CHECK(plain.gooBegins[0].color[3] == 1.0f);
         CHECK(!plain.gooBegins[0].shaded);
         CHECK(plain.gooBegins[0].normals0 == 0 && plain.gooBegins[0].normals1 == 0);
-        CHECK_NEAR(plain.goo[0].radius, 0.1, kTol);
+        CHECK_NEAR(plain.spheres[0].radius, 0.1, kTol);
     }
 
     /* Once the sphere reaches 3 it has faded: only the stars draw. */
@@ -231,7 +230,7 @@ TEST(starburst_sphere_grows_and_fades_in_the_goos_look)
     sb.size = 2.96f;
     sb.draw(0.25f, s);
     CHECK(sb.size >= 3.0f);
-    CHECK(done.gooBegins.empty() && done.goo.empty());
+    CHECK(done.gooBegins.empty() && done.spheres.empty());
     CHECK(done.overlays == 0);
     CHECK(!done.strips.empty());                   /* its stars are still out */
     delete s;

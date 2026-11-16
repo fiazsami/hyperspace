@@ -47,7 +47,6 @@ public:
 	void restart(float* position);
 	void drawStars(HyperspaceSaverSettings *inSettings);
 	// lerp mixes the normal maps when inSettings->dShaders, as for the goo.
-	// Between Hyperspace's goo and tunnel; the stars expect GL_TEXTURE_2D on.
 	void draw(float lerp, HyperspaceSaverSettings *inSettings);
 };
 
