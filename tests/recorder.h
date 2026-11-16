@@ -55,7 +55,11 @@ public:
     std::vector<GooBegin> gooBegins;
     int gooEnds = 0;
     std::vector<std::vector<HSTunnelVertex> > tunnel;
+    std::vector<HSFrame> frames;
+    bool fogOn = false;
 
+    void beginFrame(const HSFrame &f) override { frames.push_back(f); fogOn = true; }
+    void setFog(bool on) override { fogOn = on; }
     unsigned int createTexture(int width, int height, const unsigned char *) override
     {
         textureSizes.push_back(width * 1000 + height);
