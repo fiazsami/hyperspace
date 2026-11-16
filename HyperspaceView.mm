@@ -30,6 +30,9 @@
 #import <Metal/Metal.h>
 #import "Hyperspace/rendererMetal.h"
 
+// The most time one frame may move the scene by.
+static const float kMaxFrameTime = 0.1f;
+
 @interface HyperspaceView (Private)
 - (void)readDefaults:(ScreenSaverDefaults *)inDefaults;
 - (void)setDialogValue;
@@ -135,10 +138,15 @@
 - (void)viewDidMoveToWindow
 {
 	[super viewDidMoveToWindow];
-	if (@available(macOS 12.0, *))	// on Monterey and later, update the time interval for the window's screen's refresh rate
-	{
-		self.animationTimeInterval = self.window.screen.maximumRefreshInterval;
-	}
+	// Pace frames to the screen's fastest refresh. minimumRefreshInterval is
+	// the shortest interval; maximumRefreshInterval is the longest, the
+	// slowest rate a variable-refresh display drops to. The window may have
+	// no screen -- System Settings' preview hosts the view so -- and a nil
+	// screen answers 0, which would run the timer flat out; keep the
+	// interval already set then.
+	NSScreen *screen = self.window.screen;
+	if (screen && screen.minimumRefreshInterval > 0)
+		self.animationTimeInterval = screen.minimumRefreshInterval;
 	[self matchBacking];
 }
 
@@ -242,7 +250,10 @@
 					id<CAMetalDrawable> drawable = [lLayer nextDrawable];
 					if (drawable == nil)
 						return;	// no frame, so no time passes: the next tick carries it
-					lSettings.frameTime = timer.tick();
+					// A stall -- a drawable that took the layer's full timeout, a
+					// throttled host -- would otherwise move the scene by all of
+					// it at once; past a tenth of a second the scene slows instead.
+					lSettings.frameTime = fminf(timer.tick(), kMaxFrameTime);
 					try
 					{
 						lRenderer->setDrawable((__bridge void *)drawable);
