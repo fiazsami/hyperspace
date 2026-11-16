@@ -27,6 +27,7 @@
 
 #include <algorithm>
 #include <math.h>
+#include <stdio.h>
 #include <string>
 #include <stdlib.h>
 #include <string.h>
@@ -58,7 +59,7 @@ struct FrameRecorder : Recorder {
      *   v/w overlay begin/end  g/h goo begin/end     t/u tunnel begin/end
      *   S quad (star, sun)     O overlay quad (flare)
      *   G goo surface          P burst sphere        T tunnel strip
-     * Never cleared, unlike the vectors above. */
+     * One log for the whole run; a case that runs long clears it. */
     std::string events;
     int *deletions = nullptr;
     ~FrameRecorder() override { if (deletions) ++*deletions; }
@@ -364,8 +365,7 @@ bool bracketsBalanced(const std::string &e)
         } else if (c == 'w' || c == 'h' || c == 'u') {
             if (open != (c == 'w' ? 'v' : c == 'h' ? 'g' : 't')) return false;
             open = 0;
-        } else if (c == 'O' && open != 'v') return false;
-        else if ((c == 'G' || c == 'P') && open != 'g') return false;
+        } else if ((c == 'G' || c == 'P') && open != 'g') return false;
         else if (c == 'T' && open != 't') return false;
         else if (c == 'S' && open) return false;
     }
@@ -423,6 +423,7 @@ TEST(draw_brackets_every_on_screen_draw_inside_its_frame)
         size_t b = e.find('B');
         rules.check("offscreen work only before the frame",
                     b == std::string::npos || e.find_first_of("ocx", b) == std::string::npos, e);
+        rules.check("offscreen work only on the first frame", n == 0 || e.find_first_of("ocx") == std::string::npos, e);
         e = e.substr(b == std::string::npos ? 0 : b);
         size_t off = e.find('f'), on = e.find('F');
         bool shaped = std::count(e.begin(), e.end(), 'B') == 1 &&
@@ -437,19 +438,21 @@ TEST(draw_brackets_every_on_screen_draw_inside_its_frame)
         rules.check("goo fogged", fogged.find('G') != std::string::npos, e);
         rules.check("tunnel fogged", fogged.find('T') != std::string::npos, e);
         // the sun and its flare draw unfogged, and nothing of the scene does
-        rules.check("sun unfogged", unfogged.find('S') != std::string::npos, e);
+        // a particle always draws two quads, so the sun is exactly two; a
+        // flare that lost its overlay bracket would add more
+        rules.check("the sun, and no other quad, unfogged", std::count(unfogged.begin(), unfogged.end(), 'S') == 2, e);
         rules.check("no goo, burst or tunnel unfogged", unfogged.find_first_of("gGPtT") == std::string::npos, e);
         rules.check("nothing after fog is back on", e.substr(on + 1) == "E", e);
         if (unfogged.find('O') != std::string::npos) sunFlare = true;
         if (fogged.find('O') != std::string::npos) burstFlare = true;
-        if (e.find('P') != std::string::npos) {
-            burstSphere = true;
-            rules.check("burst sphere fogged", fogged.find('P') != std::string::npos, e);
-        }
+        if (fogged.find('P') != std::string::npos) burstSphere = true;
     }
-    rules.check("the sun's flare shows, unfogged", sunFlare, "(no frame)");
-    rules.check("a burst's flare shows, fogged", burstFlare, "(no frame)");
-    rules.check("a burst's sphere shows", burstSphere, "(no frame)");
+    // Seen across the run rather than on one frame: the run is reproducible
+    // (time() is pinned), but which frames show each flare depends on the
+    // camera, so a miss names the rule and the 120 frames it had.
+    rules.check("the sun's flare shows, unfogged", sunFlare, "(not in 120 frames)");
+    rules.check("a burst's flare shows, fogged", burstFlare, "(not in 120 frames)");
+    rules.check("a burst's sphere shows, fogged", burstSphere, "(not in 120 frames)");
     CHECK(rules.clean());
     cleanUp(s);
     delete s;
