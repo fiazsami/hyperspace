@@ -19,7 +19,7 @@
 # caustic textures through both backends' offscreen targets and compares every
 # level. Their fixtures are backend_textures_*.sed and backend_caustics_*.sed.
 #
-# About 2.5 minutes for everything (2m16s measured on an M5 Max).
+# About 2 minutes for everything (2m05s measured on an M5 Max, all six).
 #
 #   parity/backendcheck.sh [stars|goo|burst|sun|textures|caustics ...]    default: all six
 #

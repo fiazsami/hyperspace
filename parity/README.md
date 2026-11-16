@@ -310,7 +310,10 @@ read back level by level, face by face -- GL's by its own target names, so
 neither side's face mapping is trusted. Measured: 49 levels and faces, every
 byte the same. Its fixtures, `backend_textures_*.sed`, are killed: faces in
 HSRenderer's order rather than Metal's (36 differ), RGB expanded with alpha 0
-(42), and every level uploaded from level 0 (10).
+(42), and every level uploaded from level 0 (10). Sampling is the goo's to
+judge, and one part of it is not separated: Metal filters a cube map across
+face edges and Apple's GL does not. The goo passes with it, but the replay
+samples on Metal too, so no measurement here isolates a seam.
 
 `parity --backend-caustics` judges the offscreen target by what it is for: it
 builds the tunnel's caustic textures, with the saver's own arguments (20 frames
@@ -320,10 +323,8 @@ difference is rasterization. Measured: worst 2 levels, 0.000% / 0.000% / bias
 0.004. Its fixtures are killed: the readback not flipped to GL's bottom-up
 order, strips at alpha 0.5, red and blue swapped, and a grey clear. GL's
 `glReadBuffer(GL_BACK)` raises INVALID_OPERATION under parity's FBO, as in the
-main loop; that one error is accepted, and any other fails the check. Sampling is the goo's to
-judge, and one part of it is not separated: Metal filters a cube map across
-face edges and Apple's GL does not. The goo passes with it, but the replay
-samples on Metal too, so no measurement here isolates a seam.
+main loop; parity skips that one call while an FBO is bound, since read and
+draw both stay on it, so any GL error at all fails the check.
 
 One defect is not a fixture because it cannot show: dropping the map from GL's
 clip z (-w..w) to Metal's (0..w). Without it Metal clips where GL's NDC z < 0,

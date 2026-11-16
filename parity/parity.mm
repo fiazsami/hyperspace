@@ -133,6 +133,18 @@ REAL(glNewList, void, (GLuint, GLenum)); REAL(glEndList, void, (void)); REAL(glC
 REAL(glMultiDrawElements, void, (GLenum, const GLsizei *, GLenum, const GLvoid *const *, GLsizei));
 REAL(glDrawElements, void, (GLenum, GLsizei, GLenum, const GLvoid *));
 REAL(glTexImage2D, void, (GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const GLvoid *));
+REAL(glReadBuffer, void, (GLenum));
+
+// HSRendererGL::beginOffscreen selects GL_BACK to read the caustics from,
+// which is an INVALID_OPERATION under parity's FBO. Both read and draw stay on
+// its color attachment, so skipping the call reads what was drawn -- and keeps
+// every other GL error an error.
+extern "C" void glReadBuffer(GLenum mode)
+{
+    GLint fbo = 0; glGetIntegerv(GL_FRAMEBUFFER_BINDING_EXT, &fbo);
+    if (fbo && mode == GL_BACK) return;
+    real_glReadBuffer(mode);
+}
 REAL(glTexSubImage2D, void, (GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, const GLvoid *));
 REAL(glCopyTexImage2D, void, (GLenum, GLint, GLenum, GLint, GLint, GLsizei, GLsizei, GLint));
 REAL(glCopyTexSubImage2D, void, (GLenum, GLint, GLint, GLint, GLint, GLint, GLsizei, GLsizei));
@@ -705,6 +717,7 @@ static int compareBackendTextures(NSString *metalDir)
     if (!glctx) { printf("ERROR no GL context\n"); return 2; }
     [glctx makeCurrentContext];
     id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
+    if (!dev) { printf("ERROR no Metal device\n"); return 2; }
     HSRendererGL gl;
     HSRendererMetal metal((__bridge void *)dev, metalDir.fileSystemRepresentation);
 
@@ -776,15 +789,13 @@ static int compareBackendCaustics(NSString *metalDir)
     glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_RENDERBUFFER_EXT, color);
     if (glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT) != GL_FRAMEBUFFER_COMPLETE_EXT) { printf("ERROR framebuffer incomplete\n"); return 2; }
     id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
+    if (!dev) { printf("ERROR no Metal device\n"); return 2; }
     HSRendererGL gl;
     HSRendererMetal metal((__bridge void *)dev, metalDir.fileSystemRepresentation);
     // Hyperspace.cpp's arguments, with the shaded look's 20 frames.
-    // beginOffscreen's glReadBuffer(GL_BACK) raises INVALID_OPERATION under an
-    // FBO, as in the main loop; read and draw both stay on the FBO's color
-    // attachment, so what it reads back is what it drew. Any other error fails.
     causticTextures a(&gl, 8, 20, 100, size, 1.0f, 0.01f, 20.0f);
-    for (GLenum err; (err = glGetError()) != GL_NO_ERROR; )
-        if (err != GL_INVALID_OPERATION) { printf("ERROR GL error 0x%x\n", err); return 2; }
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR) { printf("ERROR GL error 0x%x\n", err); return 2; }
     causticTextures b(&metal, 8, 20, 100, size, 1.0f, 0.01f, 20.0f);
 
     const double max2 = 1.0, max8 = 0.1, maxBias = 0.06;
@@ -896,6 +907,7 @@ int main(int argc, const char *argv[])
 
         NSError *err = nil;
         id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
+        if (!dev) { printf("ERROR no Metal device\n"); return 2; }
         auto pipeline = [&](NSString *src, NSString *path, const char *vfn, const char *ffn) -> id<MTLRenderPipelineState> {
             id<MTLLibrary> lib = [dev newLibraryWithSource:[iface stringByAppendingString:src] options:nil error:&err];
             if (!lib) { printf("ERROR %s does not compile:\n%s\n", path.UTF8String, err.localizedDescription.UTF8String); return nil; }
@@ -927,9 +939,8 @@ int main(int argc, const char *argv[])
         glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_RENDERBUFFER_EXT, color);
         if (glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT) != GL_FRAMEBUFFER_COMPLETE_EXT) { printf("ERROR framebuffer incomplete\n"); return 2; }
 
-        // HyperspaceView.mm's call order. (causticTextures.cpp's glReadBuffer(GL_BACK)
-        // raises INVALID_OPERATION under an FBO; read and draw buffers both stay on
-        // COLOR_ATTACHMENT0, so the caustic readback reads what it drew.)
+        // HyperspaceView.mm's call order. (The caustics' glReadBuffer(GL_BACK) is
+        // skipped under the FBO; see glReadBuffer above.)
         static HyperspaceSaverSettings s;
         setDefaults(&s);
         s.dUseGoo = pass->goo; s.dUseTunnels = pass->tunnels;
