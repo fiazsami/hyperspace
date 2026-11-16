@@ -47,6 +47,7 @@ public:
 	void endTunnel();
 
 	HSRendererGL();
+	~HSRendererGL();
 
 private:
 	int savedViewport[4];
@@ -57,6 +58,7 @@ private:
 	bool tunnelShaded;
 	float tunnelAlpha;   // lerp when shaded, where the tunnel program reads it
 	unsigned int sphereList;   // compiled on the first drawGooSphere
+	unsigned int gooBuffers[2];   // its vertex and index buffers, made on its first call
 };
 
 #endif

@@ -7,8 +7,9 @@
  * the whole marching-cubes pipeline -- the largest testable surface in this
  * submodule and the code the Metal port is about to rewrite -- inherited that
  * and sat in triage bucket B, unreachable. ss-aio deferred the two
- * glGenBuffers calls to the first draw(); these cases are what stops them
- * being moved back.
+ * glGenBuffers calls to the first draw(), and ss-a4a.4.4.2 removed GL from
+ * impSurface altogether (HSRendererGL draws the surface now); these cases are
+ * what stops a context requirement coming back.
  *
  * They fail loudly if that happens: reverting the fix makes the constructor
  * segfault, which takes the binary down with exit 139 and no coverage report

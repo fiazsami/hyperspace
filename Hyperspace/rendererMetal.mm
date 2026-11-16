@@ -644,8 +644,8 @@ void HSRendererMetal::drawGooSurface(impSurface *surface, const float offset[3])
 	const unsigned int vertexCount = surface->getVertexCount(), indexCount = surface->getIndexCount();
 	if(vertexCount == 0 || indexCount == 0)
 		return;
-	// GL would read a stale VBO tail for an index past the count; Metal would
-	// read past the buffer.
+	// An index past the vertices would read past the buffer; HSRendererGL
+	// refuses the same surface.
 	std::vector<unsigned int> indices(indexCount);
 	for(unsigned int i = 0; i < indexCount; i++)
 		if((indices[i] = surface->getIndex(i)) >= vertexCount)
