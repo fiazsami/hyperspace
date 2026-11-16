@@ -1,38 +1,45 @@
 # GL → Metal parity
 
-`parity` answers one question for the Metal port: **does the Metal shader draw
-what the shipped OpenGL saver draws?** It runs Hyperspace's unmodified OpenGL
-code offscreen, records every draw call with the GL state behind it, replays
-those draws through the shaders in `metal/`, and compares the two images shot by
-shot. There are no stored golden images: both sides render the same frame in the
-same process, so the reference is always the real renderer on this machine.
+`parity` answers one question for the Metal port: **does the saver, drawn
+through the Metal backend, look like the saver drawn through OpenGL?** It runs
+Hyperspace's code offscreen, deterministically, once through `HSRendererGL` and
+once through `HSRendererMetal` (`Hyperspace/rendererMetal.mm`), and compares
+the two images shot by shot. There are no stored golden images: both sides
+render the same frame in the same process, so the reference is always the
+shipped renderer on this machine.
 
 ```bash
-parity/build.sh                                   # -> .parity-build/parity
-.parity-build/parity goo metal .parity-build/out/goo
-parity/killcheck.sh                               # every rule, both directions (~5 min)
-parity/killcheck.sh inject                        # the recorder's checks alone (~30 s)
-parity/backendcheck.sh                            # the Metal backend against GL (~2.5 min)
+parity/build.sh                                                    # -> .parity-build/parity
+.parity-build/parity goo metal .parity-build/out/gl                # NNNNN_gl.png
+.parity-build/parity goo metal .parity-build/out/mt renderer=metal # NNNNN_backend.png
+.parity-build/parity --compare-backend goo .parity-build/out/gl .parity-build/out/mt
+parity/backendcheck.sh                                             # every pass and fixture (~7.5 min)
+parity/seamcheck.sh master                                         # GL against GL at <ref>
 ```
 
-Each shot writes `NNNNN_gl.png`, `NNNNN_metal.png` and `NNNNN_diffx8.png`
-(per-pixel difference ×8). The diff image is the first thing to look at when a
-pass fails.
+Until ss-a4a.4.5 the passes were judged a second way: a recorder interposed
+on GL, captured every draw with the state behind it, and replayed them through
+`metal/`'s shaders. That replay is retired. It existed to translate the shaders
+before there was a backend to draw them; the backend now draws everything the
+shaded saver draws, and its shader fixtures run there (below). Its measurements
+below are kept, marked as the replay's, because the limits were fixed from
+them.
 
 ## Passes
 
 | pass | what is judged | shader | run |
 |---|---|---|---|
-| `stars` | stars and lens flares (GL fixed function); the sun is never in frame (below) | `metal/FixedFunction.metal` | 60 s, 12 shots |
-| `goo` | the GLSL goo program: cube-mapped normals, reflection, Fresnel | `metal/Goo.metal` | 60 s, 12 shots |
-| `tunnel` | the GLSL tunnel program: two caustic textures, two octaves | `metal/Tunnel.metal` | 2 min, 36 shots |
-| `burst` | the goo, once the starburst's sphere is gone; the sphere is refused (below) | `metal/Goo.metal` | 8 s, 16 shots |
+| `stars` | stars and lens flares; the sun is never in frame (below) | `metal/FixedFunction.metal` | 60 s, 12 shots |
+| `goo` | the goo: cube-mapped normals, reflection, Fresnel | `metal/Goo.metal` | 60 s, 12 shots |
+| `tunnel` | the tunnel: two caustic textures, two octaves | `metal/Tunnel.metal` | 2 min, 36 shots |
+| `burst` | the starburst's sphere, then the goo | `metal/Goo.metal` | 8 s, 16 shots |
 | `sun` | `stars`, with the sun held in view | `metal/FixedFunction.metal` | 20 s, 12 shots |
 
 Stars draw in every pass, through `FixedFunction.metal`. The tunnel needs two
 minutes because one rarely puts the camera inside a tunnel; most shots of the
-first minute are under 1% lit. Every pass runs with shaders on; nothing here
-judges the fixed-function goo and tunnel a user gets with shaders off.
+first minute are under 1% lit. Every pass runs with shaders on. The Metal saver
+draws the shaded look only (ss-5dl), and `renderer=metal` refuses the
+shaders-off goo and tunnel with exit 2.
 
 The saver sets off its first starburst after five minutes. `burst` sets one off
 itself, at frame 60, ahead of the camera along the path as the saver does, but
@@ -40,11 +47,9 @@ at fixed values where the saver draws random ones: 0.75 of the depth ahead
 (the saver: 0.5 to 1.0) and height 0 (the saver: -1 to 1). It is placed from
 the previous frame's camera; the saver uses the current one. Goo is on, as the
 saver's default is, because the sphere draws with the goo's program and
-textures. A burst that fails to start is an error, not a pass. It exists for the seam
-check: the sphere is drawn with the goo program from a display list, which the
-recorder refuses, so every shot until it is gone (about frame 420) FAILs as
-"unrecorded GL draw calls", and `killcheck.sh` does not run it. The shots after
-that judge the goo with the goo pass's limits.
+textures. A burst that fails to start is an error, not a pass. The shots up to
+about frame 420 carry the sphere; the later ones judge the goo, with the goo
+pass's limits throughout.
 
 The sun sits at (0, 2, 0), and no `stars`, `goo` or `tunnel` shot has it in
 frame: at every one the path has left it behind the camera or off to the side
@@ -77,61 +82,24 @@ A shot passes when, over pixels lit (any channel > 8) in **either** image:
 - the share more than 8 levels off is at most `max8`, and
 - the signed mean difference, Metal minus GL, worst channel, is at most 0.06 levels.
 
-Any draw the recorder could not capture -- or captured under GL state the replay
-does not reproduce (a blend other than `(SRC_ALPHA, ONE)`, a texture mode other
-than MODULATE, a program, cube map or texgen on the fixed-function path, an
-alpha-only texture, a texture name with no image) -- fails the shot as
-"unrecorded GL draw calls". A pass that drew nothing in any shot is an error
-rather than a pass.
+A pass that drew nothing in any shot is an error rather than a pass, and so is
+a GL error in a GL shot. In `renderer=metal` a shot in which GL generated any
+primitive (`GL_PRIMITIVES_GENERATED`) is an error: a draw that slipped past the
+backend into GL cannot go unnoticed. Rates are over lit pixels, not the frame.
+Star frames are 0.3–4% lit, and a per-frame rate diluted every defect below 1%.
 
-The recorder intercepts a fixed set of GL entry points, so it does not rely on
-that set being complete:
+The limits were fixed by the replay, from a faithful translation and from
+defects, **before** any candidate shader was scored:
 
-- **Primitive count.** GL counts the primitives it generates in each shot
-  (`GL_PRIMITIVES_GENERATED`), and the shot fails unless the count equals the
-  triangles recorded. A draw through an entry point the recorder does not see
-  (`glDrawArrays`, `glCallLists`, `glVertex2f`) shows up as
-  "GL drew N primitives, M recorded".
-- **Current color and texcoord.** After every recorded draw, GL's current
-  color and texcoord must equal the recorded ones. A mismatch means one was set
-  through an entry point the recorder does not see (`glColor4ub`,
-  `glTexCoord2d`), and the draw is refused.
-- **No GL error.** A shot frame that raises one fails as "GL error": some call,
-  the saver's or the recorder's, did not do what the recording assumes.
-
-Display lists are recorded when compiled and refused if they set their own
-color, bind more than one texture, draw anything but triangle strips, or call
-another list, or change a texture, and a call made between `glBegin` and
-`glEnd` is refused. A `glNewList` that GL refuses (inside an open list, inside
-`glBegin`, list 0) opens nothing, as in GL. Draws made while a
-`GL_COMPILE_AND_EXECUTE` list is open are refused: everything there is compiled
-too, including the calls the recorder makes to inspect state. Compiling a name again replaces its list. Vertices issued before a
-list's first `glTexCoord` take the texcoord current at call time, as GL does.
-
-Textures and their sampler settings are copied after the frame has drawn, so
-changing a texture during a shot frame fails the shot: the copy would hold the
-final state for draws GL made with the earlier one. That covers `glTexImage2D`,
-`glTexSubImage2D`, `glCopyTex*Image2D`, `glTexParameter{i,f,iv,fv}`,
-`glDeleteTextures`, and `gluBuild2DMipmaps` (which Hyperspace no longer calls:
-its mip chains are built on the CPU and uploaded level by level). It does not
-cover `glGenerateMipmap`, compressed, 1D or 3D uploads,
-`gluBuild2DMipmapLevels`, or `glTexParameterI*`; Hyperspace uses none, and
-changes textures only at start-up. The copies are dropped after every shot, so a change between shots is
-picked up.
-
-Rates are over lit pixels, not the frame. Star frames are 0.3–4% lit, and a
-per-frame rate diluted every defect below 1%.
-
-| pass | max2 | max8 | correct translation, worst shot | weakest defect, worst shot |
+| pass | max2 | max8 | replay: correct translation, worst shot | replay: weakest defect, worst shot |
 |---|---|---|---|---|
 | `stars` | 1.0% | 0.1% | 0.00% / 0.00% / bias 0.003 | fog scale ×1.1: 14.14% / 4.17% / bias 0.998 |
 | `goo` | 8.0% | 2.5% | 5.28% / 1.35% / bias 0.012 | fog scale ×1.1: 9.65% / 3.05% / bias 0.357 |
 | `tunnel` | 3.0% | 0.6% | 1.50% / 0.28% / bias 0.012 | radial fog: 4.81% / 0.28% / bias 0.197 |
 
-Every limit was fixed from measurements like these **before** any candidate
-shader was scored, and `killcheck.sh` re-proves the separation on every run.
-Loosening a limit to let a shader through defeats the instrument; if a correct
-shader fails, find out why first.
+`backendcheck.sh` re-proves the separation on every run. Loosening a limit to
+let a change through defeats the instrument; if a correct change fails, find
+out why first.
 
 ### Why goo and tunnel are looser
 
@@ -154,34 +122,11 @@ signed bias separates the two cases where the |diff| rates alone do not.
   shared `rand()` at timing-dependent moments, and same-seed runs drifted apart
   without it.
 - The frame time is fixed at 1/60 s.
-- Textures are copied out of GL with every mip level, so texture and mip
-  generation are identical on both sides by construction.
+- Mip chains are built on the CPU (`hsBuildMipmaps`) and uploaded level by
+  level through each backend, so mip generation is the same on both sides;
+  `--backend-textures` checks that the uploads agree byte for byte.
 
 Two runs of the same pass produce identical output.
-
-## Kill-check fixtures
-
-`parity/defects/<pass>_<defect>.metal` is the committed shader for that pass
-with one deliberate defect: constants carried over from the other shader,
-swapped or flipped texture coordinates, radial instead of planar fog, a dropped
-term. `killcheck.sh` requires every one to FAIL. `sun` judges with the
-`stars` pass's shader, and its one fixture is the defect only it can see:
-`sun_fogalways` fogs every draw, the sun's included. The only other draws with
-fog off are the lens flares, in the overlay plane at eye depth 0, where fog
-changes nothing -- so under `stars` that fixture passes. When a shader in `metal/`
-changes, regenerate the fixtures from the new text rather than editing the
-rule.
-
-The recorder's checks have fixtures too, as `inject=<case>`: parity draws one
-known fault at the end of every shot, through the same interposers the saver
-uses; `parity --inject-cases` lists them, and `killcheck.sh` runs every one. The
-refused cases draw with alpha 0 or off screen, and `killcheck.sh` counts one as
-killed only if the recorder refused it, the image stayed within limits, and no
-GL error was raised, so a case cannot pass by failing for some other reason. The
-`*_ok` cases draw something the recorder must replay correctly, and they must
-pass. Each case is the shape one check exists for, and removing that check lets
-the case through. Where a check spans several entry points (the texture-change
-interposers, the color setters), the case exercises one of them.
 
 ## Seam check
 
@@ -239,14 +184,13 @@ shaders off (by hand, as before; burst shots up to 94% lit). The sphere at 1.1
 times its radius comes out DIFFERENT at 89.7%.
 
 A first version drew the sphere's triangles as a list, through `impSurface`,
-instead of as strips. The recorder accepts that path, and the burst pass passed
+instead of as strips. The recorder accepted that path, and the burst pass passed
 against `Goo.metal`; but the seam check measured worst lit>8 0.012%, past its
 0.01% limit (lit>2 0.032%, inside its 0.1%): a few pixels whose cube-map
 lookups land on the other side of a face edge. A master build changed only to
 draw its display list as triangles differed from master by 0.171%, so the
-topology alone does it. The sphere is therefore still drawn as strips from a
-display list, which the recorder refuses: the burst pass has no Metal verdict
-on it (ss-frm).
+topology alone does it. The sphere is therefore still drawn as strips, and
+the backend check judges it (below).
 
 That slice was not a pure move in one case, found once the `sun` pass existed:
 with shaders on and tunnels off, a starburst left GL_TEXTURE_2D off after its
@@ -260,18 +204,9 @@ middle of the frame, where the sun is held.
 
 ## Backend check
 
-`parity/backendcheck.sh` asks the question the passes lead up to: **does the
-saver, drawn through the Metal backend, look like the saver drawn through GL?**
-The passes replay GL's own recorded draws; this runs the saver's code through
-`HSRendererMetal` (`Hyperspace/rendererMetal.mm`), which computes its own
-matrices, fog and overlay projection and owns its textures, as the shipped port
-will.
-
-Two runs share the seed, so they draw the same frames: a plain run for its
-`_gl.png`, and `renderer=metal`, which draws only through the backend and writes
-`_backend.png`. `parity --compare-backend <pass>` judges them with that pass's
-rules. In backend mode a shot that generates any GL primitive is an error, so a
-draw that slipped past the backend cannot go unnoticed.
+`parity/backendcheck.sh` runs every pass both ways and judges it with
+`--compare-backend`. `HSRendererMetal` computes its own matrices, fog and
+overlay projection and owns its textures, as the shipped saver does.
 
 The backend draws everything the shaded saver draws: frames, fog, quads, the
 overlay, the goo and starburst sphere, the offscreen target the caustics are
@@ -288,15 +223,37 @@ backend stops on them. Measured, worst shot:
 
 Five of the twelve `stars` shots (2400 on) carry lens flares, 13 overlay quads
 each, so the overlay is judged too. The `burst` shots from 90 to 240 carry the
-starburst's sphere, which the replay could never judge (the recorder refuses a
+starburst's sphere, which the replay could never judge (its recorder refused a
 display list drawn with a program): this is its verdict, GL against Metal, both
 drawing it as the same 32 strips. `goo` comes out a little tighter than the
 replay's 5.28% / 1.35% / 0.012, and `tunnel` well inside the replay's
 1.50% / 0.28% / 0.012: the backend samples caustics it made itself, through
 the same offscreen path GL used, where the replay sampled GL's.
 
-Its kill cases are defects in the backend's C++ rather than its shaders:
-`parity/defects/backend_<pass>_*.sed`, each a sed script over
+### Fixtures
+
+Two kinds, and every one must FAIL its pass. A fixture that no longer changes
+what it targets is an error, not a survivor.
+
+**Shaders.** `parity/defects/<pass>_<defect>.metal` is the pass's shader file
+with one deliberate translation defect: constants carried over from the other
+shader, swapped or flipped texture coordinates, radial instead of planar fog, a
+dropped term. backendcheck copies `metal/`, puts the fixture in place of
+`FixedFunction.metal`, `Goo.metal` or `Tunnel.metal`, and draws the pass
+through the committed backend from that copy. `sun` judges with the `stars`
+pass's shader, and its one fixture is the defect only it can see:
+`sun_fogalways` fogs every draw, the sun's included. The only other draws with
+fog off are the lens flares, in the overlay plane at eye depth 0, where fog
+changes nothing -- so under `stars` that fixture passes. When a shader in
+`metal/` changes, regenerate the fixtures from the new text rather than editing
+the rule. These fixtures were written for the replay and now run here; all 29
+are killed. The
+narrowest by lit>2 are `tunnel_fog110` (3.72% against 3%) and
+`tunnel_radialfog` (4.28%), and both are far outside on bias (0.219 and 0.200
+against 0.06); `sun_fogalways` is inside lit>2 at 0.75% and killed by its bias,
+0.843.
+
+**Backend C++.** `parity/defects/backend_<pass>_*.sed`, each a sed script over
 `rendererMetal.mm`, built into its own `parity` with `build.sh --backend` and
 required to FAIL. Killed: the model matrix before the camera, fog from the eye,
 an overlay ignoring the aspect ratio, (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) blending,
@@ -305,7 +262,7 @@ origin, the nebula and a normal map swapped, the fog scale as 1/end, and the
 normal-map mix dropped; under `tunnel`, the caustic frames swapped, their mix
 ignored (alpha 1), front faces culled, no culling, the fog ending twice as
 far, the fog scale as 1/end, and the camera left out of its projection; under `burst`, the sphere at radius 1 and half its bands; under `sun`,
-`setFog(false)` ignored. A fixture that no longer changes the file is an error, not a survivor.
+`setFog(false)` ignored.
 
 No pass reads a texture back, so `parity --backend-textures` checks uploads
 directly: a 2D texture, 3- and 4-channel mip chains, and a cube of
@@ -316,8 +273,8 @@ byte the same. Its fixtures, `backend_textures_*.sed`, are killed: faces in
 HSRenderer's order rather than Metal's (36 differ), RGB expanded with alpha 0
 (42), and every level uploaded from level 0 (10). Sampling is the goo's to
 judge, and one part of it is not separated: Metal filters a cube map across
-face edges and Apple's GL does not. The goo passes with it, but the replay
-samples on Metal too, so no measurement here isolates a seam.
+face edges and Apple's GL does not. The goo passes with it, and no
+measurement here isolates a seam.
 
 `parity --backend-caustics` judges the offscreen target by what it is for: it
 builds the tunnel's caustic textures, with the saver's own arguments (20 frames
@@ -340,16 +297,12 @@ overlay sits at z = 0, on Metal's inclusive boundary. Measured: it passes
 ## Limits
 
 - **One machine.** Calibrated on an Apple M5 Max under macOS 26. Another GPU or
-  driver may move the residual; rerun the kill-check before trusting a verdict
-  there.
+  driver may move the residual; rerun `backendcheck.sh`, fixtures and all,
+  before trusting a verdict there.
 - **Not in CI.** A hosted runner's GPU is virtualized and uncalibrated, so a
   verdict there would mean nothing yet. This runs locally.
-- **The replay reuses GL's matrices.** A real port computes them itself, which
-  can add a small error the passes do not measure. The backend check does, for
-  the draws the backend has.
-- **The replay never judges the starburst's sphere.** It is drawn with the goo
-  program from a display list, which the recorder refuses, so the `burst`
-  pass's replay verdict on those shots is always that refusal. The backend
-  check judges it instead.
-- **The passes compare; the backend renders.** The passes draw nothing of the
-  saver's own; `HSRendererMetal` does.
+- **Shaders on only.** The Metal saver has no shaders-off look (ss-5dl), so
+  nothing compares GL's fixed-function goo and tunnel with anything.
+- **The shaded GL saver is the reference.** A deliberate visual change to the
+  Metal side will fail these passes by design; that is the point at which the
+  reference has to change, not the limits.

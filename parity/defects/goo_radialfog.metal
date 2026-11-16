@@ -1,4 +1,4 @@
-// Kill-check fixture: goo shader with one deliberate defect (radialfog). parity/killcheck.sh requires it to FAIL.
+// Kill-check fixture: goo shader with one deliberate defect (radialfog). parity/backendcheck.sh requires it to FAIL.
 // Metal translation of the goo GLSL program in Hyperspace/shaders.h. Compiled with Interface.metal prepended.
 
 struct GooVaryings {

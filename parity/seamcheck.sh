@@ -4,10 +4,10 @@
 # Builds parity at <ref> in a scratch worktree, runs the requested passes there and
 # on the working tree, and compares the GL images shot by shot with
 # `parity --compare`. Both sides are the GL renderer, so the two should agree to
-# within float rounding; the Metal images are not compared. Each run still builds
-# its own tree's Metal pipelines, so <ref> must be a commit whose parity runs --
-# any master commit is. A pass <ref>'s parity does not know (burst or sun, before
-# they were added) is skipped with a note, not compared.
+# within float rounding. Each side runs with its own tree's metal/, so <ref> must
+# be a commit whose parity runs -- any master commit is. A pass <ref>'s parity
+# does not know (burst or sun, before they were added) is skipped with a note,
+# not compared.
 #
 #   parity/seamcheck.sh <ref> [stars|goo|tunnel|burst|sun ...]    default: all five
 #
@@ -42,7 +42,8 @@ for pass in "${passes[@]}"; do
         bin=.parity-build/parity; metal=metal
         [ $side = ref ] && { bin=$WT/.parity-build/parity; metal=$WT/metal; }   # each side with its own shaders
         rm -rf "$OUT/$side/$pass"
-        # Exit 1 is a parity FAIL (GL vs Metal), irrelevant here; only 2 is fatal.
+        # Exit 1 is the verdict of a <ref> parity that still replayed through
+        # Metal (before ss-a4a.4.5), irrelevant here; only 2 is fatal.
         "$bin" "$pass" "$metal" "$OUT/$side/$pass" > "$OUT/$side-$pass.log"; code=$?
         [ $code -le 1 ] || { echo "$side $pass run failed (exit $code): $(tail -1 "$OUT/$side-$pass.log")" >&2; exit 2; }
     done

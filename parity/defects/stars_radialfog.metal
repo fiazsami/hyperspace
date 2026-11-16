@@ -1,4 +1,4 @@
-// Kill-check fixture: stars shader with one deliberate defect (radialfog). parity/killcheck.sh requires it to FAIL.
+// Kill-check fixture: stars shader with one deliberate defect (radialfog). parity/backendcheck.sh requires it to FAIL.
 // The GL fixed-function path Hyperspace uses for stars, sun and lens flare:
 // vertex color MODULATE texture, then linear fog on eye-plane depth (Apple's GL
 // fogs on |z_eye|, not radial distance -- measured, see parity/README.md).
