@@ -26,7 +26,6 @@
 #import <ScreenSaver/ScreenSaver.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import "Hyperspace.h"
-#import "util/rsTimer.h"
 
 class HSRendererMetal;
 
@@ -40,7 +39,7 @@ class HSRendererMetal;
 	BOOL lMainScreenOnly;
 	BOOL lIsConfiguring;
 	
-	rsTimer timer;
+	CFTimeInterval lLastFrame;   // CACurrentMediaTime of the last frame drawn: monotonic
 	
 	IBOutlet NSWindow *ibConfigureSheet;
 	IBOutlet NSTextField *ibVersionTxt;

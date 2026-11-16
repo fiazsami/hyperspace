@@ -26,8 +26,8 @@
 #import "HyperspaceView.h"
 #import "Hyperspace.h"
 #import "flare.h"
-#import <sys/time.h>
 #import <Metal/Metal.h>
+#import <QuartzCore/QuartzCore.h>
 #import "Hyperspace/rendererMetal.h"
 
 // The most time one frame may move the scene by.
@@ -100,6 +100,33 @@ static const float kMaxFrameTime = 0.1f;
 }
 
 
+// Paces frames to the fastest refresh of the screen the view is on.
+// minimumRefreshInterval is the shortest interval; maximumRefreshInterval is
+// the longest, the slowest rate a variable-refresh display drops to. The
+// window's screen is nil for most windows inside legacyScreenSaver (hills
+// measured 25 in 32), and a nil screen answers 0 -- a timer that runs flat
+// out -- so the screen under the window is used instead, then the main
+// screen, then 1/60.
+- (void)matchRefresh
+{
+	NSScreen *screen = self.window.screen;
+	if (screen == nil && self.window)
+	{
+		NSRect frame = self.window.frame;
+		for (NSScreen *candidate in [NSScreen screens])
+			if (NSIntersectsRect(candidate.frame, frame))
+			{
+				screen = candidate;
+				break;
+			}
+	}
+	if (screen == nil)
+		screen = [NSScreen mainScreen];
+	NSTimeInterval refresh = screen.minimumRefreshInterval;
+	self.animationTimeInterval = refresh > 0 ? refresh : 1.0 / 60.0;
+}
+
+
 // The drawable and the viewport are both in pixels, so a Retina screen draws
 // at full resolution and the two always agree.
 - (void)matchBacking
@@ -138,15 +165,7 @@ static const float kMaxFrameTime = 0.1f;
 - (void)viewDidMoveToWindow
 {
 	[super viewDidMoveToWindow];
-	// Pace frames to the screen's fastest refresh. minimumRefreshInterval is
-	// the shortest interval; maximumRefreshInterval is the longest, the
-	// slowest rate a variable-refresh display drops to. The window may have
-	// no screen -- System Settings' preview hosts the view so -- and a nil
-	// screen answers 0, which would run the timer flat out; keep the
-	// interval already set then.
-	NSScreen *screen = self.window.screen;
-	if (screen && screen.minimumRefreshInterval > 0)
-		self.animationTimeInterval = screen.minimumRefreshInterval;
+	[self matchRefresh];
 	[self matchBacking];
 }
 
@@ -178,8 +197,9 @@ static const float kMaxFrameTime = 0.1f;
 				[self rendererFailed:e];
 				return;
 			}
+			[self matchRefresh];	// the window, and so the screen, may have changed since it moved here
 			[self matchBacking];
-			gettimeofday(&timer.prev_tv, NULL);	// reset the timer
+			lLastFrame = CACurrentMediaTime();
         }
     }
 }
@@ -249,11 +269,15 @@ static const float kMaxFrameTime = 0.1f;
 					// one-second timeout, as when the display sleeps.
 					id<CAMetalDrawable> drawable = [lLayer nextDrawable];
 					if (drawable == nil)
-						return;	// no frame, so no time passes: the next tick carries it
+						return;	// no frame; the next one carries the time, up to the cap below
 					// A stall -- a drawable that took the layer's full timeout, a
 					// throttled host -- would otherwise move the scene by all of
-					// it at once; past a tenth of a second the scene slows instead.
-					lSettings.frameTime = fminf(timer.tick(), kMaxFrameTime);
+					// it at once; past a tenth of a second the scene slows instead,
+					// which also slows it on a host drawing under 10 fps. The clock
+					// is monotonic, so the step is never negative.
+					CFTimeInterval now = CACurrentMediaTime();
+					lSettings.frameTime = float(fmin(now - lLastFrame, kMaxFrameTime));
+					lLastFrame = now;
 					try
 					{
 						lRenderer->setDrawable((__bridge void *)drawable);
