@@ -6,6 +6,7 @@
 #import <simd/simd.h>
 #include <Hyperspace/rendererMetal.h>
 #include <Hyperspace/transform.h>
+#include <Implicit/impSurface.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <map>
@@ -31,6 +32,16 @@ struct FFUniforms {
 	float fogEnd;
 	int fogOn;
 	int texOn;
+};
+
+struct GooUniforms {
+	simd_float4x4 mvp;
+	simd_float4x4 modelview;
+	simd_float4 color;
+	simd_float4 fogColor;
+	float fogEnd;
+	float fogScale;
+	simd_float4x4 projection;
 };
 
 struct Texture {
@@ -91,8 +102,8 @@ std::vector<unsigned char> rgbaLevel(const HSMipChain &chain, int level){
 struct HSRendererMetalState {
 	id<MTLDevice> device;
 	id<MTLCommandQueue> queue;
-	id<MTLLibrary> ffLibrary;
-	id<MTLRenderPipelineState> ffPipeline;
+	id<MTLLibrary> ffLibrary, gooLibrary;
+	id<MTLRenderPipelineState> ffPipeline, gooPipeline;
 	MTLPixelFormat pipelineFormat;
 	id<MTLTexture> target;
 	id<MTLCommandBuffer> commands;
@@ -106,6 +117,10 @@ struct HSRendererMetalState {
 	bool fog;
 	float fogStart, fogEnd;
 	int draws;
+	bool inGoo;
+	simd_float4 gooColor;
+	unsigned int gooTextures[3];   // normals0, normals1, nebula: Goo.metal's texture(0..2)
+	id<MTLBuffer> sphere;          // hsSphereBand's bands, one after another, as GooVertex
 };
 
 static NSString *readSource(const char *dir, const char *file){
@@ -117,16 +132,41 @@ static NSString *readSource(const char *dir, const char *file){
 	return s;
 }
 
+// Each pass file is compiled with the interface prepended, as parity does.
+static id<MTLLibrary> compilePass(id<MTLDevice> device, const char *dir, const char *file){
+	NSString *src = [readSource(dir, "Interface.metal") stringByAppendingString:readSource(dir, file)];
+	NSError *err = nil;
+	id<MTLLibrary> lib = [device newLibraryWithSource:src options:nil error:&err];
+	if(!lib)
+		fail(file, err.localizedDescription.UTF8String);
+	return lib;
+}
+
+// Everything Hyperspace draws is blended (SRC_ALPHA, ONE).
+static id<MTLRenderPipelineState> additivePipeline(id<MTLDevice> device, id<MTLLibrary> lib,
+	NSString *vfn, NSString *ffn, MTLPixelFormat format){
+	MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
+	pd.vertexFunction = [lib newFunctionWithName:vfn];
+	pd.fragmentFunction = [lib newFunctionWithName:ffn];
+	if(!pd.vertexFunction || !pd.fragmentFunction)
+		fail("missing entry point", [vfn stringByAppendingFormat:@" / %@", ffn].UTF8String);
+	pd.colorAttachments[0].pixelFormat = format;
+	pd.colorAttachments[0].blendingEnabled = YES;
+	pd.colorAttachments[0].sourceRGBBlendFactor = pd.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
+	pd.colorAttachments[0].destinationRGBBlendFactor = pd.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOne;
+	NSError *err = nil;
+	id<MTLRenderPipelineState> ps = [device newRenderPipelineStateWithDescriptor:pd error:&err];
+	if(!ps)
+		fail("pipeline", err.localizedDescription.UTF8String);
+	return ps;
+}
+
 HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HSRendererMetalState){
 	st->device = (__bridge id<MTLDevice>)device;
 	st->queue = [st->device newCommandQueue];
-	// Each pass file is compiled with the interface prepended, as parity does.
-	NSString *src = [readSource(metalDir, "Interface.metal") stringByAppendingString:readSource(metalDir, "FixedFunction.metal")];
-	NSError *err = nil;
-	st->ffLibrary = [st->device newLibraryWithSource:src options:nil error:&err];
-	if(!st->ffLibrary)
-		fail("FixedFunction.metal does not compile", err.localizedDescription.UTF8String);
-	st->ffPipeline = nil;
+	st->ffLibrary = compilePass(st->device, metalDir, "FixedFunction.metal");
+	st->gooLibrary = compilePass(st->device, metalDir, "Goo.metal");
+	st->ffPipeline = st->gooPipeline = nil;
 	st->pipelineFormat = MTLPixelFormatInvalid;
 	st->target = nil;
 	st->commands = nil;
@@ -138,6 +178,19 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->fog = true;
 	st->fogStart = st->fogEnd = 0.0f;
 	st->draws = 0;
+	st->inGoo = false;
+	st->gooColor = simd_make_float4(1, 1, 1, 1);
+	st->gooTextures[0] = st->gooTextures[1] = st->gooTextures[2] = 0;
+
+	std::vector<float> sphere;
+	float band[HS_SPHERE_BAND_POINTS][3];
+	for(int b = 0; b < HS_SPHERE_BANDS; b++){
+		hsSphereBand(b, band);
+		for(int i = 0; i < HS_SPHERE_BAND_POINTS; i++)
+			for(int n = 0; n < 2; n++)   // the unit sphere's normal is its position
+				sphere.insert(sphere.end(), band[i], band[i] + 3);
+	}
+	st->sphere = [st->device newBufferWithBytes:sphere.data() length:sphere.size() * sizeof(float) options:MTLResourceStorageModeShared];
 }
 
 HSRendererMetal::~HSRendererMetal(){
@@ -150,18 +203,8 @@ void HSRendererMetal::setTarget(void *target){
 	st->target = (__bridge id<MTLTexture>)target;
 	if(st->target.pixelFormat == st->pipelineFormat)
 		return;
-	MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
-	pd.vertexFunction = [st->ffLibrary newFunctionWithName:@"ff_vertex"];
-	pd.fragmentFunction = [st->ffLibrary newFunctionWithName:@"ff_fragment"];
-	pd.colorAttachments[0].pixelFormat = st->target.pixelFormat;
-	// Everything Hyperspace draws is blended (SRC_ALPHA, ONE).
-	pd.colorAttachments[0].blendingEnabled = YES;
-	pd.colorAttachments[0].sourceRGBBlendFactor = pd.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
-	pd.colorAttachments[0].destinationRGBBlendFactor = pd.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOne;
-	NSError *err = nil;
-	st->ffPipeline = [st->device newRenderPipelineStateWithDescriptor:pd error:&err];
-	if(!st->ffPipeline)
-		fail("fixed-function pipeline", err.localizedDescription.UTF8String);
+	st->ffPipeline = additivePipeline(st->device, st->ffLibrary, @"ff_vertex", @"ff_fragment", st->target.pixelFormat);
+	st->gooPipeline = additivePipeline(st->device, st->gooLibrary, @"goo_vertex", @"goo_fragment", st->target.pixelFormat);
 	st->pipelineFormat = st->target.pixelFormat;
 }
 
@@ -346,10 +389,83 @@ void HSRendererMetal::endOverlay(){
 void HSRendererMetal::beginOffscreen(int){ notYet("beginOffscreen"); }
 void HSRendererMetal::drawColorStrip(const HSColorVertex *, int){ notYet("drawColorStrip"); }
 void HSRendererMetal::endOffscreen(unsigned char *){ notYet("endOffscreen"); }
-void HSRendererMetal::beginGoo(const float [4], unsigned int, unsigned int, unsigned int, bool){ notYet("beginGoo"); }
-void HSRendererMetal::drawGooSurface(impSurface *, const float [3]){ notYet("drawGooSurface"); }
-void HSRendererMetal::drawGooSphere(const float [3], float){ notYet("drawGooSphere"); }
-void HSRendererMetal::endGoo(){ notYet("endGoo"); }
+void HSRendererMetal::beginGoo(const float color[4], unsigned int nebula,
+	unsigned int normals0, unsigned int normals1, bool shaded){
+	if(!st->encoder)
+		fail("beginGoo", "outside a frame");
+	// The Metal port draws the shaded look only; the shaders-off look is ss-5dl.
+	if(!shaded)
+		fail("beginGoo", "the shaders-off goo is not drawn on Metal (ss-5dl)");
+	const unsigned int names[3] = {normals0, normals1, nebula};
+	for(int t = 0; t < 3; t++){
+		std::map<unsigned int, Texture>::const_iterator tex = st->textures.find(names[t]);
+		if(tex == st->textures.end() || tex->second.texture.textureType != MTLTextureTypeCube)
+			fail("beginGoo", "a goo texture is not a cube map this backend made");
+		[st->encoder setFragmentTexture:tex->second.texture atIndex:t];
+		[st->encoder setFragmentSamplerState:tex->second.sampler atIndex:t];
+		st->gooTextures[t] = names[t];
+	}
+	st->gooColor = simd_make_float4(color[0], color[1], color[2], color[3]);
+	st->inGoo = true;
+	[st->encoder setRenderPipelineState:st->gooPipeline];
+}
+
+// One goo draw: vertices are GooVertex (normal, then position), placed by model
+// after the camera, as glTranslatef/glScalef on the modelview did.
+static void drawGoo(HSRendererMetalState *st, const simd_float4x4 &model, id<MTLBuffer> vertices,
+	id<MTLBuffer> indices, NSUInteger count, MTLPrimitiveType type, NSUInteger start){
+	GooUniforms u;
+	u.modelview = simd_mul(st->view, model);
+	u.mvp = simd_mul(st->clipProjection, u.modelview);
+	u.color = st->gooColor;
+	u.fogColor = simd_make_float4(0, 0, 0, 1);
+	u.fogEnd = st->fogEnd;
+	u.fogScale = 1.0f / (st->fogEnd - st->fogStart);
+	u.projection = st->clipProjection;
+	[st->encoder setVertexBuffer:vertices offset:0 atIndex:0];
+	[st->encoder setVertexBytes:&u length:sizeof u atIndex:1];
+	[st->encoder setFragmentBytes:&u length:sizeof u atIndex:1];
+	if(indices)
+		[st->encoder drawIndexedPrimitives:type indexCount:count indexType:MTLIndexTypeUInt32 indexBuffer:indices indexBufferOffset:0];
+	else
+		[st->encoder drawPrimitives:type vertexStart:start vertexCount:count];
+	st->draws++;
+}
+
+void HSRendererMetal::drawGooSurface(impSurface *surface, const float offset[3]){
+	if(!st->inGoo)
+		fail("drawGooSurface", "outside beginGoo/endGoo");
+	const unsigned int vertexCount = surface->getVertexCount(), indexCount = surface->getIndexCount();
+	if(vertexCount == 0 || indexCount == 0)
+		return;
+	std::vector<unsigned int> indices(indexCount);
+	for(unsigned int i = 0; i < indexCount; i++)
+		indices[i] = surface->getIndex(i);
+	id<MTLBuffer> vb = [st->device newBufferWithBytes:surface->getVertex(0) length:size_t(vertexCount) * 6 * sizeof(float)
+		options:MTLResourceStorageModeShared];
+	id<MTLBuffer> ib = [st->device newBufferWithBytes:indices.data() length:indices.size() * sizeof(unsigned int)
+		options:MTLResourceStorageModeShared];
+	simd_float4x4 model = matrix_identity_float4x4;
+	model.columns[3] = simd_make_float4(offset[0], offset[1], offset[2], 1.0f);
+	drawGoo(st, model, vb, ib, indexCount, MTLPrimitiveTypeTriangle, 0);
+}
+
+void HSRendererMetal::drawGooSphere(const float center[3], float radius){
+	if(!st->inGoo)
+		fail("drawGooSphere", "outside beginGoo/endGoo");
+	simd_float4x4 model = matrix_identity_float4x4;
+	model.columns[0].x = model.columns[1].y = model.columns[2].z = radius;
+	model.columns[3] = simd_make_float4(center[0], center[1], center[2], 1.0f);
+	for(int b = 0; b < HS_SPHERE_BANDS; b++)
+		drawGoo(st, model, st->sphere, nil, HS_SPHERE_BAND_POINTS, MTLPrimitiveTypeTriangleStrip, NSUInteger(b) * HS_SPHERE_BAND_POINTS);
+}
+
+void HSRendererMetal::endGoo(){
+	if(!st->inGoo)
+		fail("endGoo", "no beginGoo");
+	st->inGoo = false;
+	[st->encoder setRenderPipelineState:st->ffPipeline];
+}
 void HSRendererMetal::beginTunnel(unsigned int, unsigned int, float, bool){ notYet("beginTunnel"); }
 void HSRendererMetal::drawTunnelStrip(const HSTunnelVertex *, int){ notYet("drawTunnelStrip"); }
 void HSRendererMetal::endTunnel(){ notYet("endTunnel"); }
