@@ -54,7 +54,7 @@ struct FrameRecorder : Recorder {
     std::vector<bool> fog;
     std::vector<TunnelBegin> tunnelBegins;
     /* Every frame, fog, bracket and draw call in order, one letter each:
-     *   B/E frame begin/end    f/F fog off/on        o offscreen begin
+     *   B/E frame begin/end    f/F fog off/on        o/c/x offscreen begin/strip/end
      *   v/w overlay begin/end  g/h goo begin/end     t/u tunnel begin/end
      *   S quad (star, sun)     O overlay quad (flare)
      *   G goo surface          P burst sphere        T tunnel strip
@@ -66,6 +66,8 @@ struct FrameRecorder : Recorder {
     void endFrame() override { events += 'E'; }
     void setFog(bool on) override { fog.push_back(on); events += on ? 'F' : 'f'; }
     void beginOffscreen(int size) override { Recorder::beginOffscreen(size); events += 'o'; }
+    void drawColorStrip(const HSColorVertex *v, int count) override { Recorder::drawColorStrip(v, count); events += 'c'; }
+    void endOffscreen(unsigned char *rgb) override { Recorder::endOffscreen(rgb); events += 'x'; }
     void beginOverlay(float a) override { Recorder::beginOverlay(a); events += 'v'; }
     void endOverlay() override { Recorder::endOverlay(); events += 'w'; }
     void beginGoo(const float color[4], unsigned int nebula, unsigned int n0, unsigned int n1, bool shaded) override
@@ -378,7 +380,7 @@ struct Rules {
     void check(const char *name, bool ok, const std::string &frame)
     {
         for (Rule &r : rules)
-            if (r.name == name) { if (!ok && !r.broken++) r.first = frame; return; }
+            if (strcmp(r.name, name) == 0) { if (!ok && !r.broken++) r.first = frame; return; }
         rules.push_back(Rule{name, ok ? 0 : 1, ok ? std::string() : frame});
     }
     bool clean() const
@@ -399,24 +401,31 @@ TEST(draw_brackets_every_on_screen_draw_inside_its_frame)
     FrameRecorder *r = new FrameRecorder;
     HyperspaceSaverSettings *s = started(r, true, true, false);
     Rules rules;
-    bool flareSeen = false, burstSeen = false;
-    // Frames until the flare has shown -- it draws only while the sun is in
-    // view, which the first frame's is not -- then one with a burst forced.
-    // Stopping early spends little of draw()'s shared clocks.
-    for (int n = 0; n < 120 && !(flareSeen && burstSeen); n++) {
-        if (flareSeen) {
-            float ahead[3] = {s->camPos[0], 0.0f, s->camPos[2] - 0.5f * s->depth};
-            s->theStarBurst->restart(ahead);
+    // Two flares draw: the sun's, unfogged, and a burst's, fogged, and both
+    // log the same letters -- so each must be seen in its own section. A
+    // flare draws only while its source is in view, which the sun on the
+    // first frame is not; so frames run until both have shown, a burst
+    // forced ahead along the path whenever one can start. Stopping then
+    // spends little of draw()'s shared clocks.
+    bool sunFlare = false, burstFlare = false, burstSphere = false;
+    for (int n = 0; n < 120 && !(sunFlare && burstFlare && burstSphere); n++) {
+        if (n > 0) {
+            float dir[3], ahead[3];
+            s->thePath->getBaseDirection(s->dDepth + 2, s->thePath->step, dir);
+            for (int i = 0; i < 3; i++) ahead[i] = s->camPos[i] + dir[i] * 0.75f * s->depth;
+            ahead[1] = 0.0f;
+            s->theStarBurst->restart(ahead);   // refused while the last is live
         }
         size_t start = r->events.size();
         frame(s, n == 0 ? 0.0f : 1.0f);
         std::string e = r->events.substr(start);
         // offscreen work (the first frame's caustics) comes before the frame
         size_t b = e.find('B');
-        rules.check("offscreen work only before the frame", e.find('o', b) == std::string::npos, e);
+        rules.check("offscreen work only before the frame",
+                    b == std::string::npos || e.find_first_of("ocx", b) == std::string::npos, e);
         e = e.substr(b == std::string::npos ? 0 : b);
         size_t off = e.find('f'), on = e.find('F');
-        bool shaped = std::count(e.begin(), e.end(), 'B') == 1 && e.back() == 'E' &&
+        bool shaped = std::count(e.begin(), e.end(), 'B') == 1 &&
                       std::count(e.begin(), e.end(), 'E') == 1 && std::count(e.begin(), e.end(), 'f') == 1 &&
                       std::count(e.begin(), e.end(), 'F') == 1 && off < on;
         rules.check("one frame; fog off once, then on once", shaped, e);
@@ -431,15 +440,17 @@ TEST(draw_brackets_every_on_screen_draw_inside_its_frame)
         rules.check("sun unfogged", unfogged.find('S') != std::string::npos, e);
         rules.check("no goo, burst or tunnel unfogged", unfogged.find_first_of("gGPtT") == std::string::npos, e);
         rules.check("nothing after fog is back on", e.substr(on + 1) == "E", e);
-        if (unfogged.find('O') != std::string::npos) flareSeen = true;
+        if (unfogged.find('O') != std::string::npos) sunFlare = true;
+        if (fogged.find('O') != std::string::npos) burstFlare = true;
         if (e.find('P') != std::string::npos) {
-            burstSeen = true;
+            burstSphere = true;
             rules.check("burst sphere fogged", fogged.find('P') != std::string::npos, e);
         }
     }
+    rules.check("the sun's flare shows, unfogged", sunFlare, "(no frame)");
+    rules.check("a burst's flare shows, fogged", burstFlare, "(no frame)");
+    rules.check("a burst's sphere shows", burstSphere, "(no frame)");
     CHECK(rules.clean());
-    CHECK(flareSeen);
-    CHECK(burstSeen);
     cleanUp(s);
     delete s;
 }
@@ -566,6 +577,7 @@ TEST(draw_bursts_ahead_of_the_camera_within_five_minutes_and_again_within_one_to
         drawing = drew;
         r->spheres.clear();
         r->strips.clear();
+        r->events.clear();
     }
     CHECK(found == wanted);
     CHECK(bursts[0].second >= 1 && bursts[0].second <= 300);
