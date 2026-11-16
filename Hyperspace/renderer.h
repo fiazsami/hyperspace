@@ -13,15 +13,15 @@
 
 // Where Hyperspace's drawing meets a graphics API. Code that draws through this
 // interface computes its own geometry and never calls GL, so it can be tested
-// without a context and drawn by another backend later. HSRendererGL is the
-// only implementation; it draws exactly what the code it replaced drew.
+// without a context. HSRendererMetal (rendererMetal.h) is the saver's backend;
+// HSRendererGL draws exactly what the GL code it replaced drew, and is the
+// reference parity/ judges the Metal backend against.
 //
 // Every draw Hyperspace makes goes through here -- the stars, the lens flare,
 // the goo, the starburst, the tunnel -- and every texture is created here,
-// including the caustics, which are rendered offscreen and read back. Only
-// rsText's statistics overlay still draws through GL directly. Each frame
-// starts with beginFrame, which sets the camera and fog that every world-space
-// draw in it is seen through.
+// including the caustics, which are rendered offscreen and read back. Each
+// frame starts with beginFrame, which sets the camera and fog that every
+// world-space draw in it is seen through.
 
 #ifndef HYPERSPACE_RENDERER_H
 #define HYPERSPACE_RENDERER_H

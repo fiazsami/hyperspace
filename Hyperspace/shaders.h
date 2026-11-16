@@ -25,7 +25,6 @@
 
 #ifdef WIN32
 #include <windows.h>
-#include <Hyperspace/extensions.h>
 #endif
 #include <OpenGL/gl.h>
 #include <string>

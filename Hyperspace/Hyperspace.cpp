@@ -30,18 +30,16 @@
 #include <regstr.h>
 #include <commctrl.h>
 #include <resource.h>
-#include <Hyperspace/extensions.h>
 #endif
 #ifdef RS_XSCREENSAVER
 #include <rsXScreenSaver/rsXScreenSaver.h>
 #endif
 
 #include <stdio.h>
-#include <rsText/rsText.h>
 #include <math.h>
 #include <time.h>
+#include <string>
 #include <OpenGL/gl.h>
-#include <OpenGL/glu.h>
 #include <rsMath/rsMath.h>
 #include <Hyperspace/flare.h>
 #include <Hyperspace/causticTextures.h>
@@ -69,8 +67,6 @@ int readyToDraw = 0;
 int xsize, ysize;
 float aspectRatio;
 float frameTime = 0.0f;
-// text output
-rsText* textwriter;
 // Parameters edited in the dialog box
 int dSpeed;
 int dStars;
@@ -123,13 +119,6 @@ void draw(HyperspaceSaverSettings *inSettings){
 		}
 		inSettings->first = 0;
 	}
-
-	// Variables for printing text
-	static float computeTime = 0.0f;
-	static float drawTime = 0.0f;
-	//static rsTimer computeTimer, drawTimer;
-	// start compute time timer
-	//computeTimer.tick();
 
 	// Camera movements
 	static float camHeading[3] = {0.0f, 0.0f, 0.0f};  // current, target, and last
@@ -201,11 +190,6 @@ void draw(HyperspaceSaverSettings *inSettings){
 		diagFov = 2.0f * atanf(diagFov);
 		inSettings->theGoo->update(inSettings->camPos[0], inSettings->camPos[2], pathAngle + camHeading[0], diagFov, inSettings);
 	}
-
-	// measure compute time
-	//computeTime += computeTimer.tick();
-	// start draw time timer
-	//drawTimer.tick();
 
 	HSFrame frame;
 	for(int i=0; i<4; i++)
@@ -319,47 +303,6 @@ void draw(HyperspaceSaverSettings *inSettings){
 	inSettings->renderer->setFog(true);
 	inSettings->renderer->endFrame();
 
-	// measure draw time
-	//drawTime += drawTimer.tick();
-
-	// write text
-	static float totalTime = 0.0f;
-	totalTime += inSettings->frameTime;
-	static std::vector<std::string> strvec;
-	static int frames = 0;
-	++frames;
-	if(frames == 60){
-		strvec.clear();
-		std::string str1 = "         FPS = " + to_string(60.0f / totalTime);
-		strvec.push_back(str1);
-		std::string str2 = "compute time = " + to_string(computeTime / 60.0f);
-		strvec.push_back(str2);
-		std::string str3 = "   draw time = " + to_string(drawTime / 60.0f);
-		strvec.push_back(str3);
-		totalTime = 0.0f;
-		computeTime = 0.0f;
-		drawTime = 0.0f;
-		frames = 0;
-	}
-	if(inSettings->kStatistics){
-		glMatrixMode(GL_PROJECTION);
-		glPushMatrix();
-		glLoadIdentity();
-		glOrtho(0.0f, 50.0f * inSettings->aspectRatio, 0.0f, 50.0f, -1.0f, 1.0f);
-
-		glMatrixMode(GL_MODELVIEW);
-		glPushMatrix();
-		glLoadIdentity();
-		glTranslatef(1.0f, 48.0f, 0.0f);
-
-		glColor3f(1.0f, 0.6f, 0.0f);
-		inSettings->textwriter->draw(strvec);
-
-		glPopMatrix();
-		glMatrixMode(GL_PROJECTION);
-		glPopMatrix();
-	}
-	
 #ifdef WIN32
 	wglSwapLayerBuffers(hdc, WGL_SWAP_MAIN_PLANE);
 #endif
@@ -551,10 +494,6 @@ void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer){
 		hsBuildMipmaps(&nebulamap[0][0][0], NEBULAMAPSIZE, 3, chain);
 		inSettings->nebulatex = inSettings->renderer->createMipmappedTexture(chain);
 	}
-
-	// Initialize text. rsText is drawn with raw GL, so only the GL renderer
-	// can show statistics; nothing on the Mac sets kStatistics.
-	inSettings->textwriter = inSettings->kStatistics ? new rsText : NULL;
 
 	//outfile.open("outfile");
 

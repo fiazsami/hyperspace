@@ -21,7 +21,6 @@
 
 #ifdef WIN32
 #include <windows.h>
-#include <Hyperspace/extensions.h>
 #endif
 
 #include <Hyperspace/starBurst.h>
