@@ -98,7 +98,7 @@ kernel void goo_build(constant GooBuildUniforms &u      [[buffer(0)]],
     // whole triangles from a multiple of 3, so a blank one is degenerate and
     // draws nothing.
     const uint at = atomic_fetch_add_explicit(count, vertices, memory_order_relaxed);
-    if (at + vertices > u.maxVertices) {
+    if (at >= u.maxVertices || vertices > u.maxVertices - at) {   // no wrap in at + vertices
         for (uint v = at; v < u.maxVertices; v++)
             out[v].position = out[v].normal = packed_float3(0.0f);
         return;

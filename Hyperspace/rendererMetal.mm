@@ -740,11 +740,26 @@ void HSRendererMetal::drawGooField(const HSGooField &field){
 	// finished -- a frame or two -- and the buffer grows.
 	NSUInteger want = blocks * res * res * kGooTrianglesPerSquare * 3;
 	want = std::max(want, NSUInteger(*(const uint32_t *)st->gooPeak.contents) * 5 / 4);
-	want = (want + 2) / 3 * 3;   // whole triangles: the draw stops at the capacity
+	// Capped at what the device can allocate and a 32-bit count can index:
+	// Resolution and Depth read from the defaults are not clamped, and a
+	// field too big for the cap draws what fits.
+	want = std::min(want, NSUInteger(st->device.maxBufferLength / (sizeof(float) * 6)));
+	want = std::min(want, NSUInteger(UINT32_MAX / 2));
+	want = want / 3 * 3;   // whole triangles: the draw stops at the capacity
 	if(want > st->gooCapacity){
-		st->gooVertices = [st->device newBufferWithLength:want * sizeof(float) * 6 options:MTLResourceStorageModePrivate];
-		st->gooCapacity = want;
+		id<MTLBuffer> grown = [st->device newBufferWithLength:want * sizeof(float) * 6 options:MTLResourceStorageModePrivate];
+		if(grown){   // out of memory: keep drawing into what there is
+			st->gooVertices = grown;
+			st->gooCapacity = want;
+		}
 	}
+	if(!st->gooVertices)
+		return;
+	// The kernel's counter is 32 bits and counts every vertex the field
+	// needs, fitted or not: at most 15 a cell. Past 2^32 it would wrap, so a
+	// field that could reach that is cut to the blocks that cannot.
+	const NSUInteger maxBlocks = NSUInteger(UINT32_MAX) / (15 * res * res * res);
+	const NSUInteger built = std::min(blocks, maxBlocks);
 	GooBuildUniforms u;
 	u.c = simd_make_float4(field.c[0], field.c[1], field.c[2], field.c[3]);
 	u.cam = simd_make_float2(field.camx, field.camz);
@@ -780,8 +795,8 @@ void HSRendererMetal::drawGooField(const HSGooField &field){
 	// clamped, and can choose more. All share the counter, so their triangles
 	// land one after another.
 	const NSUInteger kBlocksPerDispatch = 4096 / (2 * sizeof(float));
-	for(NSUInteger first = 0; first < blocks; first += kBlocksPerDispatch){
-		const NSUInteger n = std::min(kBlocksPerDispatch, blocks - first);
+	for(NSUInteger first = 0; first < built; first += kBlocksPerDispatch){
+		const NSUInteger n = std::min(kBlocksPerDispatch, built - first);
 		[ce setBytes:field.offsets.data() + 2 * first length:n * 2 * sizeof(float) atIndex:1];
 		[ce dispatchThreads:MTLSizeMake(res, res, res * n) threadsPerThreadgroup:MTLSizeMake(4, 4, 4)];
 	}

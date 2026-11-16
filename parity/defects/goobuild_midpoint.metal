@@ -1,4 +1,4 @@
-// Kill-check fixture: goo build kernel with one deliberate defect (midpoint): every vertex at its edge's midpoint, not where the field crosses the surface. parity/backendcheck.sh requires it to FAIL. base=9b8b85b7a2410622d83923f77974f7e17ece0278
+// Kill-check fixture: goo build kernel with one deliberate defect (midpoint): every vertex at its edge's midpoint, not where the field crosses the surface. parity/backendcheck.sh requires it to FAIL. base=82456adb187729b7b1179e957dcca72787e13a03
 // The goo's surface, built on the GPU: impCubeVolume's polygonization of
 // goo::function, one thread per cell, for HSRendererMetal::drawGooField.
 // Compiled with Interface.metal prepended.
@@ -99,7 +99,7 @@ kernel void goo_build(constant GooBuildUniforms &u      [[buffer(0)]],
     // whole triangles from a multiple of 3, so a blank one is degenerate and
     // draws nothing.
     const uint at = atomic_fetch_add_explicit(count, vertices, memory_order_relaxed);
-    if (at + vertices > u.maxVertices) {
+    if (at >= u.maxVertices || vertices > u.maxVertices - at) {   // no wrap in at + vertices
         for (uint v = at; v < u.maxVertices; v++)
             out[v].position = out[v].normal = packed_float3(0.0f);
         return;
