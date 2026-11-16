@@ -411,6 +411,13 @@ void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer){
 	inSettings->numAnimTexFrames = 20;
 	inSettings->whichTexture = 0;
 
+	// NULL once drew through OpenGL; the saver has no OpenGL now. Refuse it
+	// here rather than crash in initFlares; with readyToDraw 0, nothing draws.
+	if(renderer == NULL){
+		fprintf(stderr, "initSaver: no renderer\n");
+		inSettings->readyToDraw = 0;
+		return;
+	}
 	inSettings->renderer = renderer;
 	initFlares(inSettings);
 

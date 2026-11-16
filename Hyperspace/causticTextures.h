@@ -41,7 +41,7 @@ public:
 	float waveAmp;
 	float refractionMult;
 
-	// textures indices for OpenGL texture objects
+	// HSRenderer texture handles, one per frame
 	unsigned int* caustictex;
 
 	// space for storing geometry of water surface

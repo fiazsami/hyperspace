@@ -142,6 +142,20 @@ jobs:
               echo "::error::$1 has no sealed resources -- signing regressed to linker-signed"
               exit 1
             }
+            # The saver draws through Metal only (ss-a4a.4.4.3). HSRendererGL
+            # stays in the project as parity's reference, one target-membership
+            # click from coming back, and Xcode would re-link OpenGL with it.
+            # Same here-string shape as above, for the same reason.
+            bin="$1/Contents/MacOS/Hyperspace"
+            links=$(otool -L "$bin") && undefined=$(nm -u "$bin") || {
+              echo "::error::otool or nm failed on $bin"; exit 1
+            }
+            if grep -q "OpenGL.framework" <<<"$links"; then
+              echo "::error::$1 links OpenGL"; exit 1
+            fi
+            if grep -qE "^_(gl[A-Z]|glu[A-Z]|CGL)|NSOpenGL" <<<"$undefined"; then
+              echo "::error::$1 calls GL:"; grep -E "^_(gl[A-Z]|glu[A-Z]|CGL)|NSOpenGL" <<<"$undefined"; exit 1
+            fi
           }
 
           for configuration in Release Debug; do
