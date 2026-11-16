@@ -145,7 +145,7 @@ struct HSRendererMetalState {
 	bool inOverlay;
 	bool fog;
 	float fogStart, fogEnd;
-	int draws;
+	int draws, gooDraws, tunnelDraws;
 	bool inGoo;
 	simd_float4 gooColor;
 	unsigned int gooTextures[3];   // normals0, normals1, nebula: Goo.metal's texture(0..2)
@@ -239,7 +239,7 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->inOverlay = false;
 	st->fog = true;
 	st->fogStart = st->fogEnd = 0.0f;
-	st->draws = 0;
+	st->draws = st->gooDraws = st->tunnelDraws = 0;
 	MTLSamplerDescriptor *sd = [MTLSamplerDescriptor new];
 	sd.minFilter = sd.magFilter = MTLSamplerMinMagFilterLinear;
 	sd.mipFilter = MTLSamplerMipFilterNotMipmapped;
@@ -307,6 +307,14 @@ int HSRendererMetal::drawCount() const{
 	return st->draws;
 }
 
+int HSRendererMetal::gooDrawCount() const{
+	return st->gooDraws;
+}
+
+int HSRendererMetal::tunnelDrawCount() const{
+	return st->tunnelDraws;
+}
+
 void *HSRendererMetal::texture(unsigned int name) const{
 	std::map<unsigned int, Texture>::const_iterator t = st->textures.find(name);
 	return t == st->textures.end() ? NULL : (__bridge void *)t->second.texture;
@@ -324,7 +332,7 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 	st->fogEnd = frame.fogEnd;
 	st->fog = true;
 	st->inOverlay = false;
-	st->draws = 0;
+	st->draws = st->gooDraws = st->tunnelDraws = 0;
 
 	MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
 	rp.colorAttachments[0].texture = st->target;
@@ -652,6 +660,7 @@ void HSRendererMetal::drawGooSurface(impSurface *surface, const float offset[3])
 	[st->encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:indexCount
 		indexType:MTLIndexTypeUInt32 indexBuffer:ib indexBufferOffset:0];
 	st->draws++;
+	st->gooDraws++;
 }
 
 void HSRendererMetal::drawGooSphere(const float center[3], float radius){
@@ -750,6 +759,7 @@ void HSRendererMetal::drawTunnelStrip(const HSTunnelVertex *v, int count){
 			options:MTLResourceStorageModeShared] offset:0 atIndex:0];
 	[st->encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:NSUInteger(count)];
 	st->draws++;
+	st->tunnelDraws++;
 }
 
 void HSRendererMetal::endTunnel(){

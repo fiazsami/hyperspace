@@ -1,4 +1,4 @@
-// Kill-check fixture: tunnel shader with one deliberate defect (octave055). parity/killcheck.sh requires it to FAIL.
+// Kill-check fixture: tunnel shader with one deliberate defect (octave055). parity/backendcheck.sh requires it to FAIL. base=2e105b9df0ff2db68cccd6803393b1acc36dfe20
 // Metal translation of the tunnel GLSL program in Hyperspace/shaders.h. Compiled with Interface.metal prepended.
 
 struct TunnelVaryings {

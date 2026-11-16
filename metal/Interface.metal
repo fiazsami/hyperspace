@@ -1,16 +1,14 @@
 // Types shared between the Metal passes and whatever feeds them.
 //
-// Today the feeder is parity/parity.mm, which records each draw Hyperspace makes
-// in OpenGL and replays it here; its C++ mirrors of these structs (FFU, GooU,
-// TunnelU, Vtx) must keep the same layout. A pass file is compiled with this
-// file prepended, so it must not repeat these declarations.
+// The feeder is HSRendererMetal (Hyperspace/rendererMetal.mm), whose C++ mirrors
+// of these structs are held to this layout by static_asserts. A pass file is
+// compiled with this file prepended, so it must not repeat these declarations.
 
 #include <metal_stdlib>
 using namespace metal;
 
 // Immediate-mode vertex as issued by glColor*/glTexCoord*/glVertex*. Stars,
-// sun, flare and tunnel use it. The replay expands strips into a triangle list;
-// HSRendererMetal draws them as strips. The layout is the same either way.
+// sun, flare, the caustics' strips and the tunnel use it.
 struct ImmediateVertex {
     packed_float3 position;
     float         pad0;

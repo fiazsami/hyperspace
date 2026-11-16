@@ -1,4 +1,4 @@
-// Kill-check fixture: goo shader with one deliberate defect (noanim). parity/killcheck.sh requires it to FAIL.
+// Kill-check fixture: goo shader with one deliberate defect (noanim). parity/backendcheck.sh requires it to FAIL. base=edb0b83ad2afddfcaf45141bc93f6f936cf34301
 // Metal translation of the goo GLSL program in Hyperspace/shaders.h. Compiled with Interface.metal prepended.
 
 struct GooVaryings {
