@@ -44,10 +44,9 @@ for pass in "${passes[@]}"; do
         done
         continue
     fi
+    # A pass without fixtures has lost them, which is a failure, not a pass.
     fixtures=(parity/defects/"$pass"_*.metal)
-    # sun judges with the stars pass's shader, whose fixtures run under stars. Any
-    # other pass without fixtures has lost them, which is a failure, not a pass.
-    if [ ${#fixtures[@]} -eq 0 ] && [ "$pass" != sun ]; then
+    if [ ${#fixtures[@]} -eq 0 ]; then
         printf 'NO FIXTURES %-25s parity/defects/%s_*.metal matches nothing\n' "$pass" "$pass"; bad=1
     fi
     for defect in ${fixtures[@]+"${fixtures[@]}"}; do
