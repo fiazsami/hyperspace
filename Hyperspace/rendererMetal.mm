@@ -73,8 +73,9 @@ struct Texture {
 };
 
 [[noreturn]] void fail(const char *what, const char *detail){
-	fprintf(stderr, "HSRendererMetal: %s%s%s\n", what, detail ? ": " : "", detail ? detail : "");
-	abort();
+	std::string message = std::string("HSRendererMetal: ") + what + (detail ? std::string(": ") + detail : std::string());
+	fprintf(stderr, "%s\n", message.c_str());
+	throw HSRendererMetalError(message);
 }
 
 simd_float4x4 fromGL(const float m[16]){

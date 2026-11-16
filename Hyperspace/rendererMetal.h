@@ -2,7 +2,7 @@
  * HSRenderer on Metal, drawing with the shaders in metal/.
  *
  * It draws the shaded look only: the shaders-off goo and tunnel are ss-5dl,
- * and asking for them stops the process with a message saying so.
+ * and asking for them throws HSRendererMetalError saying so.
  * parity/backendcheck.sh judges this backend against HSRendererGL.
  */
 
@@ -10,21 +10,32 @@
 #define HYPERSPACE_RENDERER_METAL_H
 
 #include <Hyperspace/renderer.h>
+#include <stdexcept>
+#include <string>
 
 struct HSRendererMetalState;
+
+// What every failure in this backend throws: a missing or uncompilable shader
+// source, a GPU failure on a frame that is read back, or a call out of order.
+// A saver catches it and stops drawing; parity leaves it uncaught, so the
+// process ends with the message, which is also printed to stderr.
+class HSRendererMetalError : public std::runtime_error{
+public:
+	explicit HSRendererMetalError(const std::string &what) : std::runtime_error(what) {}
+};
 
 class HSRendererMetal : public HSRenderer{
 public:
 	// metalDir holds Interface.metal and the pass files, compiled at creation;
-	// device is an id<MTLDevice>. A missing file or a compile error stops the
-	// process with the compiler's message.
+	// device is an id<MTLDevice>. A missing file or a compile error throws
+	// HSRendererMetalError with the compiler's message.
 	HSRendererMetal(void *device, const char *metalDir);
 	~HSRendererMetal();
 
 	// Frames draw into target, an id<MTLTexture> of a renderable format, until
 	// the next call, which must come between frames. endFrame waits for the
-	// GPU to finish the frame, so the texture can be read back, and stops the
-	// process if the GPU failed it.
+	// GPU to finish the frame, so the texture can be read back, and throws if
+	// the GPU failed it.
 	void setTarget(void *target);
 	// The next frame draws into drawable, an id<CAMetalDrawable>, and endFrame
 	// presents it without waiting for the GPU; a frame the GPU fails is logged

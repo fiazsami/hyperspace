@@ -63,7 +63,8 @@
 				lLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
 				lLayer.framebufferOnly = YES;
 				lLayer.opaque = YES;
-                lView = [[NSView alloc] initWithFrame:NSZeroRect];
+                lView = [[NSView alloc] initWithFrame:self.bounds];
+				lView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
 				lView.layer = lLayer;
 				lView.wantsLayer = YES;
                 [self addSubview:lView];
@@ -109,6 +110,21 @@
 }
 
 
+// A renderer that cannot run is dropped, and the view shows the
+// requirements message instead of taking the screen saver down with it.
+- (void)rendererFailed:(const HSRendererMetalError &)error
+{
+	NSLog(@"Hyperspace: %s", error.what());
+	lRenderer = NULL;	// leaked: its state after a throw cannot be trusted to clean up
+	lSettings.renderer = NULL;
+	lSettings.readyToDraw = 0;
+	[lView removeFromSuperview];
+	lView = nil;
+	lLayer = nil;
+	[self setNeedsDisplay:YES];
+}
+
+
 - (void)viewDidChangeBackingProperties
 {
 	[super viewDidChangeBackingProperties];
@@ -135,10 +151,26 @@
     {
         if (lMainScreen || !lMainScreenOnly)
         {
+			// A stopAnimation skipped while the configure sheet was up left the
+			// last scene alive; end it before building the next.
+			if (lRenderer)
+			{
+				cleanUp(&lSettings);
+				lRenderer = NULL;
+			}
 			// The shaders are compiled from source in the bundle's metal folder.
 			NSString *metalDir = [[NSBundle bundleForClass:[self class]].resourcePath stringByAppendingPathComponent:@"metal"];
-			lRenderer = new HSRendererMetal((__bridge void *)lLayer.device, metalDir.fileSystemRepresentation);
-            initSaver(&lSettings, lRenderer);
+			try
+			{
+				lRenderer = new HSRendererMetal((__bridge void *)lLayer.device, metalDir.fileSystemRepresentation);
+				initSaver(&lSettings, lRenderer);
+			}
+			catch (const HSRendererMetalError &e)
+			{
+				[self rendererFailed:e];
+				return;
+			}
+			[self matchBacking];
 			gettimeofday(&timer.prev_tv, NULL);	// reset the timer
         }
     }
@@ -200,16 +232,26 @@
     {
         if (lMainScreen || !lMainScreenOnly)
         {
-			lSettings.frameTime = timer.tick();
 			if (lSettings.readyToDraw && lRenderer)
 			{
 				@autoreleasepool	// so each frame's drawable goes back to the layer promptly
 				{
+					// Waits while every drawable is in flight, which is what paces
+					// the saver to the display; nil only after the layer's
+					// one-second timeout, as when the display sleeps.
 					id<CAMetalDrawable> drawable = [lLayer nextDrawable];
 					if (drawable == nil)
-						return;	// none free yet: skip this tick rather than block
-					lRenderer->setDrawable((__bridge void *)drawable);
-					draw(&lSettings);
+						return;	// no frame, so no time passes: the next tick carries it
+					lSettings.frameTime = timer.tick();
+					try
+					{
+						lRenderer->setDrawable((__bridge void *)drawable);
+						draw(&lSettings);
+					}
+					catch (const HSRendererMetalError &e)
+					{
+						[self rendererFailed:e];
+					}
 				}
 			}
         }

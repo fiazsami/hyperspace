@@ -574,6 +574,10 @@ void cleanUp(HyperspaceSaverSettings *inSettings){
 	delete inSettings->thePath;
 	delete inSettings->theWNCM;
 	delete inSettings->renderer;
+	// The caustics and cube maps are made by the first draw(), so a start and
+	// stop with no frame between them would delete these again.
+	inSettings->theCausticTextures = NULL;
+	inSettings->theWNCM = NULL;
 	inSettings->renderer = NULL;
 	inSettings->first = 1;
 }
