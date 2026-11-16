@@ -10,16 +10,21 @@
 # Hyperspace/rendererMetal.mm, built into its own parity (build.sh --backend),
 # and must FAIL its pass against the same GL images. A fixture that changes
 # nothing is an error, not a survivor. The backend has no goo or tunnel yet, so
-# only stars and sun can run. About a minute.
+# only stars and sun can run.
 #
-#   parity/backendcheck.sh [stars|sun ...]    default: both
+# textures is not a pass but the same shape: `parity --backend-textures` uploads
+# mip chains and six different cube faces through both backends and compares
+# every level and face byte for byte, since nothing stars or sun draw samples
+# a mip chain or a cube. Its fixtures are backend_textures_*.sed. About a minute.
+#
+#   parity/backendcheck.sh [stars|sun|textures ...]    default: all three
 #
 # Exit 0 = the backend passes and every fixture is killed, 1 = otherwise,
 # 2 = a run or build failed.
 set -uo pipefail
 shopt -s nullglob
 cd "$(dirname "$0")/.."
-passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars sun)
+passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars sun textures)
 
 OUT=.parity-build/backend
 rm -rf "$OUT"; mkdir -p "$OUT/variants"
@@ -27,13 +32,18 @@ parity/build.sh >/dev/null || exit 2
 
 bad=0
 for pass in "${passes[@]}"; do
-    .parity-build/parity "$pass" metal "$OUT/$pass/gl" > "$OUT/$pass-gl.log"; code=$?
-    # Exit 1 is the replay's verdict, which is not what this judges.
-    [ $code -le 1 ] || { echo "GL $pass run failed (exit $code): $(tail -1 "$OUT/$pass-gl.log")" >&2; exit 2; }
-    .parity-build/parity "$pass" metal "$OUT/$pass/backend" renderer=metal > "$OUT/$pass-backend.log" ||
-        { echo "backend $pass run failed: $(tail -1 "$OUT/$pass-backend.log")" >&2; exit 2; }
-    .parity-build/parity --compare-backend "$pass" "$OUT/$pass/gl" "$OUT/$pass/backend" > "$OUT/$pass.compare"; code=$?
-    [ $code -le 1 ] || { echo "compare $pass failed: $(tail -1 "$OUT/$pass.compare")" >&2; exit 2; }
+    if [ "$pass" = textures ]; then
+        .parity-build/parity --backend-textures metal > "$OUT/$pass.compare"; code=$?
+        [ $code -le 1 ] || { echo "textures failed: $(tail -1 "$OUT/$pass.compare")" >&2; exit 2; }
+    else
+        .parity-build/parity "$pass" metal "$OUT/$pass/gl" > "$OUT/$pass-gl.log"; code=$?
+        # Exit 1 is the replay's verdict, which is not what this judges.
+        [ $code -le 1 ] || { echo "GL $pass run failed (exit $code): $(tail -1 "$OUT/$pass-gl.log")" >&2; exit 2; }
+        .parity-build/parity "$pass" metal "$OUT/$pass/backend" renderer=metal > "$OUT/$pass-backend.log" ||
+            { echo "backend $pass run failed: $(tail -1 "$OUT/$pass-backend.log")" >&2; exit 2; }
+        .parity-build/parity --compare-backend "$pass" "$OUT/$pass/gl" "$OUT/$pass/backend" > "$OUT/$pass.compare"; code=$?
+        [ $code -le 1 ] || { echo "compare $pass failed: $(tail -1 "$OUT/$pass.compare")" >&2; exit 2; }
+    fi
     verdict=pass; [ $code -eq 0 ] || { verdict=FAIL; bad=1; }
     printf '%-10s %-25s %s\n' "$verdict" "backend ($pass)" "$(tail -1 "$OUT/$pass.compare")"
 
@@ -50,13 +60,18 @@ for pass in "${passes[@]}"; do
         fi
         parity/build.sh --backend "$src" "$bin" > "$OUT/variants/$name.build" 2>&1 ||
             { echo "build of $name failed: $(tail -1 "$OUT/variants/$name.build")" >&2; exit 2; }
-        "$bin" "$pass" metal "$OUT/$pass/$name" renderer=metal > "$OUT/variants/$name.log"; code=$?
-        if [ $code -eq 0 ]; then
-            .parity-build/parity --compare-backend "$pass" "$OUT/$pass/gl" "$OUT/$pass/$name" > "$OUT/variants/$name.compare"; code=$?
-            line=$(tail -1 "$OUT/variants/$name.compare")
+        if [ "$pass" = textures ]; then
+            "$bin" --backend-textures metal > "$OUT/variants/$name.log"; code=$?
+            line=$(tail -1 "$OUT/variants/$name.log")
         else
-            line="run exited $code: $(tail -1 "$OUT/variants/$name.log")"
+            "$bin" "$pass" metal "$OUT/$pass/$name" renderer=metal > "$OUT/variants/$name.log"; code=$?
+            line=$(tail -1 "$OUT/variants/$name.log")
+            if [ $code -eq 0 ]; then
+                .parity-build/parity --compare-backend "$pass" "$OUT/$pass/gl" "$OUT/$pass/$name" > "$OUT/variants/$name.compare"; code=$?
+                line=$(tail -1 "$OUT/variants/$name.compare")
+            fi
         fi
+        [ $code -le 1 ] || line="run exited $code: $line"
         # Only a FAIL verdict counts as killed; a crashed run proves nothing.
         if [ $code -eq 1 ]; then printf '%-10s %-25s %s\n' killed "$name" "$line"
         else printf '%-10s %-25s %s\n' SURVIVED "$name" "$line"; bad=1; fi

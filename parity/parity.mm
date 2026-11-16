@@ -21,7 +21,9 @@
 // judged. `parity --compare-backend <pass> <gl-dir> <backend-dir>` then judges
 // those against a plain run's _gl.png with the pass's rules
 // (parity/backendcheck.sh does both). The two runs share the seed, so they
-// draw the same frames.
+// draw the same frames. `parity --backend-textures <metal-dir>` uploads the
+// same mip chains and cube faces through both backends and compares every
+// level and face byte for byte, since no pass the backend draws samples them.
 //
 // Nothing here is a golden image: GL and Metal render the same frame in the same
 // process, so the reference is always the shipped renderer on this machine. The
@@ -44,6 +46,7 @@
 #include "splinePath.h"
 #include "starBurst.h"
 #include "transform.h"
+#include "rendererGL.h"
 #include "rendererMetal.h"
 
 extern GLhandleARB gooProgram, tunnelProgram;
@@ -688,6 +691,68 @@ static int compareRuns(NSString *refDir, NSString *newDir, NSString *newSuffix,
     return ok ? 0 : 1;
 }
 
+// parity --backend-textures: both backends' textures, read back level by level.
+// Six different faces, so a face out of order shows; GL's are read back by its
+// own target names (+x -x +y -y +z -z, which is also Metal's slice order), so
+// the comparison does not trust either side's mapping. Exit 0 = the same bytes.
+static int compareBackendTextures(NSString *metalDir)
+{
+    NSOpenGLPixelFormatAttribute attrs[] = { NSOpenGLPFAAccelerated, NSOpenGLPFAColorSize, 32, NSOpenGLPFAAllowOfflineRenderers, 0 };
+    NSOpenGLContext *glctx = [[NSOpenGLContext alloc] initWithFormat:[[NSOpenGLPixelFormat alloc] initWithAttributes:attrs] shareContext:nil];
+    if (!glctx) { printf("ERROR no GL context\n"); return 2; }
+    [glctx makeCurrentContext];
+    id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
+    HSRendererGL gl;
+    HSRendererMetal metal((__bridge void *)dev, metalDir.fileSystemRepresentation);
+
+    const int size = 32;
+    auto image = [&](int channels, uint32_t seed) {
+        std::vector<unsigned char> px((size_t)size * size * channels);
+        for (unsigned char &c : px) { seed = seed * 1664525u + 1013904223u; c = (unsigned char)(seed >> 24); }
+        return px;
+    };
+    int bad = 0, compared = 0;
+    // GL's level as RGBA (an RGB texture reads back with alpha 255) against Metal's.
+    auto compare = [&](const char *what, GLenum target, GLuint glName, unsigned int mtName, int level, int slice) {
+        const int s = MAX(1, size >> level);
+        std::vector<unsigned char> a((size_t)s * s * 4), b((size_t)s * s * 4);
+        glGetTexImage(target, level, GL_RGBA, GL_UNSIGNED_BYTE, a.data());
+        id<MTLTexture> t = (__bridge id<MTLTexture>)metal.texture(mtName);
+        if (!t || level >= (int)t.mipmapLevelCount) { printf("FAIL %s level %d: missing on Metal\n", what, level); bad++; return; }
+        [t getBytes:b.data() bytesPerRow:(size_t)s * 4 bytesPerImage:(size_t)s * s * 4 fromRegion:MTLRegionMake2D(0, 0, s, s) mipmapLevel:level slice:slice];
+        size_t diff = 0; for (size_t i = 0; i < a.size(); i++) diff += a[i] != b[i];
+        compared++;
+        if (diff) { printf("FAIL %s level %d: %zu of %zu bytes differ\n", what, level, diff, a.size()); bad++; }
+    };
+
+    std::vector<unsigned char> rgba = image(4, 1);
+    unsigned int g = gl.createTexture(size, size, rgba.data()), m = metal.createTexture(size, size, rgba.data());
+    glBindTexture(GL_TEXTURE_2D, g); compare("createTexture", GL_TEXTURE_2D, g, m, 0, 0);
+
+    for (int channels = 3; channels <= 4; channels++) {
+        std::vector<unsigned char> px = image(channels, 2 + channels);
+        HSMipChain chain; hsBuildMipmaps(px.data(), size, channels, chain);
+        g = gl.createMipmappedTexture(chain); m = metal.createMipmappedTexture(chain);
+        glBindTexture(GL_TEXTURE_2D, g);
+        char what[64]; snprintf(what, sizeof what, "createMipmappedTexture (%d channels)", channels);
+        for (size_t l = 0; l < chain.levels.size(); l++) compare(what, GL_TEXTURE_2D, g, m, (int)l, 0);
+    }
+
+    HSMipChain faces[6];
+    for (int f = 0; f < 6; f++) { std::vector<unsigned char> px = image(3, 10 + f); hsBuildMipmaps(px.data(), size, 3, faces[f]); }
+    g = gl.createCubeTexture(faces); m = metal.createCubeTexture(faces);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, g);
+    static const char *const names[6] = {"+x", "-x", "+y", "-y", "+z", "-z"};
+    for (int s = 0; s < 6; s++) {
+        char what[64]; snprintf(what, sizeof what, "createCubeTexture face %s", names[s]);
+        for (size_t l = 0; l < faces[0].levels.size(); l++) compare(what, GL_TEXTURE_CUBE_MAP_POSITIVE_X + s, g, m, (int)l, s);
+    }
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR) { printf("ERROR GL error 0x%x\n", err); return 2; }
+    printf("%s textures: %d levels and faces compared, %d differ\n", bad ? "FAIL" : "PASS", compared, bad);
+    return bad ? 1 : 0;
+}
+
 static NSString *readFile(NSString *path)
 {
     NSString *s = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
@@ -699,6 +764,7 @@ int main(int argc, const char *argv[])
 {
     @autoreleasepool {
         if (argc == 4 && !strcmp(argv[1], "--compare")) return compareRuns(@(argv[2]), @(argv[3]), @"_gl.png", 0.1, 0.01, 0.06, "SAME", "DIFFERENT");
+        if (argc == 3 && !strcmp(argv[1], "--backend-textures")) return compareBackendTextures(@(argv[2]));
         if (argc == 5 && !strcmp(argv[1], "--compare-backend")) {
             for (const Pass &p : kPasses)
                 if (!strcmp(argv[2], p.name)) return compareRuns(@(argv[3]), @(argv[4]), @"_backend.png", p.max2, p.max8, p.maxBias, "PASS", "FAIL");
@@ -708,7 +774,8 @@ int main(int argc, const char *argv[])
         if (argc < 4) {
             fprintf(stderr, "usage: parity <stars|goo|tunnel|burst|sun> <metal-dir> <outdir> [shader=PATH] [inject=CASE] [renderer=metal] [frames=N] [every=N] [w=N] [h=N]\n"
                             "       parity --compare <ref-dir> <new-dir>\n"
-                            "       parity --compare-backend <pass> <gl-dir> <backend-dir>\n");
+                            "       parity --compare-backend <pass> <gl-dir> <backend-dir>\n"
+                            "       parity --backend-textures <metal-dir>\n");
             return 2;
         }
         const Pass *pass = nullptr;
@@ -743,8 +810,13 @@ int main(int argc, const char *argv[])
         if (backend && (pass->goo || pass->tunnels)) {
             fprintf(stderr, "renderer=metal cannot draw the %s pass yet: the backend has no goo or tunnel\n", pass->name); return 2;
         }
-        [[NSFileManager defaultManager] createDirectoryAtPath:outdir withIntermediateDirectories:YES attributes:nil error:nil];
         const float dt = 1.0f / 60.0f;
+        // The saver sets off its own starburst at 300 s whatever the goo setting,
+        // and the burst's sphere is drawn in the goo's look.
+        if (backend && (pass->burstAt > 0 || frames * dt >= 299.0f)) {
+            fprintf(stderr, "renderer=metal cannot reach a starburst yet: its sphere needs the backend's goo\n"); return 2;
+        }
+        [[NSFileManager defaultManager] createDirectoryAtPath:outdir withIntermediateDirectories:YES attributes:nil error:nil];
 
         // Two libraries, each with the interface prepended: the fixed-function path
         // (always needed -- stars draw in every pass) and the judged pass's shader.
@@ -919,7 +991,9 @@ int main(int argc, const char *argv[])
                     if (f == 1) s.sunStar->lastPos[i] = s.sunStar->pos[i];
                 }
             }
-            draw(&s);
+            // One pool a frame: the backend's command buffer and encoder are
+            // autoreleased, and main's pool would hold every frame's to the end.
+            @autoreleasepool { draw(&s); }
             if (shot && pass->sunAhead > 0) {
                 // Checked where the sun was drawn this frame, drawPos. A sun off
                 // to the side would leave a shot judging the stars alone, and one

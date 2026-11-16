@@ -23,10 +23,13 @@ public:
 	~HSRendererMetal();
 
 	// Frames draw into target, an id<MTLTexture> of a renderable format, until
-	// the next call. endFrame waits for the GPU to finish the frame.
+	// the next call, which must come between frames. endFrame waits for the
+	// GPU to finish the frame, and stops the process if the GPU failed it.
 	void setTarget(void *target);
 	// Draws issued since the last beginFrame.
 	int drawCount() const;
+	// The id<MTLTexture> a create* call returned name for, or NULL.
+	void *texture(unsigned int name) const;
 
 	void beginFrame(const HSFrame &frame);
 	void endFrame();

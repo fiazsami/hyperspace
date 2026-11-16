@@ -100,6 +100,7 @@ struct HSRendererMetalState {
 	std::map<unsigned int, Texture> textures;
 	unsigned int nextName;
 	simd_float4x4 projection, view;   // the frame's, as GL takes them
+	simd_float4x4 clipProjection;     // projection, with clip z mapped to Metal's
 	simd_float4x4 savedProjection, savedView;
 	bool inOverlay;
 	bool fog;
@@ -131,7 +132,7 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->commands = nil;
 	st->encoder = nil;
 	st->nextName = 1;
-	st->projection = st->view = matrix_identity_float4x4;
+	st->projection = st->view = st->clipProjection = matrix_identity_float4x4;
 	st->savedProjection = st->savedView = matrix_identity_float4x4;
 	st->inOverlay = false;
 	st->fog = true;
@@ -144,6 +145,8 @@ HSRendererMetal::~HSRendererMetal(){
 }
 
 void HSRendererMetal::setTarget(void *target){
+	if(st->encoder)
+		fail("setTarget", "called inside a frame");
 	st->target = (__bridge id<MTLTexture>)target;
 	if(st->target.pixelFormat == st->pipelineFormat)
 		return;
@@ -166,12 +169,18 @@ int HSRendererMetal::drawCount() const{
 	return st->draws;
 }
 
+void *HSRendererMetal::texture(unsigned int name) const{
+	std::map<unsigned int, Texture>::const_iterator t = st->textures.find(name);
+	return t == st->textures.end() ? NULL : (__bridge void *)t->second.texture;
+}
+
 void HSRendererMetal::beginFrame(const HSFrame &frame){
 	if(!st->target)
 		fail("beginFrame", "no target: call setTarget first");
 	if(st->encoder)
 		fail("beginFrame", "the last frame was not ended");
 	st->projection = fromGL(frame.projection);
+	st->clipProjection = simd_mul(clipZ(), st->projection);
 	st->view = fromGL(frame.view);
 	st->fogStart = frame.fogStart;
 	st->fogEnd = frame.fogEnd;
@@ -186,8 +195,9 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 	rp.colorAttachments[0].storeAction = MTLStoreActionStore;
 	st->commands = [st->queue commandBuffer];
 	st->encoder = [st->commands renderCommandEncoderWithDescriptor:rp];
-	// GL's viewport origin is the bottom left, Metal's the top left.
-	MTLViewport vp = {double(frame.viewport[0]), double(st->target.height - frame.viewport[1] - frame.viewport[3]),
+	// GL's viewport origin is the bottom left, Metal's the top left. Signed:
+	// a viewport taller than the target hangs off its top, as it would in GL.
+	MTLViewport vp = {double(frame.viewport[0]), double(st->target.height) - frame.viewport[1] - frame.viewport[3],
 		double(frame.viewport[2]), double(frame.viewport[3]), 0.0, 1.0};
 	[st->encoder setViewport:vp];
 	[st->encoder setCullMode:MTLCullModeNone];
@@ -200,6 +210,8 @@ void HSRendererMetal::endFrame(){
 	[st->encoder endEncoding];
 	[st->commands commit];
 	[st->commands waitUntilCompleted];
+	if(st->commands.status == MTLCommandBufferStatusError)
+		fail("the GPU failed the frame", st->commands.error.localizedDescription.UTF8String);
 	st->encoder = nil;
 	st->commands = nil;
 }
@@ -267,6 +279,9 @@ unsigned int HSRendererMetal::createCubeTexture(const HSMipChain faces[6]){
 	MTLSamplerDescriptor *sd = [MTLSamplerDescriptor new];
 	sd.minFilter = sd.magFilter = MTLSamplerMinMagFilterLinear;
 	sd.mipFilter = MTLSamplerMipFilterLinear;
+	// GL clamps s and t and leaves r at REPEAT, and filters each face alone;
+	// Metal filters cube maps across faces. Whether either shows is the goo's
+	// parity to judge (ss-a4a.4.2 slice 3): nothing samples a cube before it.
 	sd.sAddressMode = sd.tAddressMode = sd.rAddressMode = MTLSamplerAddressModeClampToEdge;
 	unsigned int name = st->nextName++;
 	st->textures[name] = Texture{t, [st->device newSamplerStateWithDescriptor:sd]};
@@ -297,7 +312,7 @@ void HSRendererMetal::drawQuad(unsigned int texture, const float color[4], const
 	// The model matrix applies after the camera, as GL's matrix stack did.
 	FFUniforms u;
 	u.modelview = simd_mul(st->view, fromGL(model));
-	u.mvp = simd_mul(clipZ(), simd_mul(st->projection, u.modelview));
+	u.mvp = simd_mul(st->clipProjection, u.modelview);
 	u.fogColor = simd_make_float4(0, 0, 0, 1);
 	u.fogStart = st->fogStart;
 	u.fogEnd = st->fogEnd;
@@ -316,12 +331,14 @@ void HSRendererMetal::beginOverlay(float aspect){
 	st->savedProjection = st->projection;
 	st->savedView = st->view;
 	st->projection = overlayProjection(aspect);
+	st->clipProjection = simd_mul(clipZ(), st->projection);
 	st->view = matrix_identity_float4x4;
 	st->inOverlay = true;
 }
 
 void HSRendererMetal::endOverlay(){
 	st->projection = st->savedProjection;
+	st->clipProjection = simd_mul(clipZ(), st->projection);
 	st->view = st->savedView;
 	st->inOverlay = false;
 }

@@ -12,7 +12,7 @@ parity/build.sh                                   # -> .parity-build/parity
 .parity-build/parity goo metal .parity-build/out/goo
 parity/killcheck.sh                               # every rule, both directions (~5 min)
 parity/killcheck.sh inject                        # the recorder's checks alone (~30 s)
-parity/backendcheck.sh                            # the Metal backend against GL (~1 min)
+parity/backendcheck.sh                            # the Metal backend against GL (~1.5 min)
 ```
 
 Each shot writes `NNNNN_gl.png`, `NNNNN_metal.png` and `NNNNN_diffx8.png`
@@ -273,8 +273,10 @@ Two runs share the seed, so they draw the same frames: a plain run for its
 rules. In backend mode a shot that generates any GL primitive is an error, so a
 draw that slipped past the backend cannot go unnoticed.
 
-The backend draws frames, fog, textures, quads and the overlay; it has no
-offscreen target, goo or tunnel yet, so only `stars` and `sun` run. Measured:
+The backend draws frames, fog, quads and the overlay; it has no offscreen
+target, goo or tunnel yet, so only `stars` and `sun` run, and a run long enough
+to reach the saver's own starburst (300 s), whose sphere is drawn in the goo's
+look, is refused. Measured:
 `stars` worst 0.000% / 0.000% / bias 0.004, and `sun` 0.021% / 0.000% / 0.004.
 Five of the twelve `stars` shots (2400 on) carry lens flares, 13 overlay quads
 each, so the overlay is judged too.
@@ -286,6 +288,16 @@ required to FAIL. Killed: the model matrix before the camera, fog from the eye,
 an overlay ignoring the aspect ratio, (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) blending,
 nearest sampling, the quad's color ignored, and -- under `sun` -- `setFog(false)`
 ignored. A fixture that no longer changes the file is an error, not a survivor.
+
+Neither pass samples a mip chain or a cube map, so `parity --backend-textures`
+checks those directly: a 2D texture, 3- and 4-channel mip chains, and a cube of
+six different faces, uploaded through `HSRendererGL` and `HSRendererMetal` and
+read back level by level, face by face -- GL's by its own target names, so
+neither side's face mapping is trusted. Measured: 49 levels and faces, every
+byte the same. Its fixtures, `backend_textures_*.sed`, are killed: faces in
+HSRenderer's order rather than Metal's (36 differ), RGB expanded with alpha 0
+(42), and every level uploaded from level 0 (10). Sampling -- cube filtering
+across faces, which GL does not do -- is the goo's to judge.
 
 One defect is not a fixture because it cannot show: dropping the map from GL's
 clip z (-w..w) to Metal's (0..w). Without it Metal clips where GL's NDC z < 0,
