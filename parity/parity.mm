@@ -4,9 +4,10 @@
 // it makes, replays those draws through the Metal shaders in metal/, and compares
 // the two images shot by shot. One pass is judged per run:
 //
-//   stars   goo and tunnels off: stars, sun, lens flare (metal/FixedFunction.metal)
+//   stars   goo and tunnels off: stars, lens flares (metal/FixedFunction.metal)
 //   goo     goo on:   the GLSL goo program  (metal/Goo.metal)
 //   tunnel  tunnel on: the GLSL tunnel program (metal/Tunnel.metal)
+//   sun     the stars pass with the sun held in view (metal/FixedFunction.metal)
 //
 //   parity <pass> <metal-dir> <outdir> [shader=PATH] [inject=CASE] [frames=N] [every=N] [w=N] [h=N]
 //
@@ -556,6 +557,7 @@ struct Pass {
     bool goo, tunnels; int frames, every;
     double max2, max8, maxBias;
     int burstAt;   // frame at which to set off the starburst; 0 leaves it to the saver's timer
+    float sunAhead;   // distance ahead of the camera to hold the sun at; 0 leaves it where the saver puts it
 };
 static const Pass kPasses[] = {
     // 60 s; stars are tiny, so the lit-pixel normalization matters most here.
@@ -573,6 +575,11 @@ static const Pass kPasses[] = {
     // The pass is there for seamcheck.sh, which compares GL with GL and ignores
     // that verdict.
     {"burst",  "Goo.metal",           "goo_vertex",    "goo_fragment",    true,  false, 480,  30,  8.0, 2.5, 0.06, 60},
+    // 20 s of the stars pass with the sun held 2 units ahead of the camera. Where
+    // the saver puts it, at (0, 2, 0), no stars-pass shot has it in frame: the path
+    // leaves it behind or off to the side at every one. The stars pass's shader
+    // and limits. Its lens flare stays at (0, 2, 0).
+    {"sun",    "FixedFunction.metal", "ff_vertex",     "ff_fragment",     false, false, 1200, 100, 1.0, 0.1, 0.06, 0, 2.0f},
 };
 
 // ---- Metal ----
@@ -679,7 +686,7 @@ int main(int argc, const char *argv[])
         if (argc == 4 && !strcmp(argv[1], "--compare")) return compareRuns(@(argv[2]), @(argv[3]));
         if (argc == 2 && !strcmp(argv[1], "--inject-cases")) { for (const char *k : kInjectCases) printf("%s\n", k); return 0; }
         if (argc < 4) {
-            fprintf(stderr, "usage: parity <stars|goo|tunnel|burst> <metal-dir> <outdir> [shader=PATH] [inject=CASE] [frames=N] [every=N] [w=N] [h=N]\n");
+            fprintf(stderr, "usage: parity <stars|goo|tunnel|burst|sun> <metal-dir> <outdir> [shader=PATH] [inject=CASE] [frames=N] [every=N] [w=N] [h=N]\n");
             return 2;
         }
         const Pass *pass = nullptr;
@@ -713,9 +720,10 @@ int main(int argc, const char *argv[])
         // Two libraries, each with the interface prepended: the fixed-function path
         // (always needed -- stars draw in every pass) and the judged pass's shader.
         NSString *iface = readFile([metalDir stringByAppendingPathComponent:@"Interface.metal"]);
-        bool starsPass = !strcmp(pass->name, "stars");
-        NSString *ffPath = starsPass ? shaderPath : [metalDir stringByAppendingPathComponent:@"FixedFunction.metal"];
-        NSString *ffSrc = readFile(ffPath), *passSrc = starsPass ? ffSrc : readFile(shaderPath);
+        // The passes whose judged shader is the fixed-function one: stars and sun.
+        bool ffPass = !strcmp(pass->file, "FixedFunction.metal");
+        NSString *ffPath = ffPass ? shaderPath : [metalDir stringByAppendingPathComponent:@"FixedFunction.metal"];
+        NSString *ffSrc = readFile(ffPath), *passSrc = ffPass ? ffSrc : readFile(shaderPath);
         if (!iface || !ffSrc || !passSrc) return 2;
 
         NSError *err = nil;
@@ -736,7 +744,7 @@ int main(int argc, const char *argv[])
             return ps;
         };
         id<MTLRenderPipelineState> ffPS = pipeline(ffSrc, ffPath, "ff_vertex", "ff_fragment");
-        id<MTLRenderPipelineState> passPS = starsPass ? ffPS : pipeline(passSrc, shaderPath, pass->vfn, pass->ffn);
+        id<MTLRenderPipelineState> passPS = ffPass ? ffPS : pipeline(passSrc, shaderPath, pass->vfn, pass->ffn);
         if (!ffPS || !passPS) return 2;
 
         // The saver's pixel format has no depth buffer, so neither does this target.
@@ -859,6 +867,13 @@ int main(int argc, const char *argv[])
                 // this pass would be a short goo pass with nothing of the burst in it.
                 if (s.theStarBurst->size != 0.0f) { printf("ERROR the starburst did not start at frame %d\n", f); return 2; }
             }
+            if (pass->sunAhead > 0 && f > 0) {
+                // Along last frame's view direction (the view matrix's third row,
+                // negated), so the sun is near the middle of this frame.
+                const double *m = s.modelMat;
+                for (int i = 0; i < 3; i++)
+                    s.sunStar->pos[i] = s.camPos[i] - float(m[4 * i + 2]) * pass->sunAhead;
+            }
             draw(&s);
             if (shot && inject) injectFault(inject);
             if (shot) glEndQuery(GL_PRIMITIVES_GENERATED_EXT);
@@ -933,7 +948,7 @@ int main(int argc, const char *argv[])
                     [enc setVertexBytes:&u length:sizeof u atIndex:1]; [enc setFragmentBytes:&u length:sizeof u atIndex:1];
                     if (b.st.texOn) { [enc setFragmentTexture:tex2d[b.tex] atIndex:0]; [enc setFragmentSamplerState:samp2d[b.tex] atIndex:0]; }
                     [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:b.tri.size()];
-                    judged += starsPass;
+                    judged += ffPass;
                 }
             }
             [enc endEncoding]; [cb commit]; [cb waitUntilCompleted];
