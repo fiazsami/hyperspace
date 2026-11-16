@@ -1,8 +1,6 @@
 #ifndef HYPERSPACE_H
 #define HYPERSPACE_H
 
-#include <OpenGL/gl.h>
-
 class causticTextures;
 class wavyNormalCubeMaps;
 class splinePath;
@@ -39,7 +37,7 @@ typedef struct HyperspaceSaverSettings
 	float billboardMat[16];
 	double modelMat[16];
 	double projMat[16];
-	GLint viewport[4];
+	int viewport[4];
 	
 	float camPos[3]/* = {0.0f, 0.0f, 0.0f}*/;
 	float depth;
@@ -50,8 +48,7 @@ typedef struct HyperspaceSaverSettings
 	splinePath* thePath;
 	tunnel* theTunnel;
 	goo* theGoo;
-	GLuint speckletex, spheretex, nebulatex;
-	GLuint goo_vp, goo_fp, tunnel_vp, tunnel_fp;
+	unsigned int nebulatex;
 	
 	stretchedParticle** stars;
 	stretchedParticle* sunStar;
@@ -61,7 +58,7 @@ typedef struct HyperspaceSaverSettings
 	unsigned char flare2[FLARESIZE][FLARESIZE][4];
 	unsigned char flare3[FLARESIZE][FLARESIZE][4];
 	unsigned char flare4[FLARESIZE][FLARESIZE][4];
-	GLuint flaretex[4];
+	unsigned int flaretex[4];
 
 	HSRenderer *renderer;  // every draw goes through this
 };
@@ -70,7 +67,8 @@ __private_extern__ void draw(HyperspaceSaverSettings *inSettings);
 __private_extern__ void reshape(int width, int height, HyperspaceSaverSettings *inSettings);
 // renderer is the backend to draw through, which the settings then own;
 // NULL draws through OpenGL.
-__private_extern__ void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer = 0);
+// renderer draws everything and is the saver's from here on: cleanUp deletes it.
+__private_extern__ void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer);
 __private_extern__ void cleanUp(HyperspaceSaverSettings *inSettings);
 __private_extern__ void setDefaults(HyperspaceSaverSettings *inSettings);
 

@@ -28,7 +28,6 @@
 	#include <windows.h>
 #endif
 #include "GL/gl.h"*/
-#include <OpenGL/gl.h>
 
 
 class HSRenderer;
@@ -43,7 +42,7 @@ public:
 	float refractionMult;
 
 	// textures indices for OpenGL texture objects
-	GLuint* caustictex;
+	unsigned int* caustictex;
 
 	// space for storing geometry of water surface
 	float* x;  // x and z are the same for each frame
@@ -53,7 +52,7 @@ public:
 	float*** xz;  // projected vertex positions
 	float** intensity;  // projected light intensity
 
-	GLubyte** bitmap;
+	unsigned char** bitmap;
 
 	// constructor takes the following parameters:
 	// num keyframes (now only a floor: frames is raised to at least 2 * keys;

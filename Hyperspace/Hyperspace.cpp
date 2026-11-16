@@ -39,7 +39,6 @@
 #include <math.h>
 #include <time.h>
 #include <string>
-#include <OpenGL/gl.h>
 #include <rsMath/rsMath.h>
 #include <Hyperspace/flare.h>
 #include <Hyperspace/causticTextures.h>
@@ -51,7 +50,6 @@
 #include <Hyperspace/starBurst.h>
 #include <Hyperspace/nebulamap.h>
 #include <Hyperspace/transform.h>
-#include <Hyperspace/rendererGL.h>
 #include "Hyperspace.h"
 
 //#include <fstream>
@@ -413,7 +411,7 @@ void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer){
 	inSettings->numAnimTexFrames = 20;
 	inSettings->whichTexture = 0;
 
-	inSettings->renderer = renderer ? renderer : new HSRendererGL;
+	inSettings->renderer = renderer;
 	initFlares(inSettings);
 
 	inSettings->thePath = new splinePath((inSettings->dDepth * 2) + 6);
@@ -485,9 +483,9 @@ void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer){
 					temp = 0.0f;
 				temp = temp * temp;
 				temp = temp * temp;
-				nebulamap[i][j][0] = GLubyte(float(nebulamap[i][j][0]) * temp);
-				nebulamap[i][j][1] = GLubyte(float(nebulamap[i][j][1]) * temp);
-				nebulamap[i][j][2] = GLubyte(float(nebulamap[i][j][2]) * temp);
+				nebulamap[i][j][0] = (unsigned char)(float(nebulamap[i][j][0]) * temp);
+				nebulamap[i][j][1] = (unsigned char)(float(nebulamap[i][j][1]) * temp);
+				nebulamap[i][j][2] = (unsigned char)(float(nebulamap[i][j][2]) * temp);
 			}
 		}
 		HSMipChain chain;

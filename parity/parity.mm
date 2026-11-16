@@ -411,7 +411,7 @@ int main(int argc, const char *argv[])
             metalRenderer = new HSRendererMetal((__bridge void *)dev, metalDir.fileSystemRepresentation);
             metalRenderer->setTarget((__bridge void *)backendTarget);
         }
-        initSaver(&s, metalRenderer);
+        initSaver(&s, backend ? (HSRenderer *)metalRenderer : new HSRendererGL);
         printf("renderer: %s\n", backend ? "HSRendererMetal" : (const char *)glGetString(GL_RENDERER));
         printf("config: pass=%s seed=%ld goo=%d tunnels=%d shaders=%d %dx%d frames=%d every=%d%s%s\n",
                pass->name, (long)gSeed, s.dUseGoo, s.dUseTunnels, s.dShaders, w, h, frames, every,
