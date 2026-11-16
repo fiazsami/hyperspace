@@ -53,16 +53,28 @@ struct FrameRecorder : Recorder {
     std::vector<HSFrame> frames;
     std::vector<bool> fog;
     std::vector<TunnelBegin> tunnelBegins;
-    /* Every frame, fog and on-screen draw call in order, one letter each:
-     * B/E begin and end frame, f/F fog off and on, S a quad (star or sun),
-     * O an overlay quad (flare), G a goo surface, P a burst sphere, T a
-     * tunnel strip. Never cleared, unlike the vectors above. */
+    /* Every frame, fog, bracket and draw call in order, one letter each:
+     *   B/E frame begin/end    f/F fog off/on        o offscreen begin
+     *   v/w overlay begin/end  g/h goo begin/end     t/u tunnel begin/end
+     *   S quad (star, sun)     O overlay quad (flare)
+     *   G goo surface          P burst sphere        T tunnel strip
+     * Never cleared, unlike the vectors above. */
     std::string events;
     int *deletions = nullptr;
     ~FrameRecorder() override { if (deletions) ++*deletions; }
     void beginFrame(const HSFrame &f) override { frames.push_back(f); events += 'B'; }
     void endFrame() override { events += 'E'; }
     void setFog(bool on) override { fog.push_back(on); events += on ? 'F' : 'f'; }
+    void beginOffscreen(int size) override { Recorder::beginOffscreen(size); events += 'o'; }
+    void beginOverlay(float a) override { Recorder::beginOverlay(a); events += 'v'; }
+    void endOverlay() override { Recorder::endOverlay(); events += 'w'; }
+    void beginGoo(const float color[4], unsigned int nebula, unsigned int n0, unsigned int n1, bool shaded) override
+    {
+        Recorder::beginGoo(color, nebula, n0, n1, shaded);
+        events += 'g';
+    }
+    void endGoo() override { Recorder::endGoo(); events += 'h'; }
+    void endTunnel() override { events += 'u'; }
     void drawQuad(unsigned int t, const float c[4], const float m[16], float half) override
     {
         Recorder::drawQuad(t, c, m, half);
@@ -87,6 +99,7 @@ struct FrameRecorder : Recorder {
     {
         TunnelBegin b = {c0, c1, lerp, shaded};
         tunnelBegins.push_back(b);
+        events += 't';
     }
 };
 
@@ -336,42 +349,97 @@ TEST(draw_hands_the_renderer_one_frame_in_the_settings_view)
     delete s;
 }
 
+namespace {
+/* Each draw letter sits inside its own bracket pair, and the pairs neither
+ * nest nor go unclosed. */
+bool bracketsBalanced(const std::string &e)
+{
+    char open = 0;
+    for (char c : e) {
+        if (c == 'v' || c == 'g' || c == 't') {
+            if (open) return false;
+            open = c;
+        } else if (c == 'w' || c == 'h' || c == 'u') {
+            if (open != (c == 'w' ? 'v' : c == 'h' ? 'g' : 't')) return false;
+            open = 0;
+        } else if (c == 'O' && open != 'v') return false;
+        else if ((c == 'G' || c == 'P') && open != 'g') return false;
+        else if (c == 'T' && open != 't') return false;
+        else if (c == 'S' && open) return false;
+    }
+    return open == 0;
+}
+
+/* Counts a broken rule once per frame and keeps the first frame that broke
+ * it, so a regression reports one line per rule, with the evidence. */
+struct Rules {
+    struct Rule { const char *name; int broken; std::string first; };
+    std::vector<Rule> rules;
+    void check(const char *name, bool ok, const std::string &frame)
+    {
+        for (Rule &r : rules)
+            if (r.name == name) { if (!ok && !r.broken++) r.first = frame; return; }
+        rules.push_back(Rule{name, ok ? 0 : 1, ok ? std::string() : frame});
+    }
+    bool clean() const
+    {
+        bool all = true;
+        for (const Rule &r : rules)
+            if (r.broken) {
+                printf("  rule '%s' broken in %d frame(s), first: %s\n", r.name, r.broken, r.first.c_str());
+                all = false;
+            }
+        return all;
+    }
+};
+}
+
 TEST(draw_brackets_every_on_screen_draw_inside_its_frame)
 {
     FrameRecorder *r = new FrameRecorder;
     HyperspaceSaverSettings *s = started(r, true, true, false);
-    // Two minutes of frames: the flare draws only while the sun is in view,
-    // so one frame may have none; across the run it must show, unfogged.
-    int framesWithFlare = 0, malformed = 0;
-    for (int second = 0; second < 120; second++) {
-        size_t start = r->events.size();
-        frame(s, second == 0 ? 0.0f : 1.0f);
-        std::string e = r->events.substr(start);
-        // one frame, begun before anything is drawn and ended after everything;
-        // fog goes off once and back on once, in that order
-        size_t off = e.find('f'), on = e.find('F');
-        if (e.size() < 2 || e.front() != 'B' || e.back() != 'E' ||
-            std::count(e.begin(), e.end(), 'B') != 1 || std::count(e.begin(), e.end(), 'E') != 1 ||
-            off == std::string::npos || on == std::string::npos || on < off ||
-            e.find('f', off + 1) != std::string::npos || e.find('F', on + 1) != std::string::npos) {
-            malformed++;
-            continue;
+    Rules rules;
+    bool flareSeen = false, burstSeen = false;
+    // Frames until the flare has shown -- it draws only while the sun is in
+    // view, which the first frame's is not -- then one with a burst forced.
+    // Stopping early spends little of draw()'s shared clocks.
+    for (int n = 0; n < 120 && !(flareSeen && burstSeen); n++) {
+        if (flareSeen) {
+            float ahead[3] = {s->camPos[0], 0.0f, s->camPos[2] - 0.5f * s->depth};
+            s->theStarBurst->restart(ahead);
         }
-        std::string fogged = e.substr(1, off - 1), unfogged = e.substr(off + 1, on - off - 1), after = e.substr(on + 1);
-        // the stars, the goo and the tunnel draw fogged, as does a burst
-        CHECK(fogged.find('S') != std::string::npos);
-        CHECK(fogged.find('G') != std::string::npos);
-        CHECK(fogged.find('T') != std::string::npos);
-        // the sun, and its flare when it shows, and nothing else, unfogged
-        CHECK(unfogged.find('S') != std::string::npos);
-        CHECK(unfogged.find_first_of("GPT") == std::string::npos);
-        CHECK(fogged.find('O') == std::string::npos);
-        if (unfogged.find('O') != std::string::npos) framesWithFlare++;
-        // and nothing draws after fog is back on
-        CHECK(after == "E");
+        size_t start = r->events.size();
+        frame(s, n == 0 ? 0.0f : 1.0f);
+        std::string e = r->events.substr(start);
+        // offscreen work (the first frame's caustics) comes before the frame
+        size_t b = e.find('B');
+        rules.check("offscreen work only before the frame", e.find('o', b) == std::string::npos, e);
+        e = e.substr(b == std::string::npos ? 0 : b);
+        size_t off = e.find('f'), on = e.find('F');
+        bool shaped = std::count(e.begin(), e.end(), 'B') == 1 && e.back() == 'E' &&
+                      std::count(e.begin(), e.end(), 'E') == 1 && std::count(e.begin(), e.end(), 'f') == 1 &&
+                      std::count(e.begin(), e.end(), 'F') == 1 && off < on;
+        rules.check("one frame; fog off once, then on once", shaped, e);
+        rules.check("each draw inside its own bracket", bracketsBalanced(e), e);
+        if (!shaped) continue;
+        std::string fogged = e.substr(1, off - 1), unfogged = e.substr(off + 1, on - off - 1);
+        // the stars, the goo, the tunnel and a burst -- sphere and flare -- draw fogged
+        rules.check("stars fogged", fogged.find('S') != std::string::npos, e);
+        rules.check("goo fogged", fogged.find('G') != std::string::npos, e);
+        rules.check("tunnel fogged", fogged.find('T') != std::string::npos, e);
+        // the sun and its flare draw unfogged, and nothing of the scene does
+        rules.check("sun unfogged", unfogged.find('S') != std::string::npos, e);
+        rules.check("no goo, burst or tunnel unfogged", unfogged.find_first_of("gGPtT") == std::string::npos, e);
+        rules.check("nothing after fog is back on", e.substr(on + 1) == "E", e);
+        if (unfogged.find('O') != std::string::npos) flareSeen = true;
+        if (e.find('P') != std::string::npos) {
+            burstSeen = true;
+            rules.check("burst sphere fogged", fogged.find('P') != std::string::npos, e);
+        }
     }
-    CHECK(malformed == 0);
-    CHECK(framesWithFlare > 0);
+    CHECK(rules.clean());
+    CHECK(flareSeen);
+    CHECK(burstSeen);
     cleanUp(s);
     delete s;
 }
