@@ -172,8 +172,6 @@ parity/seamcheck.sh master stars      # one pass
 
 A `<ref>` older than the `burst` pass does not know it; seamcheck skips that
 pass with a note and compares the rest.
-The burst pass compared with itself is exactly 0, and the starburst's sphere
-scaled by 1.1 comes out DIFFERENT at 99.0%.
 
 `master` against itself compares at exactly 0. Moving the camera maths off the GL
 matrix stack (`Hyperspace/transform`) measured 0.000% / 0.005% / 0.015% worst
@@ -203,6 +201,23 @@ shaders off were compared once by hand, with both trees' `parity` set to
 `dShaders = 0`: exactly 0 again, on shots up to 96% (goo) and 84% (tunnel)
 lit. Goo surfaces raised by 0.02 and tunnel strips wound the wrong way come out
 DIFFERENT at 93.6% and 99.99%.
+
+Moving the starburst onto `HSRenderer` -- its sphere drawn in the goo's look
+through `beginGoo`, `drawGooSphere` and `endGoo`, tessellated by
+`hsSphereBand` -- compared at exactly 0 on all four passes, the burst pass
+included (which itself compares with itself at exactly 0), and at exactly 0 with
+shaders off (by hand, as before; burst shots up to 94% lit). The sphere at 1.1
+times its radius comes out DIFFERENT at 89.7%.
+
+A first version drew the sphere's triangles as a list, through `impSurface`,
+instead of as strips. The recorder accepts that path, and the burst pass passed
+against `Goo.metal`; but the seam check measured worst lit>8 0.012%, past its
+0.01% limit (lit>2 0.032%, inside its 0.1%): a few pixels whose cube-map
+lookups land on the other side of a face edge. A master build changed only to
+draw its display list as triangles differed from master by 0.171%, so the
+topology alone does it. The sphere is therefore still drawn as strips from a
+display list, which the recorder refuses: the burst pass has no Metal verdict
+on it (ss-frm).
 
 ## Limits
 

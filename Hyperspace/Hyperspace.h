@@ -66,7 +66,7 @@ typedef struct HyperspaceSaverSettings
 	unsigned char flare4[FLARESIZE][FLARESIZE][4];
 	GLuint flaretex[4];
 
-	HSRenderer *renderer;  // everything but the starburst draws through this
+	HSRenderer *renderer;  // every draw but rsText's statistics goes through this
 };
 
 __private_extern__ void draw(HyperspaceSaverSettings *inSettings);

@@ -195,10 +195,34 @@ void HSRendererGL::drawGooSurface(impSurface *surface, const float offset[3]){
 	glPopMatrix();
 }
 
+void HSRendererGL::drawGooSphere(const float center[3], float radius){
+	if(sphereList == 0){
+		float band[HS_SPHERE_BAND_POINTS][3];
+		sphereList = glGenLists(1);
+		glNewList(sphereList, GL_COMPILE);
+		for(int b = 0; b < HS_SPHERE_BANDS; b++){
+			hsSphereBand(b, band);
+			glBegin(GL_TRIANGLE_STRIP);
+			for(int i = 0; i < HS_SPHERE_BAND_POINTS; i++){
+				glNormal3fv(band[i]);
+				glVertex3fv(band[i]);
+			}
+			glEnd();
+		}
+		glEndList();
+	}
+	glPushMatrix();
+	glTranslatef(center[0], center[1], center[2]);
+	glScalef(radius, radius, radius);
+	glCallList(sphereList);
+	glPopMatrix();
+}
+
 void HSRendererGL::endGoo(){
 	if(gooShaded){
 		glDisable(GL_TEXTURE_CUBE_MAP_ARB);
 		glUseProgramObjectARB(0);
+		glEnable(GL_TEXTURE_2D);   // beginGoo turned it off; drawQuad needs it
 	}
 	else{
 		glDisable(GL_TEXTURE_GEN_S);
