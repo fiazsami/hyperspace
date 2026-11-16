@@ -202,7 +202,7 @@ void HSRendererGL::endOffscreen(unsigned char *rgb){
 // gooProgram and tunnelProgram are linked by initShaders(), in shaders.h,
 // which only this file includes. The renderer links them on creation, so a
 // saver drawing through another backend never touches GL.
-HSRendererGL::HSRendererGL() : offscreenSize(0), offscreenFog(false), overlayFog(false), gooShaded(false), tunnelShaded(false), tunnelAlpha(1.0f), sphereList(0){
+HSRendererGL::HSRendererGL() : offscreenSize(0), offscreenFog(false), overlayFog(false), gooShaded(false), tunnelShaded(false), tunnelAlpha(1.0f), sphereList(0), gooBuffers{0, 0}{
 	initShaders();
 }
 
@@ -235,10 +235,36 @@ void HSRendererGL::beginGoo(const float color[4], unsigned int nebula,
 	glColor4fv(color);
 }
 
+// impSurface carries no GL; it used to keep a VBO per surface, re-uploaded
+// whenever it was refilled. One pair of buffers re-uploaded on every draw
+// draws what that did, exactly (seamcheck: 0 on goo and burst). Client arrays
+// would be simpler and are not the same: Apple's GL rasterizes them
+// differently, measured at 2.8% of lit goo pixels against master. Like
+// sphereList, the buffers live as long as the context.
 void HSRendererGL::drawGooSurface(impSurface *surface, const float offset[3]){
+	const unsigned int indexCount = surface->getIndexCount();
+	if(indexCount == 0)
+		return;
+	gooIndices.resize(indexCount);
+	for(unsigned int i = 0; i < indexCount; i++)
+		gooIndices[i] = surface->getIndex(i);
 	glPushMatrix();
 	glTranslatef(offset[0], offset[1], offset[2]);
-	surface->draw();
+	if(gooBuffers[0] == 0)
+		glGenBuffers(2, gooBuffers);
+	glBindBuffer(GL_ARRAY_BUFFER, gooBuffers[0]);
+	glBufferData(GL_ARRAY_BUFFER, size_t(surface->getVertexCount()) * 6 * sizeof(float), surface->getVertex(0), GL_DYNAMIC_DRAW);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gooBuffers[1]);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, size_t(indexCount) * sizeof(unsigned int), gooIndices.data(), GL_DYNAMIC_DRAW);
+	glNormalPointer(GL_FLOAT, 6 * sizeof(float), (const GLvoid*)0);
+	glVertexPointer(3, GL_FLOAT, 6 * sizeof(float), (const GLvoid*)(3 * sizeof(float)));
+	glEnableClientState(GL_NORMAL_ARRAY);
+	glEnableClientState(GL_VERTEX_ARRAY);
+	glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, (const GLvoid*)0);
+	glDisableClientState(GL_VERTEX_ARRAY);
+	glDisableClientState(GL_NORMAL_ARRAY);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 	glPopMatrix();
 }
 
