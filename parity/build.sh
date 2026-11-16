@@ -18,38 +18,56 @@ fi
 OUT=.parity-build
 mkdir -p "$OUT/obj"
 INC=(-I. -IHyperspace -IrsMath -IImplicit -Iutil -include Hyperspace_Prefix.pch -DGL_SILENCE_DEPRECATION)
+CXXFLAGS=(-std=c++17 -O2 -w "${INC[@]}")   # Hyperspace's own sources, as they are, warnings and all
+MMFLAGS=(-std=c++17 -O2 -ObjC++ -fobjc-arc -Wall "${INC[@]}")
+PARITYFLAGS=(-std=c++17 -O2 -ObjC++ -fobjc-arc -Wall -Wno-deprecated-declarations -Wno-missing-declarations "${INC[@]}")
+SOURCES=(Hyperspace/*.cpp rsMath/*.cpp Implicit/*.cpp Rgbhsl/*.cpp)
 
-# A header, the prefix or this script changing invalidates every object: the GLSL
-# under comparison lives in Hyperspace/shaders.h, and a stale object would compare
-# against a renderer that no longer exists.
-newest=parity/build.sh
-for f in Hyperspace_Prefix.pch *.h *.hh Hyperspace/*.h rsMath/*.h Implicit/*.h Rgbhsl/*.h util/*.h; do
-    if [ -e "$f" ] && [ "$f" -nt "$newest" ]; then newest=$f; fi
-done
+# An object is rebuilt when what it was built from changes -- by content, not by
+# time. Modification times compare at one-second resolution here, so a file
+# restored in the same second as a build looked unchanged and a stale object
+# survived (ss-a4a.4.9). What it was built from: its source, every header in the
+# tree (not a list of directories, which a new one would slip past), the flags,
+# and the compiler and SDK. Each object keeps that key beside it, in <obj>.key,
+# written only after it compiles.
+toolchain=$(xcrun clang++ --version | head -1; xcrun --show-sdk-path)
+headers=$( { echo "$toolchain"; echo "${CXXFLAGS[*]}|${MMFLAGS[*]}|${PARITYFLAGS[*]}"
+    find . \( -path ./.parity-build -o -path ./build -o -path ./.git \) -prune -o \
+        -type f \( -name '*.h' -o -name '*.hh' -o -name '*.hpp' -o -name '*.inl' -o -name '*.pch' \) -print |
+        LC_ALL=C sort | tr '\n' '\0' | xargs -0 shasum; } | shasum | cut -d' ' -f1)
+# One shasum for every source; keyof looks a source up without starting a process.
+digests=$(shasum "${SOURCES[@]}" Hyperspace/*.mm parity/parity.mm)
+keyof() {
+    local digest file
+    while read -r digest file; do [ "$file" = "$1" ] && { echo "$headers$digest"; return; }; done <<<"$digests"
+    echo "no digest for $1" >&2; exit 2
+}
+stale() { [ ! -e "$1" ] || [ "$(cat "$1.key" 2>/dev/null)" != "$2" ]; }
 objs=()
-for src in Hyperspace/*.cpp rsMath/*.cpp Implicit/*.cpp Rgbhsl/*.cpp; do
-    obj="$OUT/obj/$(echo "$src" | tr / _).o"
-    # Hyperspace's own sources are compiled as they are, warnings and all.
-    if [ ! -e "$obj" ] || [ "$src" -nt "$obj" ] || [ "$newest" -nt "$obj" ]; then
-        xcrun clang++ -std=c++17 -O2 -w "${INC[@]}" -c "$src" -o "$obj"
+for src in "${SOURCES[@]}"; do
+    obj="$OUT/obj/${src//\//_}.o"; k=$(keyof "$src")
+    if stale "$obj" "$k"; then
+        xcrun clang++ "${CXXFLAGS[@]}" -c "$src" -o "$obj"
+        echo "$k" > "$obj.key"
     fi
     objs+=("$obj")
 done
 # The Metal backend, which renderer=metal draws through.
-MMFLAGS=(-std=c++17 -O2 -ObjC++ -fobjc-arc -Wall "${INC[@]}")
 mmobjs=()
 for src in Hyperspace/*.mm; do
-    obj="$OUT/obj/$(echo "$src" | tr / _).o"
-    if [ ! -e "$obj" ] || [ "$src" -nt "$obj" ] || [ "$newest" -nt "$obj" ]; then
+    obj="$OUT/obj/${src//\//_}.o"; k=$(keyof "$src")
+    if stale "$obj" "$k"; then
         xcrun clang++ "${MMFLAGS[@]}" -c "$src" -o "$obj"
+        echo "$k" > "$obj.key"
     fi
     mmobjs+=("$obj")
 done
 
 # Rebuilt only when stale: backendcheck.sh calls this once per fixture.
-if [ ! -e "$OUT/obj/parity.o" ] || [ parity/parity.mm -nt "$OUT/obj/parity.o" ] || [ "$newest" -nt "$OUT/obj/parity.o" ]; then
-    xcrun clang++ -std=c++17 -O2 -ObjC++ -fobjc-arc -Wall -Wno-deprecated-declarations -Wno-missing-declarations "${INC[@]}" \
-        -c parity/parity.mm -o "$OUT/obj/parity.o"
+k=$(keyof parity/parity.mm)
+if stale "$OUT/obj/parity.o" "$k"; then
+    xcrun clang++ "${PARITYFLAGS[@]}" -c parity/parity.mm -o "$OUT/obj/parity.o"
+    echo "$k" > "$OUT/obj/parity.o.key"
 fi
 FRAMEWORKS=(-framework Cocoa -framework OpenGL -framework Metal -framework QuartzCore -framework ImageIO)
 if [ -n "$variant" ]; then
