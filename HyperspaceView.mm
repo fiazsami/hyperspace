@@ -111,7 +111,7 @@
 
 
 // A renderer that cannot run is dropped, and the view shows the
-// requirements message instead of taking the screen saver down with it.
+// could-not-start message instead of taking the screen saver down with it.
 - (void)rendererFailed:(const HSRendererMetalError &)error
 {
 	NSLog(@"Hyperspace: %s", error.what());
@@ -213,7 +213,7 @@
             
             tAttributes = [NSDictionary dictionaryWithObjectsAndKeys:[NSFont systemFontOfSize:[NSFont systemFontSize]],NSFontAttributeName,[NSColor whiteColor],NSForegroundColorAttributeName,tParagraphStyle,NSParagraphStyleAttributeName,nil];
             
-            tString=NSLocalizedStringFromTableInBundle(@"Minimum OpenGL requirements\rfor this Screen Effect\rnot available\ron your graphic card.",@"Localizable",[NSBundle bundleForClass:[self class]],@"No comment");
+            tString=NSLocalizedStringFromTableInBundle(@"This Screen Effect could not start\rits Metal graphics\ron this Mac.",@"Localizable",[NSBundle bundleForClass:[self class]],@"No comment");
             
             tStringFrame.origin=NSZeroPoint;
             tStringFrame.size=[tString sizeWithAttributes:tAttributes];
