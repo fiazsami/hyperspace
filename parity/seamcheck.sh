@@ -9,14 +9,14 @@
 # any master commit is. A pass <ref>'s parity does not know (burst, before it was
 # added) is skipped with a note, not compared.
 #
-#   parity/seamcheck.sh <ref> [stars|goo|tunnel|burst ...]    default: all four
+#   parity/seamcheck.sh <ref> [stars|goo|tunnel|burst|sun ...]    default: all five
 #
 # Exit 0 = the same picture, 1 = different, 2 = a run or build failed.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 [ $# -ge 1 ] || { echo "usage: parity/seamcheck.sh <ref> [pass ...]" >&2; exit 2; }
 ref=$1; shift
-passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo tunnel burst)
+passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo tunnel burst sun)
 sha=$(git rev-parse --verify "$ref^{commit}") || exit 2
 
 OUT=.parity-build/seam

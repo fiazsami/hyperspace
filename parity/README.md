@@ -22,10 +22,11 @@ pass fails.
 
 | pass | what is judged | shader | run |
 |---|---|---|---|
-| `stars` | stars, sun, lens flare (GL fixed function) | `metal/FixedFunction.metal` | 60 s, 12 shots |
+| `stars` | stars and lens flares (GL fixed function); the sun is never in frame (below) | `metal/FixedFunction.metal` | 60 s, 12 shots |
 | `goo` | the GLSL goo program: cube-mapped normals, reflection, Fresnel | `metal/Goo.metal` | 60 s, 12 shots |
 | `tunnel` | the GLSL tunnel program: two caustic textures, two octaves | `metal/Tunnel.metal` | 2 min, 36 shots |
 | `burst` | the goo, once the starburst's sphere is gone; the sphere is refused (below) | `metal/Goo.metal` | 8 s, 16 shots |
+| `sun` | `stars`, with the sun held in view | `metal/FixedFunction.metal` | 60 s, 12 shots |
 
 Stars draw in every pass, through `FixedFunction.metal`. The tunnel needs two
 minutes because one rarely puts the camera inside a tunnel; most shots of the
@@ -43,6 +44,18 @@ check: the sphere is drawn with the goo program from a display list, which the
 recorder refuses, so every shot until it is gone (about frame 420) FAILs as
 "unrecorded GL draw calls", and `killcheck.sh` does not run it. The shots after
 that judge the goo with the goo pass's limits.
+
+The sun sits at (0, 2, 0), and no `stars`, `goo` or `tunnel` shot has it in
+frame: at every one the path has left it behind the camera or off to the side
+(its eye-space depth and projection, printed per shot). Its lens flare still
+draws, since the flare needs the sun only in front of the camera, not on
+screen. Commenting out the sun's draw compared at exactly 0 on all four passes,
+and so did a sun 20 times the size (`stars`, `goo`) and 1000 times (`stars`). `sun` is the `stars` pass with the sun
+moved, before every frame, 2 units along the last frame's view direction, so
+it is near the middle of every shot, about 30 pixels across. Where the saver
+puts it, at the 30 to 60 units it usually is from the camera, it is 1 to 2
+pixels across at 1280x720 (radius 0.04, a 50 degree field of view). Without the sun's draw, every `sun` shot
+comes out DIFFERENT, by 1.6% to 19.9% of lit pixels.
 
 ## The rule
 
@@ -139,7 +152,9 @@ Two runs of the same pass produce identical output.
 `parity/defects/<pass>_<defect>.metal` is the committed shader for that pass
 with one deliberate defect: constants carried over from the other shader,
 swapped or flipped texture coordinates, radial instead of planar fog, a dropped
-term. `killcheck.sh` requires every one to FAIL. When a shader in `metal/`
+term. `killcheck.sh` requires every one to FAIL. `sun` has no fixtures of its
+own: its shader is the `stars` pass's, whose fixtures are killed there, so
+`killcheck.sh` runs only its `metal/` check. When a shader in `metal/`
 changes, regenerate the fixtures from the new text rather than editing the
 rule.
 
@@ -166,12 +181,12 @@ translation residual and its rule is tighter than any pass's: per shot, at most
 bias of 0.06.
 
 ```bash
-parity/seamcheck.sh master            # all four passes, ~3 min
+parity/seamcheck.sh master            # every pass, ~4 min
 parity/seamcheck.sh master stars      # one pass
 ```
 
-A `<ref>` older than the `burst` pass does not know it; seamcheck skips that
-pass with a note and compares the rest.
+A `<ref>` older than a pass (`burst`, `sun`) does not know it; seamcheck skips
+that pass with a note and compares the rest.
 
 `master` against itself compares at exactly 0. Moving the camera maths off the GL
 matrix stack (`Hyperspace/transform`) measured 0.000% / 0.005% / 0.015% worst
@@ -218,6 +233,16 @@ draw its display list as triangles differed from master by 0.171%, so the
 topology alone does it. The sphere is therefore still drawn as strips from a
 display list, which the recorder refuses: the burst pass has no Metal verdict
 on it (ss-frm).
+
+That slice was not a pure move in one case, found once the `sun` pass existed:
+with shaders on and tunnels off, a starburst left GL_TEXTURE_2D off after its
+sphere, and the sun drew as an untextured square for as long as the burst
+lasted. `endGoo` now turns texturing back on, and the sun draws as it does on
+every other frame. Measured by running `sun` set to goo on, shaders on and a
+burst at frame 60 (480 frames, a shot every 30) on the commit before the slice
+and after it: exactly 0 before the burst and after it ends (frame 420 on), and
+up to 0.73% of lit pixels while it lasts, all within about 40 pixels of the
+middle of the frame, where the sun is held.
 
 ## Limits
 

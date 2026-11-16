@@ -11,7 +11,7 @@
 # because the recorder refused it -- with the image within limits and no GL error,
 # so a case cannot count as killed by failing for some other reason.
 #
-#   parity/killcheck.sh [stars|goo|tunnel ...]     default: all three, plus inject
+#   parity/killcheck.sh [stars|goo|tunnel|sun ...] default: all four, plus inject
 #   parity/killcheck.sh inject                     the recorder cases alone
 #
 # About 5 minutes for everything on an M-series Mac; images go to .parity-build/out.
@@ -19,7 +19,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 parity/build.sh >/dev/null || exit 2
 
-passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo tunnel inject)
+passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo tunnel sun inject)
 OUT=.parity-build/out
 mkdir -p "$OUT"
 bad=0
@@ -44,6 +44,8 @@ for pass in "${passes[@]}"; do
         continue
     fi
     for defect in parity/defects/"$pass"_*.metal; do
+        # sun judges with the stars pass's shader, whose fixtures run under stars.
+        [ "$pass" = sun ] && break
         name=$(basename "$defect" .metal)
         rm -rf "$OUT/$name"
         .parity-build/parity "$pass" metal "$OUT/$name" shader="$defect" > "$OUT/$name.log"; code=$?
