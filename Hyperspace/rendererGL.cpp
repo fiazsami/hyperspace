@@ -243,8 +243,10 @@ void HSRendererGL::beginTunnel(unsigned int caustic0, unsigned int caustic1, flo
 		glBindTexture(GL_TEXTURE_2D, caustic0);
 		glUseProgramObjectARB(tunnelProgram);
 	}
-	else
+	else{
+		glActiveTextureARB(GL_TEXTURE0_ARB);
 		glBindTexture(GL_TEXTURE_2D, caustic0);
+	}
 	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 	glEnable(GL_BLEND);

@@ -20,10 +20,12 @@
 // contract describes -- blending (SRC_ALPHA, ONE), GL_TEXTURE_2D enabled,
 // MODULATE, and linear fog from 0.7 * depth to depth -- is not set here: it is
 // the state draw() and initSaver() leave, set once per frame rather than per
-// star, as it was before the seam. beginOverlay sets its own, and so do
-// beginGoo and beginTunnel; endGoo turns GL_TEXTURE_2D back on. The goo and
-// tunnel programs are the ones initShaders() links; shaded must be false if it
-// was never called.
+// star, as it was before the seam. beginOverlay sets its own blending and
+// texturing, and so do beginGoo and beginTunnel; endGoo turns GL_TEXTURE_2D
+// back on. The goo and the tunnel still take their fog from draw(), with
+// lighting off; the tunnel also expects texture coordinate generation off,
+// which endGoo leaves. The goo and tunnel programs are the ones initShaders()
+// links; shaded must be false if it was never called.
 class HSRendererGL : public HSRenderer{
 public:
 	unsigned int createTexture(int width, int height, const unsigned char *rgba);
