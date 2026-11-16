@@ -508,6 +508,12 @@ void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer){
 
 //#ifdef RS_XSCREENSAVER
 void cleanUp(HyperspaceSaverSettings *inSettings){
+	// initSaver sets the renderer before it builds anything, and this nulls it
+	// after freeing everything: no renderer means nothing of this run to free
+	// (initSaver refused, or this already ran), and the other pointers may be
+	// a previous run's, already deleted.
+	if(inSettings->renderer == NULL)
+		return;
 	// Free memory
 	if(inSettings->dUseGoo)
 		delete inSettings->theGoo;
