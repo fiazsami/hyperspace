@@ -83,14 +83,19 @@ simd_float4x4 clipZ(){
 	return z;
 }
 
-// glOrtho(0, aspect, 0, 1, -1, 1).
-simd_float4x4 overlayProjection(float aspect){
+// glOrtho(l, r, b, t, n, f), as GL takes it.
+simd_float4x4 orthoProjection(float l, float r, float b, float t, float n, float f){
 	simd_float4x4 m = matrix_identity_float4x4;
-	m.columns[0] = simd_make_float4(2.0f / aspect, 0, 0, 0);
-	m.columns[1] = simd_make_float4(0, 2.0f, 0, 0);
-	m.columns[2] = simd_make_float4(0, 0, -1.0f, 0);
-	m.columns[3] = simd_make_float4(-1.0f, -1.0f, 0, 1);
+	m.columns[0] = simd_make_float4(2.0f / (r - l), 0, 0, 0);
+	m.columns[1] = simd_make_float4(0, 2.0f / (t - b), 0, 0);
+	m.columns[2] = simd_make_float4(0, 0, -2.0f / (f - n), 0);
+	m.columns[3] = simd_make_float4(-(r + l) / (r - l), -(t + b) / (t - b), -(f + n) / (f - n), 1);
 	return m;
+}
+
+// The lens-flare plane, gluOrtho2D(0, aspect, 0, 1).
+simd_float4x4 overlayProjection(float aspect){
+	return orthoProjection(0.0f, aspect, 0.0f, 1.0f, -1.0f, 1.0f);
 }
 
 // A level of a mip chain as RGBA: GL samples a 3-channel texture with alpha 1.
@@ -134,6 +139,15 @@ struct HSRendererMetalState {
 	simd_float4 gooColor;
 	unsigned int gooTextures[3];   // normals0, normals1, nebula: Goo.metal's texture(0..2)
 	id<MTLBuffer> sphere;          // hsSphereBand's bands, one after another, as GooVertex
+	// The offscreen target is a pass of its own, so it works inside a frame or
+	// outside one (the caustics are made before the first beginFrame).
+	id<MTLRenderPipelineState> offscreenPipeline;   // fixed function, into RGBA8
+	id<MTLTexture> offscreenTarget;
+	id<MTLCommandBuffer> offscreenCommands;
+	id<MTLRenderCommandEncoder> offscreenEncoder;
+	std::vector<ImmediateVertex> offscreenVertices;   // the pass's strips, uploaded once at the end
+	std::vector<int> offscreenStrips;                 // each strip's vertex count, in order
+	id<MTLTexture> blank;   // bound where a shader declares a texture it is told not to sample
 };
 
 static NSString *readSource(const char *dir, const char *file){
@@ -144,6 +158,25 @@ static NSString *readSource(const char *dir, const char *file){
 		fail("cannot read", path.UTF8String);
 	return s;
 }
+
+// A texture the GPU renders into and the CPU then reads. Apple silicon shares
+// memory, so Shared; an Intel Mac's GPU, which macOS 26 still runs on, cannot
+// share a texture, so Managed, synchronized before the read. The macOS 27 SDK
+// deprecates Managed because it does nothing on Apple silicon -- which is the
+// branch that never uses it.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+static MTLStorageMode readableStorage(id<MTLDevice> device){
+	return device.hasUnifiedMemory ? MTLStorageModeShared : MTLStorageModeManaged;
+}
+static void synchronizeForCPU(id<MTLCommandBuffer> commands, id<MTLTexture> texture){
+	if(texture.storageMode != MTLStorageModeManaged)
+		return;
+	id<MTLBlitCommandEncoder> blit = [commands blitCommandEncoder];
+	[blit synchronizeResource:texture];
+	[blit endEncoding];
+}
+#pragma clang diagnostic pop
 
 // Each pass file is compiled with the interface prepended, as parity does.
 static id<MTLLibrary> compilePass(id<MTLDevice> device, const char *dir, const char *file){
@@ -207,12 +240,23 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->gooColor = simd_make_float4(1, 1, 1, 1);
 	st->gooTextures[0] = st->gooTextures[1] = st->gooTextures[2] = 0;
 	st->sphere = nil;   // built on the first drawGooSphere, as GL builds its list
+	st->offscreenPipeline = nil;
+	st->offscreenTarget = nil;
+	st->offscreenCommands = nil;
+	st->offscreenEncoder = nil;
+	MTLTextureDescriptor *bd = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+		width:1 height:1 mipmapped:NO];
+	st->blank = [st->device newTextureWithDescriptor:bd];
+	const unsigned char white[4] = {255, 255, 255, 255};
+	[st->blank replaceRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0 withBytes:white bytesPerRow:4];
 }
 
 HSRendererMetal::~HSRendererMetal(){
 	// An encoder released mid-frame asserts; end it, and drop the frame.
 	if(st->encoder)
 		[st->encoder endEncoding];
+	if(st->offscreenEncoder)
+		[st->offscreenEncoder endEncoding];
 	delete st;
 }
 
@@ -404,9 +448,99 @@ void HSRendererMetal::endOverlay(){
 	st->inOverlay = false;
 }
 
-void HSRendererMetal::beginOffscreen(int){ notYet("beginOffscreen"); }
-void HSRendererMetal::drawColorStrip(const HSColorVertex *, int){ notYet("drawColorStrip"); }
-void HSRendererMetal::endOffscreen(unsigned char *){ notYet("endOffscreen"); }
+void HSRendererMetal::beginOffscreen(int size){
+	if(st->offscreenEncoder)
+		fail("beginOffscreen", "already offscreen");
+	if(size <= 0)
+		fail("beginOffscreen", "size must be positive");
+	if(!st->offscreenPipeline)
+		st->offscreenPipeline = additivePipeline(st->device, st->ffLibrary, @"ff_vertex", @"ff_fragment", MTLPixelFormatRGBA8Unorm);
+	if(!st->offscreenTarget || int(st->offscreenTarget.width) != size){
+		MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+			width:size height:size mipmapped:NO];
+		td.usage = MTLTextureUsageRenderTarget;
+		td.storageMode = readableStorage(st->device);
+		st->offscreenTarget = [st->device newTextureWithDescriptor:td];
+	}
+	st->offscreenVertices.clear();
+	st->offscreenStrips.clear();
+	MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
+	rp.colorAttachments[0].texture = st->offscreenTarget;
+	rp.colorAttachments[0].loadAction = MTLLoadActionClear;
+	rp.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
+	rp.colorAttachments[0].storeAction = MTLStoreActionStore;
+	st->offscreenCommands = [st->queue commandBuffer];
+	st->offscreenEncoder = [st->offscreenCommands renderCommandEncoderWithDescriptor:rp];
+	[st->offscreenEncoder setCullMode:MTLCullModeNone];
+	[st->offscreenEncoder setRenderPipelineState:st->offscreenPipeline];
+	// Untextured and unfogged. ff_fragment still declares texture(0), and
+	// Metal's validation requires it bound whether or not it is sampled.
+	[st->offscreenEncoder setFragmentTexture:st->blank atIndex:0];
+	[st->offscreenEncoder setFragmentSamplerState:st->linear atIndex:0];
+	FFUniforms u;
+	u.modelview = matrix_identity_float4x4;
+	u.mvp = simd_mul(clipZ(), orthoProjection(0.0f, 1.0f, 0.0f, 1.0f, -0.5f, 0.5f));
+	u.fogColor = simd_make_float4(0, 0, 0, 1);
+	u.fogStart = u.fogEnd = 0.0f;
+	u.fogOn = 0;
+	u.texOn = 0;
+	[st->offscreenEncoder setVertexBytes:&u length:sizeof u atIndex:1];
+	[st->offscreenEncoder setFragmentBytes:&u length:sizeof u atIndex:1];
+}
+
+void HSRendererMetal::drawColorStrip(const HSColorVertex *v, int count){
+	if(!st->offscreenEncoder)
+		fail("drawColorStrip", "outside beginOffscreen/endOffscreen");
+	if(count < 3)
+		return;
+	// Collected, and drawn from one buffer at endOffscreen: the caustics draw
+	// about 1600 strips a frame.
+	for(int i = 0; i < count; i++){
+		ImmediateVertex o;
+		o.position[0] = v[i].pos[0]; o.position[1] = v[i].pos[1]; o.position[2] = v[i].pos[2];
+		o.pad0 = 0.0f;
+		o.texcoord[0] = o.texcoord[1] = 0.0f;
+		o.pad1[0] = o.pad1[1] = 0.0f;
+		o.color[0] = v[i].color[0]; o.color[1] = v[i].color[1]; o.color[2] = v[i].color[2];
+		o.color[3] = 1.0f;   // glColor3f
+		st->offscreenVertices.push_back(o);
+	}
+	st->offscreenStrips.push_back(count);
+}
+
+void HSRendererMetal::endOffscreen(unsigned char *rgb){
+	if(!st->offscreenEncoder)
+		return;   // no beginOffscreen: nothing to read, as in GL
+	if(!st->offscreenVertices.empty()){
+		id<MTLBuffer> vb = [st->device newBufferWithBytes:st->offscreenVertices.data()
+			length:st->offscreenVertices.size() * sizeof(ImmediateVertex) options:MTLResourceStorageModeShared];
+		[st->offscreenEncoder setVertexBuffer:vb offset:0 atIndex:0];
+		NSUInteger start = 0;
+		for(size_t i = 0; i < st->offscreenStrips.size(); i++){
+			[st->offscreenEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:start vertexCount:NSUInteger(st->offscreenStrips[i])];
+			start += NSUInteger(st->offscreenStrips[i]);
+		}
+	}
+	[st->offscreenEncoder endEncoding];
+	synchronizeForCPU(st->offscreenCommands, st->offscreenTarget);
+	[st->offscreenCommands commit];
+	[st->offscreenCommands waitUntilCompleted];
+	if(st->offscreenCommands.status == MTLCommandBufferStatusError)
+		fail("the GPU failed the offscreen pass", st->offscreenCommands.error.localizedDescription.UTF8String);
+	st->offscreenEncoder = nil;
+	st->offscreenCommands = nil;
+	const int size = int(st->offscreenTarget.width);
+	std::vector<unsigned char> rgba(size_t(size) * size * 4);
+	[st->offscreenTarget getBytes:rgba.data() bytesPerRow:size_t(size) * 4 fromRegion:MTLRegionMake2D(0, 0, size, size) mipmapLevel:0];
+	// Metal's row 0 is the top; GL reads the bottom row first.
+	for(int y = 0; y < size; y++){
+		const unsigned char *src = &rgba[size_t(size - 1 - y) * size * 4];
+		unsigned char *dst = rgb + size_t(y) * size * 3;
+		for(int x = 0; x < size; x++){
+			dst[3 * x] = src[4 * x]; dst[3 * x + 1] = src[4 * x + 1]; dst[3 * x + 2] = src[4 * x + 2];
+		}
+	}
+}
 void HSRendererMetal::beginGoo(const float color[4], unsigned int nebula,
 	unsigned int normals0, unsigned int normals1, bool shaded){
 	if(!st->encoder)

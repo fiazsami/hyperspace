@@ -24,6 +24,8 @@
 // draw the same frames. `parity --backend-textures <metal-dir>` uploads the
 // same mip chains and cube faces through both backends and compares every
 // level and face byte for byte, since no pass the backend draws samples them.
+// `parity --backend-caustics <metal-dir>` makes the saver's caustic textures
+// through both backends' offscreen targets and compares them, shot for shot.
 //
 // Nothing here is a golden image: GL and Metal render the same frame in the same
 // process, so the reference is always the shipped renderer on this machine. The
@@ -47,6 +49,7 @@
 #include "starBurst.h"
 #include "transform.h"
 #include "rendererGL.h"
+#include "causticTextures.h"
 #include "rendererMetal.h"
 
 extern GLhandleARB gooProgram, tunnelProgram;
@@ -130,6 +133,18 @@ REAL(glNewList, void, (GLuint, GLenum)); REAL(glEndList, void, (void)); REAL(glC
 REAL(glMultiDrawElements, void, (GLenum, const GLsizei *, GLenum, const GLvoid *const *, GLsizei));
 REAL(glDrawElements, void, (GLenum, GLsizei, GLenum, const GLvoid *));
 REAL(glTexImage2D, void, (GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const GLvoid *));
+REAL(glReadBuffer, void, (GLenum));
+
+// HSRendererGL::beginOffscreen selects GL_BACK to read the caustics from,
+// which is an INVALID_OPERATION under parity's FBO. Both read and draw stay on
+// its color attachment, so skipping the call reads what was drawn -- and keeps
+// every other GL error an error.
+extern "C" void glReadBuffer(GLenum mode)
+{
+    GLint fbo = 0; glGetIntegerv(GL_FRAMEBUFFER_BINDING_EXT, &fbo);
+    if (fbo && mode == GL_BACK) return;
+    real_glReadBuffer(mode);
+}
 REAL(glTexSubImage2D, void, (GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, const GLvoid *));
 REAL(glCopyTexImage2D, void, (GLenum, GLint, GLenum, GLint, GLint, GLsizei, GLsizei, GLint));
 REAL(glCopyTexSubImage2D, void, (GLenum, GLint, GLint, GLint, GLint, GLint, GLsizei, GLsizei));
@@ -702,6 +717,7 @@ static int compareBackendTextures(NSString *metalDir)
     if (!glctx) { printf("ERROR no GL context\n"); return 2; }
     [glctx makeCurrentContext];
     id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
+    if (!dev) { printf("ERROR no Metal device\n"); return 2; }
     HSRendererGL gl;
     HSRendererMetal metal((__bridge void *)dev, metalDir.fileSystemRepresentation);
 
@@ -753,6 +769,71 @@ static int compareBackendTextures(NSString *metalDir)
     return bad ? 1 : 0;
 }
 
+// parity --backend-caustics: causticTextures, as the saver builds it for the
+// tunnel, made once through HSRendererGL and once through HSRendererMetal. No
+// randomness goes into it, so the only difference is how each backend
+// rasterizes the strips. Every level of every frame is compared under the
+// stars pass's rule, over pixels lit in either.
+static int compareBackendCaustics(NSString *metalDir)
+{
+    NSOpenGLPixelFormatAttribute attrs[] = { NSOpenGLPFAAccelerated, NSOpenGLPFAColorSize, 32, NSOpenGLPFAAllowOfflineRenderers, 0 };
+    NSOpenGLContext *glctx = [[NSOpenGLContext alloc] initWithFormat:[[NSOpenGLPixelFormat alloc] initWithAttributes:attrs] shareContext:nil];
+    if (!glctx) { printf("ERROR no GL context\n"); return 2; }
+    [glctx makeCurrentContext];
+    // GL's offscreen pass draws into the bound framebuffer.
+    const int size = 256;
+    GLuint fbo, color;
+    glGenFramebuffersEXT(1, &fbo); glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, fbo);
+    glGenRenderbuffersEXT(1, &color); glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, color);
+    glRenderbufferStorageEXT(GL_RENDERBUFFER_EXT, GL_RGBA8, size, size);
+    glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_RENDERBUFFER_EXT, color);
+    if (glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT) != GL_FRAMEBUFFER_COMPLETE_EXT) { printf("ERROR framebuffer incomplete\n"); return 2; }
+    id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
+    if (!dev) { printf("ERROR no Metal device\n"); return 2; }
+    HSRendererGL gl;
+    HSRendererMetal metal((__bridge void *)dev, metalDir.fileSystemRepresentation);
+    // Hyperspace.cpp's arguments, with the shaded look's 20 frames.
+    causticTextures a(&gl, 8, 20, 100, size, 1.0f, 0.01f, 20.0f);
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR) { printf("ERROR GL error 0x%x\n", err); return 2; }
+    causticTextures b(&metal, 8, 20, 100, size, 1.0f, 0.01f, 20.0f);
+
+    const double max2 = 1.0, max8 = 0.1, maxBias = 0.06;
+    bool ok = true; double worst2 = 0, worst8 = 0, worstBias = 0; int worstMax = 0, compared = 0;
+    for (int k = 0; k < a.numFrames; k++) {
+        id<MTLTexture> t = (__bridge id<MTLTexture>)metal.texture(b.caustictex[k]);
+        if (!t) { printf("ERROR frame %d has no Metal texture\n", k); return 2; }
+        glBindTexture(GL_TEXTURE_2D, a.caustictex[k]);
+        for (int l = 0; l < (int)t.mipmapLevelCount; l++) {
+            const int s = MAX(1, size >> l);
+            std::vector<unsigned char> pa((size_t)s * s * 4), pb((size_t)s * s * 4);
+            glGetTexImage(GL_TEXTURE_2D, l, GL_RGBA, GL_UNSIGNED_BYTE, pa.data());
+            [t getBytes:pb.data() bytesPerRow:(size_t)s * 4 fromRegion:MTLRegionMake2D(0, 0, s, s) mipmapLevel:l];
+            size_t lit = 0, l2 = 0, l8 = 0; int maxd = 0; double sb[3] = {0, 0, 0};
+            for (size_t i = 0; i < (size_t)s * s; i++) {
+                int pm = 0; bool isLit = false;
+                for (int c = 0; c < 3; c++) {
+                    pm = MAX(pm, abs((int)pa[i * 4 + c] - (int)pb[i * 4 + c]));
+                    isLit |= pa[i * 4 + c] > 8 || pb[i * 4 + c] > 8;
+                }
+                maxd = MAX(maxd, pm);
+                if (isLit) { lit++; l2 += pm > 2; l8 += pm > 8; for (int c = 0; c < 3; c++) sb[c] += (int)pb[i * 4 + c] - (int)pa[i * 4 + c]; }
+            }
+            double bias = 0; for (int c = 0; c < 3; c++) bias = MAX(bias, fabs(sb[c] / MAX((size_t)1, lit)));
+            double p2 = lit ? 100.0 * l2 / lit : 0, p8 = lit ? 100.0 * l8 / lit : 0;
+            // A level with nothing lit on either side would pass by comparing black.
+            if (l == 0 && !lit) { printf("ERROR caustic frame %d is black on both sides\n", k); return 2; }
+            bool levelOk = p2 <= max2 && p8 <= max8 && bias <= maxBias;
+            if (!levelOk) printf("FAIL caustic frame %d level %d: max %d lit>2 %.3f%% lit>8 %.3f%% bias %.3f\n", k, l, maxd, p2, p8, bias);
+            ok &= levelOk; compared++;
+            worst2 = MAX(worst2, p2); worst8 = MAX(worst8, p8); worstBias = MAX(worstBias, bias); worstMax = MAX(worstMax, maxd);
+        }
+    }
+    printf("%s caustics: %d frames, %d levels compared, worst_max=%d worst_lit>2=%.3f%% worst_lit>8=%.3f%% worst_bias=%.3f (limits %.2f%% / %.2f%% / %.3f)\n",
+           ok ? "PASS" : "FAIL", a.numFrames, compared, worstMax, worst2, worst8, worstBias, max2, max8, maxBias);
+    return ok ? 0 : 1;
+}
+
 static NSString *readFile(NSString *path)
 {
     NSString *s = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
@@ -765,6 +846,7 @@ int main(int argc, const char *argv[])
     @autoreleasepool {
         if (argc == 4 && !strcmp(argv[1], "--compare")) return compareRuns(@(argv[2]), @(argv[3]), @"_gl.png", 0.1, 0.01, 0.06, "SAME", "DIFFERENT");
         if (argc == 3 && !strcmp(argv[1], "--backend-textures")) return compareBackendTextures(@(argv[2]));
+        if (argc == 3 && !strcmp(argv[1], "--backend-caustics")) return compareBackendCaustics(@(argv[2]));
         if (argc == 5 && !strcmp(argv[1], "--compare-backend")) {
             for (const Pass &p : kPasses)
                 if (!strcmp(argv[2], p.name)) return compareRuns(@(argv[3]), @(argv[4]), @"_backend.png", p.max2, p.max8, p.maxBias, "PASS", "FAIL");
@@ -775,7 +857,8 @@ int main(int argc, const char *argv[])
             fprintf(stderr, "usage: parity <stars|goo|tunnel|burst|sun> <metal-dir> <outdir> [shader=PATH] [inject=CASE] [renderer=metal] [frames=N] [every=N] [w=N] [h=N]\n"
                             "       parity --compare <ref-dir> <new-dir>\n"
                             "       parity --compare-backend <pass> <gl-dir> <backend-dir>\n"
-                            "       parity --backend-textures <metal-dir>\n");
+                            "       parity --backend-textures <metal-dir>\n"
+                            "       parity --backend-caustics <metal-dir>\n");
             return 2;
         }
         const Pass *pass = nullptr;
@@ -824,6 +907,7 @@ int main(int argc, const char *argv[])
 
         NSError *err = nil;
         id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
+        if (!dev) { printf("ERROR no Metal device\n"); return 2; }
         auto pipeline = [&](NSString *src, NSString *path, const char *vfn, const char *ffn) -> id<MTLRenderPipelineState> {
             id<MTLLibrary> lib = [dev newLibraryWithSource:[iface stringByAppendingString:src] options:nil error:&err];
             if (!lib) { printf("ERROR %s does not compile:\n%s\n", path.UTF8String, err.localizedDescription.UTF8String); return nil; }
@@ -855,9 +939,8 @@ int main(int argc, const char *argv[])
         glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_RENDERBUFFER_EXT, color);
         if (glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT) != GL_FRAMEBUFFER_COMPLETE_EXT) { printf("ERROR framebuffer incomplete\n"); return 2; }
 
-        // HyperspaceView.mm's call order. (causticTextures.cpp's glReadBuffer(GL_BACK)
-        // raises INVALID_OPERATION under an FBO; read and draw buffers both stay on
-        // COLOR_ATTACHMENT0, so the caustic readback reads what it drew.)
+        // HyperspaceView.mm's call order. (The caustics' glReadBuffer(GL_BACK) is
+        // skipped under the FBO; see glReadBuffer above.)
         static HyperspaceSaverSettings s;
         setDefaults(&s);
         s.dUseGoo = pass->goo; s.dUseTunnels = pass->tunnels;

@@ -275,7 +275,8 @@ draw that slipped past the backend cannot go unnoticed.
 
 The backend draws frames, fog, quads, the overlay, and the goo and starburst
 sphere in their shaded look (the shaders-off look is ss-5dl, and the backend
-stops on it). It has no offscreen target or tunnel yet, so `tunnel` is refused.
+stops on it), and the offscreen target the caustics are made in. It has no
+tunnel yet, so `tunnel` is refused.
 Measured, worst shot:
 
 | pass | lit>2 | lit>8 | bias | limits |
@@ -314,6 +315,17 @@ judge, and one part of it is not separated: Metal filters a cube map across
 face edges and Apple's GL does not. The goo passes with it, but the replay
 samples on Metal too, so no measurement here isolates a seam.
 
+`parity --backend-caustics` judges the offscreen target by what it is for: it
+builds the tunnel's caustic textures, with the saver's own arguments (20 frames
+at 256x256 from a 100x100 grid), once through each backend, and compares all
+180 levels under the `stars` rule. Nothing random goes into them, so the only
+difference is rasterization. Measured: worst 2 levels, 0.000% / 0.000% / bias
+0.004. Its fixtures are killed: the readback not flipped to GL's bottom-up
+order, strips at alpha 0.5, red and blue swapped, and a grey clear. GL's
+`glReadBuffer(GL_BACK)` raises INVALID_OPERATION under parity's FBO, as in the
+main loop; parity skips that one call while an FBO is bound, since read and
+draw both stay on it, so any GL error at all fails the check.
+
 One defect is not a fixture because it cannot show: dropping the map from GL's
 clip z (-w..w) to Metal's (0..w). Without it Metal clips where GL's NDC z < 0,
 which at the saver's near and far planes (0.001, 200) is within
@@ -336,5 +348,4 @@ overlay sits at z = 0, on Metal's inclusive boundary. Measured: it passes
   pass's replay verdict on those shots is always that refusal. The backend
   check judges it instead.
 - **The passes compare; the backend renders.** The passes draw nothing of the
-  saver's own; `HSRendererMetal` does, so far for everything but the tunnel
-  and the caustics it is textured with.
+  saver's own; `HSRendererMetal` does, so far for everything but the tunnel.
