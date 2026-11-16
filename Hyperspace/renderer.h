@@ -70,7 +70,9 @@ public:
 	virtual ~HSRenderer(){}
 
 	// Clear to black and start drawing a frame through frame. Fog is on.
+	// endFrame finishes it: a backend that queues its draws submits them there.
 	virtual void beginFrame(const HSFrame &frame) = 0;
+	virtual void endFrame() = 0;
 
 	// Fog for world-space draws until the next setFog or beginFrame. The sun
 	// and its lens flare draw with it off.
@@ -98,7 +100,8 @@ public:
 	virtual void endOffscreen(unsigned char *rgb) = 0;
 
 	// The square hsQuad(model, half) describes, textured, its texture
-	// modulated by color, blended (SRC_ALPHA, ONE) over what is already drawn.
+	// modulated by color, blended (SRC_ALPHA, ONE) over what is already drawn,
+	// from either side: quads are not culled.
 	// model places it in world space, seen through the camera and fogged
 	// linearly with eye distance unless setFog(false) -- or, between
 	// beginOverlay and endOverlay, in the overlay plane, never fogged.

@@ -71,7 +71,9 @@ typedef struct HyperspaceSaverSettings
 
 __private_extern__ void draw(HyperspaceSaverSettings *inSettings);
 __private_extern__ void reshape(int width, int height, HyperspaceSaverSettings *inSettings);
-__private_extern__ void initSaver(HyperspaceSaverSettings *inSettings);
+// renderer is the backend to draw through, which the settings then own;
+// NULL draws through OpenGL.
+__private_extern__ void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer = 0);
 __private_extern__ void cleanUp(HyperspaceSaverSettings *inSettings);
 __private_extern__ void setDefaults(HyperspaceSaverSettings *inSettings);
 

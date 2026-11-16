@@ -82,6 +82,10 @@ void HSRendererGL::beginOverlay(float aspect){
 	glEnable(GL_BLEND);
 	glEnable(GL_TEXTURE_2D);
 	glDisable(GL_LIGHTING);
+	// The overlay sits at eye depth 0, nearer than any fog start, so fog
+	// would not touch it; off says so rather than leaning on that.
+	overlayFog = glIsEnabled(GL_FOG);
+	setFog(false);
 	glMatrixMode(GL_PROJECTION);
 	glPushMatrix();
 	glLoadIdentity();
@@ -96,6 +100,7 @@ void HSRendererGL::endOverlay(){
 	glPopMatrix();
 	glMatrixMode(GL_MODELVIEW);
 	glPopMatrix();
+	setFog(overlayFog);
 }
 
 // Uploads every level of chain to target from tightly packed rows, as GLU
