@@ -1,2 +1,2 @@
 # Kill-check fixture: Metal backend defect (halfsphere): only half of the sphere's bands drawn.
-s/for(int b = 0; b < HS_SPHERE_BANDS; b++)$/for(int b = 0; b < HS_SPHERE_BANDS \/ 2; b++)/
+/against 0.490%)\./,/drawPrimitives/ s/b < HS_SPHERE_BANDS; b++/b < HS_SPHERE_BANDS \/ 2; b++/

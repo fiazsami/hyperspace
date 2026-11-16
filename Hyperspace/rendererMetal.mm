@@ -44,6 +44,16 @@ struct GooUniforms {
 	simd_float4x4 projection;
 };
 
+// The offsets Metal gives the shader's structs; a mirror that drifts from
+// them fails to compile instead of reading fog from the wrong place.
+static_assert(sizeof(ImmediateVertex) == 48 && offsetof(ImmediateVertex, texcoord) == 16 &&
+	offsetof(ImmediateVertex, color) == 32, "ImmediateVertex must match Interface.metal");
+static_assert(sizeof(FFUniforms) == 160 && offsetof(FFUniforms, fogColor) == 128 &&
+	offsetof(FFUniforms, fogStart) == 144 && offsetof(FFUniforms, texOn) == 156, "FFUniforms must match Interface.metal");
+static_assert(sizeof(GooUniforms) == 240 && offsetof(GooUniforms, color) == 128 &&
+	offsetof(GooUniforms, fogEnd) == 160 && offsetof(GooUniforms, fogScale) == 164 &&
+	offsetof(GooUniforms, projection) == 176, "GooUniforms must match Interface.metal");
+
 struct Texture {
 	id<MTLTexture> texture;
 	id<MTLSamplerState> sampler;
@@ -189,23 +199,14 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	sd.mipFilter = MTLSamplerMipFilterLinear;
 	st->mipmapped = [st->device newSamplerStateWithDescriptor:sd];
 	// GL clamps s and t and leaves r at REPEAT, and filters each face alone;
-	// Metal filters cube maps across faces. Whether either shows is the goo's
-	// parity to judge (ss-a4a.4.2 slice 3): nothing samples a cube before it.
+	// Metal filters cube maps across faces. The goo passes with this, but no
+	// measurement isolates a seam (parity/README.md, Backend check).
 	sd.sAddressMode = sd.tAddressMode = sd.rAddressMode = MTLSamplerAddressModeClampToEdge;
 	st->cube = [st->device newSamplerStateWithDescriptor:sd];
 	st->inGoo = false;
 	st->gooColor = simd_make_float4(1, 1, 1, 1);
 	st->gooTextures[0] = st->gooTextures[1] = st->gooTextures[2] = 0;
-
-	std::vector<float> sphere;
-	float band[HS_SPHERE_BAND_POINTS][3];
-	for(int b = 0; b < HS_SPHERE_BANDS; b++){
-		hsSphereBand(b, band);
-		for(int i = 0; i < HS_SPHERE_BAND_POINTS; i++)
-			for(int n = 0; n < 2; n++)   // the unit sphere's normal is its position
-				sphere.insert(sphere.end(), band[i], band[i] + 3);
-	}
-	st->sphere = [st->device newBufferWithBytes:sphere.data() length:sphere.size() * sizeof(float) options:MTLResourceStorageModeShared];
+	st->sphere = nil;   // built on the first drawGooSphere, as GL builds its list
 }
 
 HSRendererMetal::~HSRendererMetal(){
@@ -268,6 +269,10 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 void HSRendererMetal::endFrame(){
 	if(!st->encoder)
 		fail("endFrame", "no frame was begun");
+	if(st->inGoo)
+		fail("endFrame", "beginGoo was not ended");
+	if(st->inOverlay)
+		fail("endFrame", "beginOverlay was not ended");
 	[st->encoder endEncoding];
 	[st->commands commit];
 	[st->commands waitUntilCompleted];
@@ -337,6 +342,9 @@ unsigned int HSRendererMetal::createCubeTexture(const HSMipChain faces[6]){
 void HSRendererMetal::drawQuad(unsigned int texture, const float color[4], const float model[16], float half){
 	if(!st->encoder)
 		fail("drawQuad", "outside a frame");
+	// The goo's pipeline and cube textures are bound until endGoo.
+	if(st->inGoo)
+		fail("drawQuad", "inside beginGoo/endGoo");
 	std::map<unsigned int, Texture>::const_iterator tex = st->textures.find(texture);
 	if(tex == st->textures.end())
 		fail("drawQuad", "unknown texture");
@@ -420,10 +428,9 @@ void HSRendererMetal::beginGoo(const float color[4], unsigned int nebula,
 	[st->encoder setRenderPipelineState:st->gooPipeline];
 }
 
-// One goo draw: vertices are GooVertex (normal, then position), placed by model
-// after the camera, as glTranslatef/glScalef on the modelview did.
-static void drawGoo(HSRendererMetalState *st, const simd_float4x4 &model, id<MTLBuffer> vertices,
-	id<MTLBuffer> indices, NSUInteger count, MTLPrimitiveType type, NSUInteger start){
+// Binds goo vertices, GooVertex (normal, then position), placed by model after
+// the camera, as glTranslatef/glScalef on the modelview did.
+static void bindGoo(HSRendererMetalState *st, const simd_float4x4 &model, id<MTLBuffer> vertices){
 	GooUniforms u;
 	u.modelview = simd_mul(st->view, model);
 	u.mvp = simd_mul(st->clipProjection, u.modelview);
@@ -435,11 +442,6 @@ static void drawGoo(HSRendererMetalState *st, const simd_float4x4 &model, id<MTL
 	[st->encoder setVertexBuffer:vertices offset:0 atIndex:0];
 	[st->encoder setVertexBytes:&u length:sizeof u atIndex:1];
 	[st->encoder setFragmentBytes:&u length:sizeof u atIndex:1];
-	if(indices)
-		[st->encoder drawIndexedPrimitives:type indexCount:count indexType:MTLIndexTypeUInt32 indexBuffer:indices indexBufferOffset:0];
-	else
-		[st->encoder drawPrimitives:type vertexStart:start vertexCount:count];
-	st->draws++;
 }
 
 void HSRendererMetal::drawGooSurface(impSurface *surface, const float offset[3]){
@@ -448,16 +450,22 @@ void HSRendererMetal::drawGooSurface(impSurface *surface, const float offset[3])
 	const unsigned int vertexCount = surface->getVertexCount(), indexCount = surface->getIndexCount();
 	if(vertexCount == 0 || indexCount == 0)
 		return;
+	// GL would read a stale VBO tail for an index past the count; Metal would
+	// read past the buffer.
 	std::vector<unsigned int> indices(indexCount);
 	for(unsigned int i = 0; i < indexCount; i++)
-		indices[i] = surface->getIndex(i);
+		if((indices[i] = surface->getIndex(i)) >= vertexCount)
+			fail("drawGooSurface", "an index is past the surface's vertices");
 	id<MTLBuffer> vb = [st->device newBufferWithBytes:surface->getVertex(0) length:size_t(vertexCount) * 6 * sizeof(float)
 		options:MTLResourceStorageModeShared];
 	id<MTLBuffer> ib = [st->device newBufferWithBytes:indices.data() length:indices.size() * sizeof(unsigned int)
 		options:MTLResourceStorageModeShared];
 	simd_float4x4 model = matrix_identity_float4x4;
 	model.columns[3] = simd_make_float4(offset[0], offset[1], offset[2], 1.0f);
-	drawGoo(st, model, vb, ib, indexCount, MTLPrimitiveTypeTriangle, 0);
+	bindGoo(st, model, vb);
+	[st->encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:indexCount
+		indexType:MTLIndexTypeUInt32 indexBuffer:ib indexBufferOffset:0];
+	st->draws++;
 }
 
 void HSRendererMetal::drawGooSphere(const float center[3], float radius){
@@ -466,8 +474,27 @@ void HSRendererMetal::drawGooSphere(const float center[3], float radius){
 	simd_float4x4 model = matrix_identity_float4x4;
 	model.columns[0].x = model.columns[1].y = model.columns[2].z = radius;
 	model.columns[3] = simd_make_float4(center[0], center[1], center[2], 1.0f);
-	for(int b = 0; b < HS_SPHERE_BANDS; b++)
-		drawGoo(st, model, st->sphere, nil, HS_SPHERE_BAND_POINTS, MTLPrimitiveTypeTriangleStrip, NSUInteger(b) * HS_SPHERE_BAND_POINTS);
+	if(!st->sphere){
+		std::vector<float> sphere;
+		float band[HS_SPHERE_BAND_POINTS][3];
+		for(int b = 0; b < HS_SPHERE_BANDS; b++){
+			hsSphereBand(b, band);
+			for(int i = 0; i < HS_SPHERE_BAND_POINTS; i++)
+				for(int n = 0; n < 2; n++)   // the unit sphere's normal is its position
+					sphere.insert(sphere.end(), band[i], band[i] + 3);
+		}
+		st->sphere = [st->device newBufferWithBytes:sphere.data() length:sphere.size() * sizeof(float)
+			options:MTLResourceStorageModeShared];
+	}
+	// Bound again for every band, though nothing changes: bound once, the 32
+	// draws rasterize differently along the band seams (measured: 3-19 pixels
+	// a shot more than 8 levels off), and further from GL (burst 0.512% lit>2
+	// against 0.490%).
+	for(int b = 0; b < HS_SPHERE_BANDS; b++){
+		bindGoo(st, model, st->sphere);
+		[st->encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:NSUInteger(b) * HS_SPHERE_BAND_POINTS vertexCount:HS_SPHERE_BAND_POINTS];
+	}
+	st->draws += HS_SPHERE_BANDS;
 }
 
 void HSRendererMetal::endGoo(){

@@ -15,7 +15,9 @@
 # textures is not a pass but the same shape: `parity --backend-textures` uploads
 # mip chains and six different cube faces through both backends and compares
 # every level and face byte for byte, since no pass reads the textures back.
-# Its fixtures are backend_textures_*.sed. About 4 minutes.
+# Its fixtures are backend_textures_*.sed.
+#
+# About 2.5 minutes for everything (2m16s measured on an M5 Max).
 #
 #   parity/backendcheck.sh [stars|goo|burst|sun|textures ...]    default: all five
 #
