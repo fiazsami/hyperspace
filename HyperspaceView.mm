@@ -182,6 +182,7 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 	// Before super, which starts the timer at the interval set now. The window,
 	// and so the screen, may have changed since the view moved to it.
 	[self matchRefresh];
+	lLastFrame = 0;	// the first frame after a start takes no step
     [super startAnimation];
 	
 	if (lIsConfiguring == NO && lView)
@@ -208,7 +209,6 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 				return;
 			}
 			[self matchBacking];
-			lLastFrame = CACurrentMediaTime();
         }
     }
 }
@@ -277,15 +277,21 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 					// the saver to the display; nil only after the layer's
 					// one-second timeout, as when the display sleeps.
 					id<CAMetalDrawable> drawable = [lLayer nextDrawable];
-					if (drawable == nil)
-						return;	// no frame; the next one carries the time, up to the cap below
-					// A stall -- a nil drawable after the layer's full timeout,
-					// whose time this frame carries, or a throttled host -- would
-					// otherwise move the scene by all of it at once; past a tenth of a second the scene slows instead,
-					// which also slows it on a host drawing under 10 fps. The clock
-					// is monotonic, so the step is never negative.
 					CFTimeInterval now = CACurrentMediaTime();
-					lSettings.frameTime = float(fmin(now - lLastFrame, kMaxFrameTime));
+					if (drawable == nil)
+					{
+						// A stall is dropped, not replayed: the scene resumes
+						// where it stopped instead of lurching ahead on the
+						// next frame.
+						lLastFrame = now;
+						return;
+					}
+					// The step is the time since the last frame, from a
+					// monotonic clock, so never negative. A throttled host
+					// would otherwise move the scene by a whole gap at once;
+					// past kMaxFrameTime the scene slows instead, which also
+					// slows it on a host drawing under 10 fps.
+					lSettings.frameTime = lLastFrame > 0 ? float(fmin(now - lLastFrame, kMaxFrameTime)) : 0.0f;
 					lLastFrame = now;
 					try
 					{
