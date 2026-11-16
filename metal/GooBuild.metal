@@ -85,27 +85,42 @@ kernel void goo_build(constant GooBuildUniforms &u      [[buffer(0)]],
     const uint vertices = uint(row[0]) * 3;
     if (vertices == 0)
         return;
+    // The counter keeps counting past the buffer, so the CPU learns how much
+    // a frame needed. A cell that does not fit is dropped, and blanks what
+    // part of it falls inside the buffer: the draw covers up to maxVertices,
+    // and those must not be the last build's leftovers. Every cell writes
+    // whole triangles from a multiple of 3, so a blank one is degenerate and
+    // draws nothing.
     const uint at = atomic_fetch_add_explicit(count, vertices, memory_order_relaxed);
-    if (at + vertices > u.maxVertices)
-        return;   // over capacity; goo_build_count draws none past it
+    if (at + vertices > u.maxVertices) {
+        for (uint v = at; v < u.maxVertices; v++)
+            out[v].position = out[v].normal = packed_float3(0.0f);
+        return;
+    }
+    float3 normal[8];
+    for (uint i = 0; i < 8; i++)
+        normal[i] = cornerNormal(i, base, value, u);
     const float3 origin = float3(u.origin.x, 0.0f, u.origin.y);
     for (uint v = 0; v < vertices; v++) {
         const uchar2 e = kEdge[row[1 + v]];
         const float t = (u.surface - value[e.x]) / (value[e.y] - value[e.x]);
         const float3 p = base + mix(corner(e.x), corner(e.y), t) * u.unitSize;
         out[at + v].position = packed_float3(p - origin);
-        out[at + v].normal = packed_float3(mix(cornerNormal(e.x, base, value, u),
-                                               cornerNormal(e.y, base, value, u), t));
+        out[at + v].normal = packed_float3(mix(normal[e.x], normal[e.y], t));
     }
 }
 
 // One thread: the draw's arguments (MTLDrawPrimitivesIndirectArguments) from
-// the count, capped at the buffer, so the draw never reads past it.
+// the count, capped at the buffer, so the draw never reads past it; and the
+// most vertices any build has needed, which is never reset, so the CPU can
+// read it at any time and size the buffer from it.
 kernel void goo_build_count(constant GooBuildUniforms &u [[buffer(0)]],
                             device atomic_uint *count     [[buffer(3)]],
-                            device uint *args             [[buffer(5)]])
+                            device uint *args             [[buffer(5)]],
+                            device atomic_uint *peak      [[buffer(6)]])
 {
     const uint n = atomic_load_explicit(count, memory_order_relaxed);
+    atomic_fetch_max_explicit(peak, n, memory_order_relaxed);
     args[0] = min(n, u.maxVertices);   // vertexCount
     args[1] = 1;                       // instanceCount
     args[2] = 0;                       // vertexStart

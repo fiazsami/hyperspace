@@ -43,6 +43,7 @@ goo::goo(int res, float rad){
 	if(res < 5)
 		res = 5;
 	resolution = res;
+	surfacesBuilt = true;
 	radius = rad;
 	unitSize = volumeSize / float(res);
 	arraySize = 2 * int(0.99f + radius / volumeSize);
@@ -103,11 +104,7 @@ void goo::update(float x, float z, float heading, float fov, HyperspaceSaverSett
 	clip[2][1] = -cosf(heading);
 
 	// A renderer that builds the goo itself needs only the blocks chosen.
-	const bool cpu = !(inSettings->renderer && inSettings->renderer->buildsGoo());
-
-	// Empty crawl point vector.
-	// This is only needed so that the right version of impCubeVolume::makeSurface() is called.
-	impCrawlPointVector cpv;
+	surfacesBuilt = !(inSettings->renderer && inSettings->renderer->buildsGoo());
 
 	for(i=0; i<arraySize; i++){
 		for(j=0; j<arraySize; j++){
@@ -116,13 +113,8 @@ void goo::update(float x, float z, float heading, float fov, HyperspaceSaverSett
 			if(shiftx * clip[0][0] + shiftz * clip[0][1] > volumeSize * -1.41421f){
 				if(shiftx * clip[1][0] + shiftz * clip[1][1] > volumeSize * -1.41421f){
 					if(shiftx * clip[2][0] + shiftz * clip[2][1] < radius + volumeSize * 1.41421f){
-						shiftx += centerx;
-						shiftz += centerz;
-						if(cpu){
-							volume->setSurface(surface[i][j]);
-							surface[i][j]->reset();
-							volume->makeSurface(cpv);
-						}
+						if(surfacesBuilt)
+							buildSurface(i, j);
 						useSurface[i][j] = true;
 					}
 				}
@@ -159,6 +151,18 @@ float goo::function(float* position, void *contextInfo){
 }
 
 
+void goo::buildSurface(int i, int j){
+	// goo::function reads the block's place from shiftx and shiftz.
+	shiftx = centerx + volumeSize * (0.5f + float(i - arraySize / 2));
+	shiftz = centerz + volumeSize * (0.5f + float(j - arraySize / 2));
+	// Empty crawl point vector.
+	// This is only needed so that the right version of impCubeVolume::makeSurface() is called.
+	impCrawlPointVector cpv;
+	volume->setSurface(surface[i][j]);
+	surface[i][j]->reset();
+	volume->makeSurface(cpv);
+}
+
 void goo::draw(HSRenderer *renderer){
 	int i, j;
 
@@ -191,6 +195,8 @@ void goo::draw(HSRenderer *renderer){
 	for(i=0; i<arraySize; i++){
 		for(j=0; j<arraySize; j++){
 			if(useSurface[i][j]){
+				if(!surfacesBuilt)
+					buildSurface(i, j);
 				shiftx = centerx + volumeSize * (0.5f + float(i - arraySize / 2));
 				shiftz = centerz + volumeSize * (0.5f + float(j - arraySize / 2));
 				const float offset[3] = {shiftx, 0.0f, shiftz};

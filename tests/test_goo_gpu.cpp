@@ -186,3 +186,40 @@ TEST(goo_hands_a_renderer_that_builds_it_the_field_and_builds_nothing)
     g.draw(&again);
     CHECK(again.gooFields.empty());
 }
+
+TEST(goo_builds_the_surfaces_it_skipped_for_a_renderer_that_wants_them)
+{
+    /* The same goo, updated twice from the same state: once for a CPU
+     * renderer, once for one that builds the goo -- then drawn through a CPU
+     * renderer, which must get the surfaces the first built. */
+    HyperspaceSaverSettings s;
+    memset(&s, 0, sizeof s);
+    s.frameTime = 0.5f;
+    Recorder cpu, gpu;
+    gpu.gooOnGPU = true;
+
+    srand(7);
+    goo want(6, 5.0f);
+    s.renderer = &cpu;
+    want.update(0.7f, -0.3f, 0.4f, 1.0f, &s);
+    srand(7);
+    goo got(6, 5.0f);
+    s.renderer = &gpu;
+    got.update(0.7f, -0.3f, 0.4f, 1.0f, &s);
+
+    Recorder drawn;
+    got.draw(&drawn);
+    CHECK(!drawn.goo.empty());
+    for (size_t n = 0; n < drawn.goo.size(); n++) {
+        const impSurface *a = drawn.goo[n].surface;
+        bool found = false;
+        for (int i = 0; i < want.arraySize; i++) for (int j = 0; j < want.arraySize; j++) {
+            if (got.surface[i][j] != a) continue;
+            found = true;
+            std::vector<Key> have = trianglesOf(a), expect = trianglesOf(want.surface[i][j]);
+            CHECK(!expect.empty() || want.surface[i][j]->getIndexCount() == 0);
+            CHECK(have == expect);
+        }
+        CHECK(found);
+    }
+}
