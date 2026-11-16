@@ -941,6 +941,11 @@ int main(int argc, const char *argv[])
         static HyperspaceSaverSettings s;
         setDefaults(&s);
         s.dUseGoo = pass->goo; s.dUseTunnels = pass->tunnels;
+        // The backend stops the process on the shaders-off goo and tunnel
+        // (ss-5dl); say so here, with the exit code a failed run has.
+        if (backend && !s.dShaders && (s.dUseGoo || s.dUseTunnels)) {
+            fprintf(stderr, "renderer=metal draws the shaded look only; the shaders-off goo and tunnel are ss-5dl\n"); return 2;
+        }
         s.first = 1;
         reshape(w, h, &s);
         glClearColor(0, 0, 0, 0); glClear(GL_COLOR_BUFFER_BIT); glFlush();

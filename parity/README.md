@@ -303,8 +303,8 @@ an overlay ignoring the aspect ratio, (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) blending,
 nearest sampling, the quad's color ignored; under `goo`, surfaces drawn at the
 origin, the nebula and a normal map swapped, the fog scale as 1/end, and the
 normal-map mix dropped; under `tunnel`, the caustic frames swapped, their mix
-ignored (alpha 1), front faces culled, no culling, and the fog ending twice as
-far; under `burst`, the sphere at radius 1 and half its bands; under `sun`,
+ignored (alpha 1), front faces culled, no culling, the fog ending twice as
+far, the fog scale as 1/end, and the camera left out of its projection; under `burst`, the sphere at radius 1 and half its bands; under `sun`,
 `setFog(false)` ignored. A fixture that no longer changes the file is an error, not a survivor.
 
 No pass reads a texture back, so `parity --backend-textures` checks uploads
