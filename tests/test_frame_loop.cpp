@@ -25,7 +25,9 @@
 #include "Hyperspace/wavyNormalCubeMaps.h"
 #include "Hyperspace/Hyperspace.h"
 
+#include <algorithm>
 #include <math.h>
+#include <string>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -51,14 +53,36 @@ struct FrameRecorder : Recorder {
     std::vector<HSFrame> frames;
     std::vector<bool> fog;
     std::vector<TunnelBegin> tunnelBegins;
-    // On-screen draws so far, sampled at each call that brackets them.
-    std::vector<size_t> drawsAtBegin, drawsAtEnd, drawsAtFog;
+    /* Every frame, fog and on-screen draw call in order, one letter each:
+     * B/E begin and end frame, f/F fog off and on, S a quad (star or sun),
+     * O an overlay quad (flare), G a goo surface, P a burst sphere, T a
+     * tunnel strip. Never cleared, unlike the vectors above. */
+    std::string events;
     int *deletions = nullptr;
     ~FrameRecorder() override { if (deletions) ++*deletions; }
-    size_t draws() const { return strips.size() + goo.size() + spheres.size() + tunnel.size(); }
-    void beginFrame(const HSFrame &f) override { frames.push_back(f); drawsAtBegin.push_back(draws()); }
-    void endFrame() override { drawsAtEnd.push_back(draws()); }
-    void setFog(bool on) override { fog.push_back(on); drawsAtFog.push_back(draws()); }
+    void beginFrame(const HSFrame &f) override { frames.push_back(f); events += 'B'; }
+    void endFrame() override { events += 'E'; }
+    void setFog(bool on) override { fog.push_back(on); events += on ? 'F' : 'f'; }
+    void drawQuad(unsigned int t, const float c[4], const float m[16], float half) override
+    {
+        Recorder::drawQuad(t, c, m, half);
+        events += inOverlay ? 'O' : 'S';
+    }
+    void drawGooSurface(impSurface *surface, const float offset[3]) override
+    {
+        Recorder::drawGooSurface(surface, offset);
+        events += 'G';
+    }
+    void drawGooSphere(const float center[3], float radius) override
+    {
+        Recorder::drawGooSphere(center, radius);
+        events += 'P';
+    }
+    void drawTunnelStrip(const HSTunnelVertex *v, int count) override
+    {
+        Recorder::drawTunnelStrip(v, count);
+        events += 'T';
+    }
     void beginTunnel(unsigned int c0, unsigned int c1, float lerp, bool shaded) override
     {
         TunnelBegin b = {c0, c1, lerp, shaded};
@@ -315,19 +339,39 @@ TEST(draw_hands_the_renderer_one_frame_in_the_settings_view)
 TEST(draw_brackets_every_on_screen_draw_inside_its_frame)
 {
     FrameRecorder *r = new FrameRecorder;
-    HyperspaceSaverSettings *s = started(r, true, false, false);
-    frame(s, 0.0f);
-    size_t total = r->draws();
-    CHECK(total > 0);
-    CHECK(r->drawsAtBegin.size() == 1 && r->drawsAtEnd.size() == 1);
-    CHECK(r->drawsAtBegin[0] == 0);       // nothing on screen before the frame begins
-    CHECK(r->drawsAtEnd[0] == total);     // nor after it ends
-    // fog goes off for the sun and its flare, which draw something, and comes
-    // back on after them, with nothing drawn after it in this frame
-    CHECK(r->drawsAtFog.size() == 2);
-    CHECK(r->drawsAtFog[0] < r->drawsAtFog[1]);
-    CHECK(r->drawsAtFog[1] == total);
-    CHECK(r->drawsAtFog[0] > 0);          // the stars and goo come first, fogged
+    HyperspaceSaverSettings *s = started(r, true, true, false);
+    // Two minutes of frames: the flare draws only while the sun is in view,
+    // so one frame may have none; across the run it must show, unfogged.
+    int framesWithFlare = 0, malformed = 0;
+    for (int second = 0; second < 120; second++) {
+        size_t start = r->events.size();
+        frame(s, second == 0 ? 0.0f : 1.0f);
+        std::string e = r->events.substr(start);
+        // one frame, begun before anything is drawn and ended after everything;
+        // fog goes off once and back on once, in that order
+        size_t off = e.find('f'), on = e.find('F');
+        if (e.size() < 2 || e.front() != 'B' || e.back() != 'E' ||
+            std::count(e.begin(), e.end(), 'B') != 1 || std::count(e.begin(), e.end(), 'E') != 1 ||
+            off == std::string::npos || on == std::string::npos || on < off ||
+            e.find('f', off + 1) != std::string::npos || e.find('F', on + 1) != std::string::npos) {
+            malformed++;
+            continue;
+        }
+        std::string fogged = e.substr(1, off - 1), unfogged = e.substr(off + 1, on - off - 1), after = e.substr(on + 1);
+        // the stars, the goo and the tunnel draw fogged, as does a burst
+        CHECK(fogged.find('S') != std::string::npos);
+        CHECK(fogged.find('G') != std::string::npos);
+        CHECK(fogged.find('T') != std::string::npos);
+        // the sun, and its flare when it shows, and nothing else, unfogged
+        CHECK(unfogged.find('S') != std::string::npos);
+        CHECK(unfogged.find_first_of("GPT") == std::string::npos);
+        CHECK(fogged.find('O') == std::string::npos);
+        if (unfogged.find('O') != std::string::npos) framesWithFlare++;
+        // and nothing draws after fog is back on
+        CHECK(after == "E");
+    }
+    CHECK(malformed == 0);
+    CHECK(framesWithFlare > 0);
     cleanUp(s);
     delete s;
 }
