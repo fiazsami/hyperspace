@@ -46,11 +46,12 @@ public:
 	void drawTunnelStrip(const HSTunnelVertex *v, int count);
 	void endTunnel();
 
-	HSRendererGL() : offscreenSize(0), gooShaded(false), tunnelShaded(false), tunnelAlpha(1.0f), sphereList(0) {}
+	HSRendererGL() : offscreenSize(0), offscreenFog(false), gooShaded(false), tunnelShaded(false), tunnelAlpha(1.0f), sphereList(0) {}
 
 private:
 	int savedViewport[4];
 	int offscreenSize;   // 0 outside beginOffscreen / endOffscreen
+	bool offscreenFog;   // the fog beginOffscreen turned off, for endOffscreen
 	bool gooShaded;      // each begin call's, for its own end call to undo
 	bool tunnelShaded;
 	float tunnelAlpha;   // lerp when shaded, where the tunnel program reads it

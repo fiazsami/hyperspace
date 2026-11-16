@@ -89,9 +89,10 @@ public:
 	// Render into a size x size RGB target and read it back. beginOffscreen
 	// clears to black; strips drawn until endOffscreen are untextured,
 	// per-vertex colored, blended (SRC_ALPHA, ONE), with x and y running 0..1
-	// across the target. endOffscreen writes size * size * 3 bytes, bottom row
-	// first, and restores the viewport and the camera. Other pipeline state
-	// is the backend's to leave: callers set what they draw with next.
+	// across the target, unfogged. endOffscreen writes size * size * 3 bytes,
+	// bottom row first, and restores the viewport, the camera and the fog
+	// setting. Other pipeline state is the backend's to leave: callers set
+	// what they draw with next.
 	virtual void beginOffscreen(int size) = 0;
 	virtual void drawColorStrip(const HSColorVertex *v, int count) = 0;
 	virtual void endOffscreen(unsigned char *rgb) = 0;
@@ -99,8 +100,8 @@ public:
 	// The square hsQuad(model, half) describes, textured, its texture
 	// modulated by color, blended (SRC_ALPHA, ONE) over what is already drawn.
 	// model places it in world space, seen through the camera and fogged
-	// linearly with eye distance -- or, between beginOverlay and endOverlay,
-	// in the overlay plane.
+	// linearly with eye distance unless setFog(false) -- or, between
+	// beginOverlay and endOverlay, in the overlay plane, never fogged.
 	//
 	// The quad takes its model matrix rather than finished corners so that a
 	// backend can apply it after the camera's translation, as GL's matrix

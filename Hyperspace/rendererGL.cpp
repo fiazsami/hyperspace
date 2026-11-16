@@ -159,6 +159,7 @@ void HSRendererGL::beginOffscreen(int size){
 	glLoadIdentity();
 	glReadBuffer(GL_BACK);
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	offscreenFog = glIsEnabled(GL_FOG);
 	glDisable(GL_FOG);
 	glDisable(GL_TEXTURE_2D);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
@@ -188,6 +189,7 @@ void HSRendererGL::endOffscreen(unsigned char *rgb){
 	glMatrixMode(GL_MODELVIEW);
 	glPopMatrix();
 	glViewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3]);
+	setFog(offscreenFog);
 	offscreenSize = 0;
 }
 
@@ -262,6 +264,7 @@ void HSRendererGL::endGoo(){
 	else{
 		glDisable(GL_TEXTURE_GEN_S);
 		glDisable(GL_TEXTURE_GEN_T);
+		glDisable(GL_NORMALIZE);
 	}
 }
 
@@ -270,18 +273,15 @@ void HSRendererGL::beginTunnel(unsigned int caustic0, unsigned int caustic1, flo
 	tunnelAlpha = shaded ? lerp : 1.0f;
 	glCullFace(GL_BACK);
 	glEnable(GL_CULL_FACE);
-	glEnable(GL_TEXTURE_2D);
 	if(shaded){
 		glActiveTextureARB(GL_TEXTURE1_ARB);
 		glBindTexture(GL_TEXTURE_2D, caustic1);
-		glActiveTextureARB(GL_TEXTURE0_ARB);
-		glBindTexture(GL_TEXTURE_2D, caustic0);
+	}
+	glActiveTextureARB(GL_TEXTURE0_ARB);
+	glEnable(GL_TEXTURE_2D);
+	glBindTexture(GL_TEXTURE_2D, caustic0);
+	if(shaded)
 		glUseProgramObjectARB(tunnelProgram);
-	}
-	else{
-		glActiveTextureARB(GL_TEXTURE0_ARB);
-		glBindTexture(GL_TEXTURE_2D, caustic0);
-	}
 	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 	glEnable(GL_BLEND);
