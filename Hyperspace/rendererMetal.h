@@ -23,8 +23,13 @@ public:
 
 	// Frames draw into target, an id<MTLTexture> of a renderable format, until
 	// the next call, which must come between frames. endFrame waits for the
-	// GPU to finish the frame, and stops the process if the GPU failed it.
+	// GPU to finish the frame, so the texture can be read back, and stops the
+	// process if the GPU failed it.
 	void setTarget(void *target);
+	// The next frame draws into drawable, an id<CAMetalDrawable>, and endFrame
+	// presents it without waiting for the GPU; a frame the GPU fails is logged
+	// and skipped. Call it before every beginFrame: a drawable is one frame's.
+	void setDrawable(void *drawable);
 	// Draws issued since the last beginFrame.
 	int drawCount() const;
 	// The id<MTLTexture> a create* call returned name for, or NULL.

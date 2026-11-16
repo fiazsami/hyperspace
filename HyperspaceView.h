@@ -24,12 +24,17 @@
  */
 
 #import <ScreenSaver/ScreenSaver.h>
+#import <QuartzCore/CAMetalLayer.h>
 #import "Hyperspace.h"
 #import "util/rsTimer.h"
 
+class HSRendererMetal;
+
 @interface HyperspaceView : ScreenSaverView 
 {
-	NSOpenGLView *lView;
+	NSView *lView;   // hosts lLayer; nil when there is no Metal device
+	CAMetalLayer *lLayer;
+	HSRendererMetal *lRenderer;   // lSettings owns it between initSaver and cleanUp
 	HyperspaceSaverSettings lSettings;
 	BOOL lMainScreen;
 	BOOL lMainScreenOnly;

@@ -51,7 +51,7 @@ if [ ! -e "$OUT/obj/parity.o" ] || [ parity/parity.mm -nt "$OUT/obj/parity.o" ] 
     xcrun clang++ -std=c++17 -O2 -ObjC++ -fobjc-arc -Wall -Wno-deprecated-declarations -Wno-missing-declarations "${INC[@]}" \
         -c parity/parity.mm -o "$OUT/obj/parity.o"
 fi
-FRAMEWORKS=(-framework Cocoa -framework OpenGL -framework Metal -framework ImageIO)
+FRAMEWORKS=(-framework Cocoa -framework OpenGL -framework Metal -framework QuartzCore -framework ImageIO)
 if [ -n "$variant" ]; then
     xcrun clang++ "${MMFLAGS[@]}" -c "$variant" -o "$variantOut.o"
     xcrun clang++ -o "$variantOut" "$OUT/obj/parity.o" "${objs[@]}" "$variantOut.o" "${FRAMEWORKS[@]}"
