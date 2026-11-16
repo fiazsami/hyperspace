@@ -107,28 +107,10 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 // the longest, the slowest rate a variable-refresh display drops to. The
 // window's screen is nil for most windows inside legacyScreenSaver (hills
 // measured 25 in 32), and a nil screen answers 0 -- a timer that runs flat
-// out -- so the screen under most of the window is used instead, then the
-// main screen, then kFallbackInterval.
+// out -- so the main screen is used instead, then kFallbackInterval.
 - (void)matchRefresh
 {
-	NSScreen *screen = self.window.screen;
-	if (screen == nil && self.window)
-	{
-		NSRect frame = self.window.frame;
-		CGFloat most = 0;
-		for (NSScreen *candidate in [NSScreen screens])
-		{
-			NSRect overlap = NSIntersectionRect(candidate.frame, frame);
-			CGFloat area = overlap.size.width * overlap.size.height;
-			if (area > most)
-			{
-				most = area;
-				screen = candidate;
-			}
-		}
-	}
-	if (screen == nil)
-		screen = [NSScreen mainScreen];
+	NSScreen *screen = self.window.screen ?: [NSScreen mainScreen];
 	NSTimeInterval refresh = screen.minimumRefreshInterval;
 	self.animationTimeInterval = refresh > 0 ? refresh : kFallbackInterval;
 }
@@ -276,16 +258,16 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 					// Waits while every drawable is in flight, which is what paces
 					// the saver to the display; nil only after the layer's
 					// one-second timeout, as when the display sleeps.
+					CFTimeInterval asked = CACurrentMediaTime();
 					id<CAMetalDrawable> drawable = [lLayer nextDrawable];
 					CFTimeInterval now = CACurrentMediaTime();
-					if (drawable == nil)
-					{
-						// A stall is dropped, not replayed: the scene resumes
-						// where it stopped instead of lurching ahead on the
-						// next frame.
+					// A stall is dropped, not replayed: the scene resumes where
+					// it stopped instead of lurching ahead. Alike whether the
+					// wait timed out (nil) or ended just short of it.
+					if (drawable == nil || now - asked > kMaxFrameTime)
 						lLastFrame = now;
+					if (drawable == nil)
 						return;
-					}
 					// The step is the time since the last frame, from a
 					// monotonic clock, so never negative. A throttled host
 					// would otherwise move the scene by a whole gap at once;

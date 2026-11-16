@@ -39,7 +39,7 @@ class HSRendererMetal;
 	BOOL lMainScreenOnly;
 	BOOL lIsConfiguring;
 	
-	CFTimeInterval lLastFrame;   // CACurrentMediaTime of the last frame drawn: monotonic
+	CFTimeInterval lLastFrame;   // CACurrentMediaTime the next frame's step is measured from; 0 = no step
 	
 	IBOutlet NSWindow *ibConfigureSheet;
 	IBOutlet NSTextField *ibVersionTxt;
