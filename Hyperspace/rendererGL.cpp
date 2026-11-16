@@ -15,6 +15,7 @@
 #include <Hyperspace/transform.h>
 #include <Implicit/impSurface.h>
 #include <OpenGL/gl.h>
+#include <cstdio>
 #include <Hyperspace/shaders.h>
 
 unsigned int HSRendererGL::createTexture(int width, int height, const unsigned char *rgba){
@@ -206,6 +207,13 @@ HSRendererGL::HSRendererGL() : offscreenSize(0), offscreenFog(false), overlayFog
 	initShaders();
 }
 
+// The goo's buffers belonged to each impSurface, and went with it; now they
+// are the renderer's, and go with it. Its context must still be current.
+HSRendererGL::~HSRendererGL(){
+	if(gooBuffers[0] != 0)
+		glDeleteBuffers(2, gooBuffers);
+}
+
 void HSRendererGL::beginGoo(const float color[4], unsigned int nebula,
 	unsigned int normals0, unsigned int normals1, bool shaded){
 	gooShaded = shaded;
@@ -239,15 +247,23 @@ void HSRendererGL::beginGoo(const float color[4], unsigned int nebula,
 // whenever it was refilled. One pair of buffers re-uploaded on every draw
 // draws what that did, exactly (seamcheck: 0 on goo and burst). Client arrays
 // would be simpler and are not the same: Apple's GL rasterizes them
-// differently, measured at 2.8% of lit goo pixels against master. Like
-// sphereList, the buffers live as long as the context.
+// differently, measured at 2.8% of lit goo pixels against master. Nothing
+// else here binds a buffer, so both are left unbound for the draws after it.
+// The surface is drawn as a list of unsigned-int triangles; impSurface's
+// strip and short-index options would need a different draw.
+static_assert(!USE_TRIANGLE_STRIPS && !USE_UNSIGNED_SHORT, "drawGooSurface draws GL_TRIANGLES with GL_UNSIGNED_INT indices");
 void HSRendererGL::drawGooSurface(impSurface *surface, const float offset[3]){
-	const unsigned int indexCount = surface->getIndexCount();
-	if(indexCount == 0)
+	const unsigned int vertexCount = surface->getVertexCount(), indexCount = surface->getIndexCount();
+	if(vertexCount == 0 || indexCount == 0)
 		return;
-	gooIndices.resize(indexCount);
+	// The buffer holds exactly the surface's vertices, so an index past them
+	// would read past its end. HSRendererMetal refuses the same surface.
+	const unsigned int *indices = surface->getIndexData();
 	for(unsigned int i = 0; i < indexCount; i++)
-		gooIndices[i] = surface->getIndex(i);
+		if(indices[i] >= vertexCount){
+			fprintf(stderr, "HSRendererGL::drawGooSurface: index %u is past the surface's %u vertices; not drawn\n", indices[i], vertexCount);
+			return;
+		}
 	glPushMatrix();
 	glTranslatef(offset[0], offset[1], offset[2]);
 	if(gooBuffers[0] == 0)
@@ -255,7 +271,7 @@ void HSRendererGL::drawGooSurface(impSurface *surface, const float offset[3]){
 	glBindBuffer(GL_ARRAY_BUFFER, gooBuffers[0]);
 	glBufferData(GL_ARRAY_BUFFER, size_t(surface->getVertexCount()) * 6 * sizeof(float), surface->getVertex(0), GL_DYNAMIC_DRAW);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gooBuffers[1]);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, size_t(indexCount) * sizeof(unsigned int), gooIndices.data(), GL_DYNAMIC_DRAW);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, size_t(indexCount) * sizeof(unsigned int), indices, GL_DYNAMIC_DRAW);
 	glNormalPointer(GL_FLOAT, 6 * sizeof(float), (const GLvoid*)0);
 	glVertexPointer(3, GL_FLOAT, 6 * sizeof(float), (const GLvoid*)(3 * sizeof(float)));
 	glEnableClientState(GL_NORMAL_ARRAY);

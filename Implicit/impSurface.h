@@ -23,9 +23,6 @@
 #define IMPSURFACE_H
 
 
-#ifdef WIN32
-	#include <windows.h>
-#endif
 #include <vector>
 
 
@@ -103,6 +100,9 @@ public:
 	// size() is stale data from an earlier frame, returned without complaint.
 	const float* getVertex(unsigned int i) const {return vertices.data() + i * 6;}
 	unsigned int getIndex(unsigned int i) const {return indices[i];}
+	// All getIndexCount() of them at once, for a renderer to upload. Unlike
+	// getVertex this is only valid when getIndexCount() is not 0.
+	const unsigned int* getIndexData() const {return indices.data();}
 };
 
 
