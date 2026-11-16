@@ -46,8 +46,11 @@ for src in Hyperspace/*.mm; do
     mmobjs+=("$obj")
 done
 
-xcrun clang++ -std=c++17 -O2 -ObjC++ -fobjc-arc -Wall -Wno-deprecated-declarations -Wno-missing-declarations "${INC[@]}" \
-    -c parity/parity.mm -o "$OUT/obj/parity.o"
+# Rebuilt only when stale: backendcheck.sh calls this once per fixture.
+if [ ! -e "$OUT/obj/parity.o" ] || [ parity/parity.mm -nt "$OUT/obj/parity.o" ] || [ "$newest" -nt "$OUT/obj/parity.o" ]; then
+    xcrun clang++ -std=c++17 -O2 -ObjC++ -fobjc-arc -Wall -Wno-deprecated-declarations -Wno-missing-declarations "${INC[@]}" \
+        -c parity/parity.mm -o "$OUT/obj/parity.o"
+fi
 FRAMEWORKS=(-framework Cocoa -framework OpenGL -framework Metal -framework ImageIO)
 if [ -n "$variant" ]; then
     xcrun clang++ "${MMFLAGS[@]}" -c "$variant" -o "$variantOut.o"

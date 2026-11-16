@@ -6,6 +6,7 @@
 #import <simd/simd.h>
 #include <Hyperspace/rendererMetal.h>
 #include <Hyperspace/transform.h>
+#include <Implicit/impSurface.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <map>
@@ -32,6 +33,26 @@ struct FFUniforms {
 	int fogOn;
 	int texOn;
 };
+
+struct GooUniforms {
+	simd_float4x4 mvp;
+	simd_float4x4 modelview;
+	simd_float4 color;
+	simd_float4 fogColor;
+	float fogEnd;
+	float fogScale;
+	simd_float4x4 projection;
+};
+
+// The offsets Metal gives the shader's structs; a mirror that drifts from
+// them fails to compile instead of reading fog from the wrong place.
+static_assert(sizeof(ImmediateVertex) == 48 && offsetof(ImmediateVertex, texcoord) == 16 &&
+	offsetof(ImmediateVertex, color) == 32, "ImmediateVertex must match Interface.metal");
+static_assert(sizeof(FFUniforms) == 160 && offsetof(FFUniforms, fogColor) == 128 &&
+	offsetof(FFUniforms, fogStart) == 144 && offsetof(FFUniforms, texOn) == 156, "FFUniforms must match Interface.metal");
+static_assert(sizeof(GooUniforms) == 240 && offsetof(GooUniforms, color) == 128 &&
+	offsetof(GooUniforms, fogEnd) == 160 && offsetof(GooUniforms, fogScale) == 164 &&
+	offsetof(GooUniforms, projection) == 176, "GooUniforms must match Interface.metal");
 
 struct Texture {
 	id<MTLTexture> texture;
@@ -91,13 +112,16 @@ std::vector<unsigned char> rgbaLevel(const HSMipChain &chain, int level){
 struct HSRendererMetalState {
 	id<MTLDevice> device;
 	id<MTLCommandQueue> queue;
-	id<MTLLibrary> ffLibrary;
-	id<MTLRenderPipelineState> ffPipeline;
+	id<MTLLibrary> ffLibrary, gooLibrary;
+	id<MTLRenderPipelineState> ffPipeline, gooPipeline;
 	MTLPixelFormat pipelineFormat;
 	id<MTLTexture> target;
 	id<MTLCommandBuffer> commands;
 	id<MTLRenderCommandEncoder> encoder;
 	std::map<unsigned int, Texture> textures;
+	// GL's filters and wraps, as the create* calls set them: linear with no
+	// mipmaps and REPEAT; linear mipmapped and REPEAT; and the cube's.
+	id<MTLSamplerState> linear, mipmapped, cube;
 	unsigned int nextName;
 	simd_float4x4 projection, view;   // the frame's, as GL takes them
 	simd_float4x4 clipProjection;     // projection, with clip z mapped to Metal's
@@ -106,6 +130,10 @@ struct HSRendererMetalState {
 	bool fog;
 	float fogStart, fogEnd;
 	int draws;
+	bool inGoo;
+	simd_float4 gooColor;
+	unsigned int gooTextures[3];   // normals0, normals1, nebula: Goo.metal's texture(0..2)
+	id<MTLBuffer> sphere;          // hsSphereBand's bands, one after another, as GooVertex
 };
 
 static NSString *readSource(const char *dir, const char *file){
@@ -117,16 +145,41 @@ static NSString *readSource(const char *dir, const char *file){
 	return s;
 }
 
+// Each pass file is compiled with the interface prepended, as parity does.
+static id<MTLLibrary> compilePass(id<MTLDevice> device, const char *dir, const char *file){
+	NSString *src = [readSource(dir, "Interface.metal") stringByAppendingString:readSource(dir, file)];
+	NSError *err = nil;
+	id<MTLLibrary> lib = [device newLibraryWithSource:src options:nil error:&err];
+	if(!lib)
+		fail(file, err.localizedDescription.UTF8String);
+	return lib;
+}
+
+// Everything Hyperspace draws is blended (SRC_ALPHA, ONE).
+static id<MTLRenderPipelineState> additivePipeline(id<MTLDevice> device, id<MTLLibrary> lib,
+	NSString *vfn, NSString *ffn, MTLPixelFormat format){
+	MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
+	pd.vertexFunction = [lib newFunctionWithName:vfn];
+	pd.fragmentFunction = [lib newFunctionWithName:ffn];
+	if(!pd.vertexFunction || !pd.fragmentFunction)
+		fail("missing entry point", [vfn stringByAppendingFormat:@" / %@", ffn].UTF8String);
+	pd.colorAttachments[0].pixelFormat = format;
+	pd.colorAttachments[0].blendingEnabled = YES;
+	pd.colorAttachments[0].sourceRGBBlendFactor = pd.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
+	pd.colorAttachments[0].destinationRGBBlendFactor = pd.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOne;
+	NSError *err = nil;
+	id<MTLRenderPipelineState> ps = [device newRenderPipelineStateWithDescriptor:pd error:&err];
+	if(!ps)
+		fail("pipeline", err.localizedDescription.UTF8String);
+	return ps;
+}
+
 HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HSRendererMetalState){
 	st->device = (__bridge id<MTLDevice>)device;
 	st->queue = [st->device newCommandQueue];
-	// Each pass file is compiled with the interface prepended, as parity does.
-	NSString *src = [readSource(metalDir, "Interface.metal") stringByAppendingString:readSource(metalDir, "FixedFunction.metal")];
-	NSError *err = nil;
-	st->ffLibrary = [st->device newLibraryWithSource:src options:nil error:&err];
-	if(!st->ffLibrary)
-		fail("FixedFunction.metal does not compile", err.localizedDescription.UTF8String);
-	st->ffPipeline = nil;
+	st->ffLibrary = compilePass(st->device, metalDir, "FixedFunction.metal");
+	st->gooLibrary = compilePass(st->device, metalDir, "Goo.metal");
+	st->ffPipeline = st->gooPipeline = nil;
 	st->pipelineFormat = MTLPixelFormatInvalid;
 	st->target = nil;
 	st->commands = nil;
@@ -138,9 +191,28 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->fog = true;
 	st->fogStart = st->fogEnd = 0.0f;
 	st->draws = 0;
+	MTLSamplerDescriptor *sd = [MTLSamplerDescriptor new];
+	sd.minFilter = sd.magFilter = MTLSamplerMinMagFilterLinear;
+	sd.mipFilter = MTLSamplerMipFilterNotMipmapped;
+	sd.sAddressMode = sd.tAddressMode = MTLSamplerAddressModeRepeat;
+	st->linear = [st->device newSamplerStateWithDescriptor:sd];
+	sd.mipFilter = MTLSamplerMipFilterLinear;
+	st->mipmapped = [st->device newSamplerStateWithDescriptor:sd];
+	// GL clamps s and t and leaves r at REPEAT, and filters each face alone;
+	// Metal filters cube maps across faces. The goo passes with this, but no
+	// measurement isolates a seam (parity/README.md, Backend check).
+	sd.sAddressMode = sd.tAddressMode = sd.rAddressMode = MTLSamplerAddressModeClampToEdge;
+	st->cube = [st->device newSamplerStateWithDescriptor:sd];
+	st->inGoo = false;
+	st->gooColor = simd_make_float4(1, 1, 1, 1);
+	st->gooTextures[0] = st->gooTextures[1] = st->gooTextures[2] = 0;
+	st->sphere = nil;   // built on the first drawGooSphere, as GL builds its list
 }
 
 HSRendererMetal::~HSRendererMetal(){
+	// An encoder released mid-frame asserts; end it, and drop the frame.
+	if(st->encoder)
+		[st->encoder endEncoding];
 	delete st;
 }
 
@@ -150,18 +222,8 @@ void HSRendererMetal::setTarget(void *target){
 	st->target = (__bridge id<MTLTexture>)target;
 	if(st->target.pixelFormat == st->pipelineFormat)
 		return;
-	MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
-	pd.vertexFunction = [st->ffLibrary newFunctionWithName:@"ff_vertex"];
-	pd.fragmentFunction = [st->ffLibrary newFunctionWithName:@"ff_fragment"];
-	pd.colorAttachments[0].pixelFormat = st->target.pixelFormat;
-	// Everything Hyperspace draws is blended (SRC_ALPHA, ONE).
-	pd.colorAttachments[0].blendingEnabled = YES;
-	pd.colorAttachments[0].sourceRGBBlendFactor = pd.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
-	pd.colorAttachments[0].destinationRGBBlendFactor = pd.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOne;
-	NSError *err = nil;
-	st->ffPipeline = [st->device newRenderPipelineStateWithDescriptor:pd error:&err];
-	if(!st->ffPipeline)
-		fail("fixed-function pipeline", err.localizedDescription.UTF8String);
+	st->ffPipeline = additivePipeline(st->device, st->ffLibrary, @"ff_vertex", @"ff_fragment", st->target.pixelFormat);
+	st->gooPipeline = additivePipeline(st->device, st->gooLibrary, @"goo_vertex", @"goo_fragment", st->target.pixelFormat);
 	st->pipelineFormat = st->target.pixelFormat;
 }
 
@@ -207,6 +269,10 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 void HSRendererMetal::endFrame(){
 	if(!st->encoder)
 		fail("endFrame", "no frame was begun");
+	if(st->inGoo)
+		fail("endFrame", "beginGoo was not ended");
+	if(st->inOverlay)
+		fail("endFrame", "beginOverlay was not ended");
 	[st->encoder endEncoding];
 	[st->commands commit];
 	[st->commands waitUntilCompleted];
@@ -226,12 +292,8 @@ unsigned int HSRendererMetal::createTexture(int width, int height, const unsigne
 	id<MTLTexture> t = [st->device newTextureWithDescriptor:td];
 	[t replaceRegion:MTLRegionMake2D(0, 0, width, height) mipmapLevel:0 withBytes:rgba bytesPerRow:size_t(width) * 4];
 	// Linear, no mipmaps, and GL's default wrap, repeat.
-	MTLSamplerDescriptor *sd = [MTLSamplerDescriptor new];
-	sd.minFilter = sd.magFilter = MTLSamplerMinMagFilterLinear;
-	sd.mipFilter = MTLSamplerMipFilterNotMipmapped;
-	sd.sAddressMode = sd.tAddressMode = MTLSamplerAddressModeRepeat;
 	unsigned int name = st->nextName++;
-	st->textures[name] = Texture{t, [st->device newSamplerStateWithDescriptor:sd]};
+	st->textures[name] = Texture{t, st->linear};
 	return name;
 }
 
@@ -247,12 +309,8 @@ unsigned int HSRendererMetal::createMipmappedTexture(const HSMipChain &chain){
 		std::vector<unsigned char> px = rgbaLevel(chain, int(l));
 		[t replaceRegion:MTLRegionMake2D(0, 0, s, s) mipmapLevel:l withBytes:px.data() bytesPerRow:size_t(s) * 4];
 	}
-	MTLSamplerDescriptor *sd = [MTLSamplerDescriptor new];
-	sd.minFilter = sd.magFilter = MTLSamplerMinMagFilterLinear;
-	sd.mipFilter = MTLSamplerMipFilterLinear;
-	sd.sAddressMode = sd.tAddressMode = MTLSamplerAddressModeRepeat;
 	unsigned int name = st->nextName++;
-	st->textures[name] = Texture{t, [st->device newSamplerStateWithDescriptor:sd]};
+	st->textures[name] = Texture{t, st->mipmapped};
 	return name;
 }
 
@@ -276,21 +334,17 @@ unsigned int HSRendererMetal::createCubeTexture(const HSMipChain faces[6]){
 				withBytes:px.data() bytesPerRow:size_t(s) * 4 bytesPerImage:0];
 		}
 	}
-	MTLSamplerDescriptor *sd = [MTLSamplerDescriptor new];
-	sd.minFilter = sd.magFilter = MTLSamplerMinMagFilterLinear;
-	sd.mipFilter = MTLSamplerMipFilterLinear;
-	// GL clamps s and t and leaves r at REPEAT, and filters each face alone;
-	// Metal filters cube maps across faces. Whether either shows is the goo's
-	// parity to judge (ss-a4a.4.2 slice 3): nothing samples a cube before it.
-	sd.sAddressMode = sd.tAddressMode = sd.rAddressMode = MTLSamplerAddressModeClampToEdge;
 	unsigned int name = st->nextName++;
-	st->textures[name] = Texture{t, [st->device newSamplerStateWithDescriptor:sd]};
+	st->textures[name] = Texture{t, st->cube};
 	return name;
 }
 
 void HSRendererMetal::drawQuad(unsigned int texture, const float color[4], const float model[16], float half){
 	if(!st->encoder)
 		fail("drawQuad", "outside a frame");
+	// The goo's pipeline and cube textures are bound until endGoo.
+	if(st->inGoo)
+		fail("drawQuad", "inside beginGoo/endGoo");
 	std::map<unsigned int, Texture>::const_iterator tex = st->textures.find(texture);
 	if(tex == st->textures.end())
 		fail("drawQuad", "unknown texture");
@@ -328,6 +382,11 @@ void HSRendererMetal::drawQuad(unsigned int texture, const float color[4], const
 }
 
 void HSRendererMetal::beginOverlay(float aspect){
+	if(!st->encoder)
+		fail("beginOverlay", "outside a frame");
+	// GL's matrix stack would nest; one saved camera cannot.
+	if(st->inOverlay)
+		fail("beginOverlay", "already in the overlay");
 	st->savedProjection = st->projection;
 	st->savedView = st->view;
 	st->projection = overlayProjection(aspect);
@@ -337,6 +396,8 @@ void HSRendererMetal::beginOverlay(float aspect){
 }
 
 void HSRendererMetal::endOverlay(){
+	if(!st->inOverlay)
+		fail("endOverlay", "no beginOverlay");
 	st->projection = st->savedProjection;
 	st->clipProjection = simd_mul(clipZ(), st->projection);
 	st->view = st->savedView;
@@ -346,10 +407,102 @@ void HSRendererMetal::endOverlay(){
 void HSRendererMetal::beginOffscreen(int){ notYet("beginOffscreen"); }
 void HSRendererMetal::drawColorStrip(const HSColorVertex *, int){ notYet("drawColorStrip"); }
 void HSRendererMetal::endOffscreen(unsigned char *){ notYet("endOffscreen"); }
-void HSRendererMetal::beginGoo(const float [4], unsigned int, unsigned int, unsigned int, bool){ notYet("beginGoo"); }
-void HSRendererMetal::drawGooSurface(impSurface *, const float [3]){ notYet("drawGooSurface"); }
-void HSRendererMetal::drawGooSphere(const float [3], float){ notYet("drawGooSphere"); }
-void HSRendererMetal::endGoo(){ notYet("endGoo"); }
+void HSRendererMetal::beginGoo(const float color[4], unsigned int nebula,
+	unsigned int normals0, unsigned int normals1, bool shaded){
+	if(!st->encoder)
+		fail("beginGoo", "outside a frame");
+	// The Metal port draws the shaded look only; the shaders-off look is ss-5dl.
+	if(!shaded)
+		fail("beginGoo", "the shaders-off goo is not drawn on Metal (ss-5dl)");
+	const unsigned int names[3] = {normals0, normals1, nebula};
+	for(int t = 0; t < 3; t++){
+		std::map<unsigned int, Texture>::const_iterator tex = st->textures.find(names[t]);
+		if(tex == st->textures.end() || tex->second.texture.textureType != MTLTextureTypeCube)
+			fail("beginGoo", "a goo texture is not a cube map this backend made");
+		[st->encoder setFragmentTexture:tex->second.texture atIndex:t];
+		[st->encoder setFragmentSamplerState:tex->second.sampler atIndex:t];
+		st->gooTextures[t] = names[t];
+	}
+	st->gooColor = simd_make_float4(color[0], color[1], color[2], color[3]);
+	st->inGoo = true;
+	[st->encoder setRenderPipelineState:st->gooPipeline];
+}
+
+// Binds goo vertices, GooVertex (normal, then position), placed by model after
+// the camera, as glTranslatef/glScalef on the modelview did.
+static void bindGoo(HSRendererMetalState *st, const simd_float4x4 &model, id<MTLBuffer> vertices){
+	GooUniforms u;
+	u.modelview = simd_mul(st->view, model);
+	u.mvp = simd_mul(st->clipProjection, u.modelview);
+	u.color = st->gooColor;
+	u.fogColor = simd_make_float4(0, 0, 0, 1);
+	u.fogEnd = st->fogEnd;
+	u.fogScale = 1.0f / (st->fogEnd - st->fogStart);
+	u.projection = st->clipProjection;
+	[st->encoder setVertexBuffer:vertices offset:0 atIndex:0];
+	[st->encoder setVertexBytes:&u length:sizeof u atIndex:1];
+	[st->encoder setFragmentBytes:&u length:sizeof u atIndex:1];
+}
+
+void HSRendererMetal::drawGooSurface(impSurface *surface, const float offset[3]){
+	if(!st->inGoo)
+		fail("drawGooSurface", "outside beginGoo/endGoo");
+	const unsigned int vertexCount = surface->getVertexCount(), indexCount = surface->getIndexCount();
+	if(vertexCount == 0 || indexCount == 0)
+		return;
+	// GL would read a stale VBO tail for an index past the count; Metal would
+	// read past the buffer.
+	std::vector<unsigned int> indices(indexCount);
+	for(unsigned int i = 0; i < indexCount; i++)
+		if((indices[i] = surface->getIndex(i)) >= vertexCount)
+			fail("drawGooSurface", "an index is past the surface's vertices");
+	id<MTLBuffer> vb = [st->device newBufferWithBytes:surface->getVertex(0) length:size_t(vertexCount) * 6 * sizeof(float)
+		options:MTLResourceStorageModeShared];
+	id<MTLBuffer> ib = [st->device newBufferWithBytes:indices.data() length:indices.size() * sizeof(unsigned int)
+		options:MTLResourceStorageModeShared];
+	simd_float4x4 model = matrix_identity_float4x4;
+	model.columns[3] = simd_make_float4(offset[0], offset[1], offset[2], 1.0f);
+	bindGoo(st, model, vb);
+	[st->encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:indexCount
+		indexType:MTLIndexTypeUInt32 indexBuffer:ib indexBufferOffset:0];
+	st->draws++;
+}
+
+void HSRendererMetal::drawGooSphere(const float center[3], float radius){
+	if(!st->inGoo)
+		fail("drawGooSphere", "outside beginGoo/endGoo");
+	simd_float4x4 model = matrix_identity_float4x4;
+	model.columns[0].x = model.columns[1].y = model.columns[2].z = radius;
+	model.columns[3] = simd_make_float4(center[0], center[1], center[2], 1.0f);
+	if(!st->sphere){
+		std::vector<float> sphere;
+		float band[HS_SPHERE_BAND_POINTS][3];
+		for(int b = 0; b < HS_SPHERE_BANDS; b++){
+			hsSphereBand(b, band);
+			for(int i = 0; i < HS_SPHERE_BAND_POINTS; i++)
+				for(int n = 0; n < 2; n++)   // the unit sphere's normal is its position
+					sphere.insert(sphere.end(), band[i], band[i] + 3);
+		}
+		st->sphere = [st->device newBufferWithBytes:sphere.data() length:sphere.size() * sizeof(float)
+			options:MTLResourceStorageModeShared];
+	}
+	// Bound again for every band, though nothing changes: bound once, the 32
+	// draws rasterize differently along the band seams (measured: 3-19 pixels
+	// a shot more than 8 levels off), and further from GL (burst 0.512% lit>2
+	// against 0.490%).
+	for(int b = 0; b < HS_SPHERE_BANDS; b++){
+		bindGoo(st, model, st->sphere);
+		[st->encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:NSUInteger(b) * HS_SPHERE_BAND_POINTS vertexCount:HS_SPHERE_BAND_POINTS];
+	}
+	st->draws += HS_SPHERE_BANDS;
+}
+
+void HSRendererMetal::endGoo(){
+	if(!st->inGoo)
+		fail("endGoo", "no beginGoo");
+	st->inGoo = false;
+	[st->encoder setRenderPipelineState:st->ffPipeline];
+}
 void HSRendererMetal::beginTunnel(unsigned int, unsigned int, float, bool){ notYet("beginTunnel"); }
 void HSRendererMetal::drawTunnelStrip(const HSTunnelVertex *, int){ notYet("drawTunnelStrip"); }
 void HSRendererMetal::endTunnel(){ notYet("endTunnel"); }

@@ -12,7 +12,7 @@ parity/build.sh                                   # -> .parity-build/parity
 .parity-build/parity goo metal .parity-build/out/goo
 parity/killcheck.sh                               # every rule, both directions (~5 min)
 parity/killcheck.sh inject                        # the recorder's checks alone (~30 s)
-parity/backendcheck.sh                            # the Metal backend against GL (~1.5 min)
+parity/backendcheck.sh                            # the Metal backend against GL (~2.5 min)
 ```
 
 Each shot writes `NNNNN_gl.png`, `NNNNN_metal.png` and `NNNNN_diffx8.png`
@@ -273,31 +273,46 @@ Two runs share the seed, so they draw the same frames: a plain run for its
 rules. In backend mode a shot that generates any GL primitive is an error, so a
 draw that slipped past the backend cannot go unnoticed.
 
-The backend draws frames, fog, quads and the overlay; it has no offscreen
-target, goo or tunnel yet, so only `stars` and `sun` run, and a run long enough
-to reach the saver's own starburst (300 s), whose sphere is drawn in the goo's
-look, is refused. Measured:
-`stars` worst 0.000% / 0.000% / bias 0.004, and `sun` 0.021% / 0.000% / 0.004.
+The backend draws frames, fog, quads, the overlay, and the goo and starburst
+sphere in their shaded look (the shaders-off look is ss-5dl, and the backend
+stops on it). It has no offscreen target or tunnel yet, so `tunnel` is refused.
+Measured, worst shot:
+
+| pass | lit>2 | lit>8 | bias | limits |
+|---|---|---|---|---|
+| `stars` | 0.000% | 0.000% | 0.004 | 1% / 0.1% / 0.06 |
+| `goo` | 4.244% | 0.958% | 0.011 | 8% / 2.5% / 0.06 |
+| `burst` | 0.490% | 0.133% | 0.003 | 8% / 2.5% / 0.06 |
+| `sun` | 0.021% | 0.000% | 0.004 | 1% / 0.1% / 0.06 |
+
 Five of the twelve `stars` shots (2400 on) carry lens flares, 13 overlay quads
-each, so the overlay is judged too.
+each, so the overlay is judged too. The `burst` shots from 90 to 240 carry the
+starburst's sphere, which the replay could never judge (the recorder refuses a
+display list drawn with a program): this is its verdict, GL against Metal, both
+drawing it as the same 32 strips. `goo` comes out a little tighter than the
+replay's 5.28% / 1.35% / 0.012.
 
 Its kill cases are defects in the backend's C++ rather than its shaders:
 `parity/defects/backend_<pass>_*.sed`, each a sed script over
 `rendererMetal.mm`, built into its own `parity` with `build.sh --backend` and
 required to FAIL. Killed: the model matrix before the camera, fog from the eye,
 an overlay ignoring the aspect ratio, (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) blending,
-nearest sampling, the quad's color ignored, and -- under `sun` -- `setFog(false)`
-ignored. A fixture that no longer changes the file is an error, not a survivor.
+nearest sampling, the quad's color ignored; under `goo`, surfaces drawn at the
+origin, the nebula and a normal map swapped, the fog scale as 1/end, and the
+normal-map mix dropped; under `burst`, the sphere at radius 1 and half its
+bands; under `sun`, `setFog(false)` ignored. A fixture that no longer changes the file is an error, not a survivor.
 
-Neither pass samples a mip chain or a cube map, so `parity --backend-textures`
-checks those directly: a 2D texture, 3- and 4-channel mip chains, and a cube of
+No pass reads a texture back, so `parity --backend-textures` checks uploads
+directly: a 2D texture, 3- and 4-channel mip chains, and a cube of
 six different faces, uploaded through `HSRendererGL` and `HSRendererMetal` and
 read back level by level, face by face -- GL's by its own target names, so
 neither side's face mapping is trusted. Measured: 49 levels and faces, every
 byte the same. Its fixtures, `backend_textures_*.sed`, are killed: faces in
 HSRenderer's order rather than Metal's (36 differ), RGB expanded with alpha 0
-(42), and every level uploaded from level 0 (10). Sampling -- cube filtering
-across faces, which GL does not do -- is the goo's to judge.
+(42), and every level uploaded from level 0 (10). Sampling is the goo's to
+judge, and one part of it is not separated: Metal filters a cube map across
+face edges and Apple's GL does not. The goo passes with it, but the replay
+samples on Metal too, so no measurement here isolates a seam.
 
 One defect is not a fixture because it cannot show: dropping the map from GL's
 clip z (-w..w) to Metal's (0..w). Without it Metal clips where GL's NDC z < 0,
@@ -316,10 +331,10 @@ overlay sits at z = 0, on Metal's inclusive boundary. Measured: it passes
 - **The replay reuses GL's matrices.** A real port computes them itself, which
   can add a small error the passes do not measure. The backend check does, for
   the draws the backend has.
-- **The starburst's sphere is never judged.** It is drawn with the goo program
-  from a display list, which the recorder refuses. The `burst` pass reaches it,
-  so the seam check covers it, but its Metal verdict on those shots is always
-  that refusal.
+- **The replay never judges the starburst's sphere.** It is drawn with the goo
+  program from a display list, which the recorder refuses, so the `burst`
+  pass's replay verdict on those shots is always that refusal. The backend
+  check judges it instead.
 - **The passes compare; the backend renders.** The passes draw nothing of the
-  saver's own; `HSRendererMetal` does, so far for stars, the sun and the lens
-  flares only.
+  saver's own; `HSRendererMetal` does, so far for everything but the tunnel
+  and the caustics it is textured with.
