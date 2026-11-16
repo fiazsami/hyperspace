@@ -12,21 +12,23 @@
 # nothing is an error, not a survivor. The backend has no tunnel yet, so stars,
 # goo, burst and sun run; tunnel does not.
 #
-# textures is not a pass but the same shape: `parity --backend-textures` uploads
-# mip chains and six different cube faces through both backends and compares
-# every level and face byte for byte, since no pass reads the textures back.
-# Its fixtures are backend_textures_*.sed.
+# textures and caustics are not passes but the same shape. `parity
+# --backend-textures` uploads mip chains and six different cube faces through
+# both backends and compares every level and face byte for byte, since no pass
+# reads the textures back. `parity --backend-caustics` makes the tunnel's
+# caustic textures through both backends' offscreen targets and compares every
+# level. Their fixtures are backend_textures_*.sed and backend_caustics_*.sed.
 #
 # About 2.5 minutes for everything (2m16s measured on an M5 Max).
 #
-#   parity/backendcheck.sh [stars|goo|burst|sun|textures ...]    default: all five
+#   parity/backendcheck.sh [stars|goo|burst|sun|textures|caustics ...]    default: all six
 #
 # Exit 0 = the backend passes and every fixture is killed, 1 = otherwise,
 # 2 = a run or build failed.
 set -uo pipefail
 shopt -s nullglob
 cd "$(dirname "$0")/.."
-passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo burst sun textures)
+passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo burst sun textures caustics)
 
 OUT=.parity-build/backend
 rm -rf "$OUT"; mkdir -p "$OUT/variants"
@@ -34,9 +36,9 @@ parity/build.sh >/dev/null || exit 2
 
 bad=0
 for pass in "${passes[@]}"; do
-    if [ "$pass" = textures ]; then
-        .parity-build/parity --backend-textures metal > "$OUT/$pass.compare"; code=$?
-        [ $code -le 1 ] || { echo "textures failed: $(tail -1 "$OUT/$pass.compare")" >&2; exit 2; }
+    if [ "$pass" = textures ] || [ "$pass" = caustics ]; then
+        .parity-build/parity --backend-$pass metal > "$OUT/$pass.compare"; code=$?
+        [ $code -le 1 ] || { echo "$pass failed: $(tail -1 "$OUT/$pass.compare")" >&2; exit 2; }
     else
         .parity-build/parity "$pass" metal "$OUT/$pass/gl" > "$OUT/$pass-gl.log"; code=$?
         # Exit 1 is the replay's verdict, which is not what this judges.
@@ -62,8 +64,8 @@ for pass in "${passes[@]}"; do
         fi
         parity/build.sh --backend "$src" "$bin" > "$OUT/variants/$name.build" 2>&1 ||
             { echo "build of $name failed: $(tail -1 "$OUT/variants/$name.build")" >&2; exit 2; }
-        if [ "$pass" = textures ]; then
-            "$bin" --backend-textures metal > "$OUT/variants/$name.log"; code=$?
+        if [ "$pass" = textures ] || [ "$pass" = caustics ]; then
+            "$bin" --backend-$pass metal > "$OUT/variants/$name.log"; code=$?
             line=$(tail -1 "$OUT/variants/$name.log")
         else
             "$bin" "$pass" metal "$OUT/$pass/$name" renderer=metal > "$OUT/variants/$name.log"; code=$?
