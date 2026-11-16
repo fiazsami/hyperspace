@@ -21,8 +21,9 @@
 // including the caustics, which are rendered offscreen and read back. Only
 // rsText's statistics overlay still draws through GL directly. What is not
 // here yet is the frame's fixed state: Hyperspace.cpp's draw() still sets the
-// camera, fog, blending, MODULATE and 2D texturing in GL each frame, and
-// HSRendererGL relies on it (see rendererGL.h).
+// camera, fog, blending, MODULATE and 2D texturing in GL each frame. The stars
+// and the sun rely on all of it; the goo and the tunnel set their own blending
+// and texturing but still take their fog from it (see rendererGL.h).
 
 #ifndef HYPERSPACE_RENDERER_H
 #define HYPERSPACE_RENDERER_H
