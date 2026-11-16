@@ -32,10 +32,10 @@ wavyNormalCubeMaps::wavyNormalCubeMaps(HSRenderer *renderer, int frames, int siz
 	numFrames = frames;
 	texSize = size;
 
-	GLubyte* map = new GLubyte[texSize * texSize * 3];
+	unsigned char* map = new unsigned char[texSize * texSize * 3];
 	
 	// allocate memory for pointers to texture objects
-	texture = new GLuint[numFrames];
+	texture = new unsigned int[numFrames];
 
 	// calculate normal cube maps
 	float vec[3];
@@ -53,9 +53,9 @@ wavyNormalCubeMaps::wavyNormalCubeMaps(HSRenderer *renderer, int frames, int siz
 				vec[2] = (float(i) + offset) / float(texSize);
 				normalize(vec);
 				wavyfunc(vec, norm);
-				map[(i + j * texSize) * 3] = GLubyte(norm[0] * 127.999f + 128.0f);
-				map[(i + j * texSize) * 3 + 1] = GLubyte(norm[1] * 127.999f + 128.0f);
-				map[(i + j * texSize) * 3 + 2] = GLubyte(norm[2] * -127.999f + 128.0f);
+				map[(i + j * texSize) * 3] = (unsigned char)(norm[0] * 127.999f + 128.0f);
+				map[(i + j * texSize) * 3 + 1] = (unsigned char)(norm[1] * 127.999f + 128.0f);
+				map[(i + j * texSize) * 3 + 2] = (unsigned char)(norm[2] * -127.999f + 128.0f);
 			}
 		}
 		hsBuildMipmaps(map, texSize, 3, faces[0]);
@@ -68,9 +68,9 @@ wavyNormalCubeMaps::wavyNormalCubeMaps(HSRenderer *renderer, int frames, int siz
 				vec[2] = -(float(i) + offset) / float(texSize);
 				normalize(vec);
 				wavyfunc(vec, norm);
-				map[(i + j * texSize) * 3] = GLubyte(norm[0] * 127.999f + 128.0f);
-				map[(i + j * texSize) * 3 + 1] = GLubyte(norm[1] * 127.999f + 128.0f);
-				map[(i + j * texSize) * 3 + 2] = GLubyte(norm[2] * -127.999f + 128.0f);
+				map[(i + j * texSize) * 3] = (unsigned char)(norm[0] * 127.999f + 128.0f);
+				map[(i + j * texSize) * 3 + 1] = (unsigned char)(norm[1] * 127.999f + 128.0f);
+				map[(i + j * texSize) * 3 + 2] = (unsigned char)(norm[2] * -127.999f + 128.0f);
 			}
 		}
 		hsBuildMipmaps(map, texSize, 3, faces[1]);
@@ -83,9 +83,9 @@ wavyNormalCubeMaps::wavyNormalCubeMaps(HSRenderer *renderer, int frames, int siz
 				vec[2] = -0.5f;
 				normalize(vec);
 				wavyfunc(vec, norm);
-				map[(i + j * texSize) * 3] = GLubyte(norm[0] * 127.999f + 128.0f);
-				map[(i + j * texSize) * 3 + 1] = GLubyte(norm[1] * 127.999f + 128.0f);
-				map[(i + j * texSize) * 3 + 2] = GLubyte(norm[2] * -127.999f + 128.0f);
+				map[(i + j * texSize) * 3] = (unsigned char)(norm[0] * 127.999f + 128.0f);
+				map[(i + j * texSize) * 3 + 1] = (unsigned char)(norm[1] * 127.999f + 128.0f);
+				map[(i + j * texSize) * 3 + 2] = (unsigned char)(norm[2] * -127.999f + 128.0f);
 			}
 		}
 		hsBuildMipmaps(map, texSize, 3, faces[4]);
@@ -98,9 +98,9 @@ wavyNormalCubeMaps::wavyNormalCubeMaps(HSRenderer *renderer, int frames, int siz
 				vec[2] = 0.5f;
 				normalize(vec);
 				wavyfunc(vec, norm);
-				map[(i + j * texSize) * 3] = GLubyte(norm[0] * 127.999f + 128.0f);
-				map[(i + j * texSize) * 3 + 1] = GLubyte(norm[1] * 127.999f + 128.0f);
-				map[(i + j * texSize) * 3 + 2] = GLubyte(norm[2] * -127.999f + 128.0f);
+				map[(i + j * texSize) * 3] = (unsigned char)(norm[0] * 127.999f + 128.0f);
+				map[(i + j * texSize) * 3 + 1] = (unsigned char)(norm[1] * 127.999f + 128.0f);
+				map[(i + j * texSize) * 3 + 2] = (unsigned char)(norm[2] * -127.999f + 128.0f);
 			}
 		}
 		hsBuildMipmaps(map, texSize, 3, faces[5]);
@@ -113,9 +113,9 @@ wavyNormalCubeMaps::wavyNormalCubeMaps(HSRenderer *renderer, int frames, int siz
 				vec[2] = -(float(j) + offset) / float(texSize);
 				normalize(vec);
 				wavyfunc(vec, norm);
-				map[(i + j * texSize) * 3] = GLubyte(norm[0] * 127.999f + 128.0f);
-				map[(i + j * texSize) * 3 + 1] = GLubyte(norm[1] * 127.999f + 128.0f);
-				map[(i + j * texSize) * 3 + 2] = GLubyte(norm[2] * -127.999f + 128.0f);
+				map[(i + j * texSize) * 3] = (unsigned char)(norm[0] * 127.999f + 128.0f);
+				map[(i + j * texSize) * 3 + 1] = (unsigned char)(norm[1] * 127.999f + 128.0f);
+				map[(i + j * texSize) * 3 + 2] = (unsigned char)(norm[2] * -127.999f + 128.0f);
 			}
 		}
 		hsBuildMipmaps(map, texSize, 3, faces[2]);
@@ -128,9 +128,9 @@ wavyNormalCubeMaps::wavyNormalCubeMaps(HSRenderer *renderer, int frames, int siz
 				vec[2] = (float(j) + offset) / float(texSize);
 				normalize(vec);
 				wavyfunc(vec, norm);
-				map[(i + j * texSize) * 3] = GLubyte(norm[0] * 127.999f + 128.0f);
-				map[(i + j * texSize) * 3 + 1] = GLubyte(norm[1] * 127.999f + 128.0f);
-				map[(i + j * texSize) * 3 + 2] = GLubyte(norm[2] * -127.999f + 128.0f);
+				map[(i + j * texSize) * 3] = (unsigned char)(norm[0] * 127.999f + 128.0f);
+				map[(i + j * texSize) * 3 + 1] = (unsigned char)(norm[1] * 127.999f + 128.0f);
+				map[(i + j * texSize) * 3 + 2] = (unsigned char)(norm[2] * -127.999f + 128.0f);
 			}
 		}
 		hsBuildMipmaps(map, texSize, 3, faces[3]);

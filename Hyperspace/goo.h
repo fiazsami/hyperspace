@@ -27,7 +27,6 @@
 #ifdef WIN32
 	#include <windows.h>
 #endif
-#include <OpenGL/gl.h>
 #include <rsMath/rsMath.h>
 #include <list>
 #include <Implicit/impCubeVolume.h>

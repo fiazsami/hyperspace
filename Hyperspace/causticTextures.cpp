@@ -29,7 +29,6 @@
 #include <iostream>
 #include <Hyperspace/causticTextures.h>
 #include <math.h>
-#include <OpenGL/OpenGL.h>
 #include <rsMath/rsMath.h>
 #include <Hyperspace/renderer.h>
 #include <vector>
@@ -58,7 +57,7 @@ causticTextures::causticTextures(HSRenderer *renderer, int keys, int frames, int
 	// Sized from the clamped texSize: the readback writes texSize squared.
 	unsigned char* bitmap = new unsigned char[texSize * texSize * 3];
 
-	caustictex = new GLuint[numFrames];
+	caustictex = new unsigned int[numFrames];
 
 	// allocate memory
 	x = new float[geoRes + 1];

@@ -39,7 +39,6 @@
 #include <math.h>
 #include <time.h>
 #include <string>
-#include <OpenGL/gl.h>
 #include <rsMath/rsMath.h>
 #include <Hyperspace/flare.h>
 #include <Hyperspace/causticTextures.h>
@@ -51,7 +50,6 @@
 #include <Hyperspace/starBurst.h>
 #include <Hyperspace/nebulamap.h>
 #include <Hyperspace/transform.h>
-#include <Hyperspace/rendererGL.h>
 #include "Hyperspace.h"
 
 //#include <fstream>
@@ -413,7 +411,15 @@ void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer){
 	inSettings->numAnimTexFrames = 20;
 	inSettings->whichTexture = 0;
 
-	inSettings->renderer = renderer ? renderer : new HSRendererGL;
+	// NULL once drew through OpenGL; the saver has no OpenGL now. Refuse it
+	// here rather than crash in initFlares; with readyToDraw 0, nothing draws.
+	if(renderer == NULL){
+		fprintf(stderr, "initSaver: no renderer\n");
+		inSettings->readyToDraw = 0;
+		inSettings->renderer = NULL;   // so cleanUp frees nothing of a run that did not start
+		return;
+	}
+	inSettings->renderer = renderer;
 	initFlares(inSettings);
 
 	inSettings->thePath = new splinePath((inSettings->dDepth * 2) + 6);
@@ -485,9 +491,9 @@ void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer){
 					temp = 0.0f;
 				temp = temp * temp;
 				temp = temp * temp;
-				nebulamap[i][j][0] = GLubyte(float(nebulamap[i][j][0]) * temp);
-				nebulamap[i][j][1] = GLubyte(float(nebulamap[i][j][1]) * temp);
-				nebulamap[i][j][2] = GLubyte(float(nebulamap[i][j][2]) * temp);
+				nebulamap[i][j][0] = (unsigned char)(float(nebulamap[i][j][0]) * temp);
+				nebulamap[i][j][1] = (unsigned char)(float(nebulamap[i][j][1]) * temp);
+				nebulamap[i][j][2] = (unsigned char)(float(nebulamap[i][j][2]) * temp);
 			}
 		}
 		HSMipChain chain;
@@ -503,6 +509,12 @@ void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer){
 
 //#ifdef RS_XSCREENSAVER
 void cleanUp(HyperspaceSaverSettings *inSettings){
+	// initSaver sets the renderer before it builds anything, and this nulls it
+	// after freeing everything: no renderer means nothing of this run to free
+	// (initSaver refused, or this already ran), and the other pointers may be
+	// a previous run's, already deleted.
+	if(inSettings->renderer == NULL)
+		return;
 	// Free memory
 	if(inSettings->dUseGoo)
 		delete inSettings->theGoo;

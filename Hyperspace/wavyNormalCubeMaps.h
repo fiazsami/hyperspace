@@ -27,9 +27,6 @@
 #ifdef WIN32
 	#include <windows.h>
 #endif
-#include <OpenGL/gl.h>
-#include <OpenGL/glu.h>
-#include <OpenGL/glext.h>
 
 
 
@@ -40,7 +37,7 @@ public:
 	int numFrames;
 	int texSize;
 
-	GLuint* texture;
+	unsigned int* texture;
 
 	// Phase must be 0.0 at frame 0
 	// and phase must be 1.0 at frame numFrames
