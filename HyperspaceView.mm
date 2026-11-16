@@ -31,7 +31,7 @@
 #import "Hyperspace/rendererMetal.h"
 
 // The most time one frame may move the scene by.
-static const float kMaxFrameTime = 0.1f;
+static const CFTimeInterval kMaxFrameTime = 0.1;
 // The frame interval when no screen answers with its refresh.
 static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 
@@ -110,6 +110,8 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 // out -- so the main screen is used instead, then kFallbackInterval.
 - (void)matchRefresh
 {
+	if (lView == nil)
+		return;	// nothing draws here: main screen only, or Metal failed
 	NSScreen *screen = self.window.screen ?: [NSScreen mainScreen];
 	NSTimeInterval refresh = screen.minimumRefreshInterval;
 	self.animationTimeInterval = refresh > 0 ? refresh : kFallbackInterval;
@@ -261,11 +263,12 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 					CFTimeInterval asked = CACurrentMediaTime();
 					id<CAMetalDrawable> drawable = [lLayer nextDrawable];
 					CFTimeInterval now = CACurrentMediaTime();
-					// A stall is dropped, not replayed: the scene resumes where
-					// it stopped instead of lurching ahead. Alike whether the
-					// wait timed out (nil) or ended just short of it.
-					if (drawable == nil || now - asked > kMaxFrameTime)
-						lLastFrame = now;
+					// A long wait for a drawable is a stall, and it is dropped,
+					// not replayed: only the wait leaves the step, so the scene
+					// resumes where it stopped. Alike whether the wait timed
+					// out (nil) or ended just short of it.
+					if (lLastFrame > 0 && now - asked > kMaxFrameTime)
+						lLastFrame += now - asked;
 					if (drawable == nil)
 						return;
 					// The step is the time since the last frame, from a
