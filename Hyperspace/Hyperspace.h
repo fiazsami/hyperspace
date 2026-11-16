@@ -3,7 +3,6 @@
 
 #include <OpenGL/gl.h>
 
-class rsText;
 class causticTextures;
 class wavyNormalCubeMaps;
 class splinePath;
@@ -27,7 +26,6 @@ typedef struct HyperspaceSaverSettings
 	bool dUseTunnels;
 	bool dUseGoo;
 	bool dShaders;
-	bool kStatistics;
 	
 	// Additional globals:
 	float frameTime;
@@ -35,7 +33,6 @@ typedef struct HyperspaceSaverSettings
 	bool readyToDraw;
 	int xsize, ysize;
 	float aspectRatio;
-	rsText *textwriter;
 	bool first;
 	
 	float unroll;
@@ -66,7 +63,7 @@ typedef struct HyperspaceSaverSettings
 	unsigned char flare4[FLARESIZE][FLARESIZE][4];
 	GLuint flaretex[4];
 
-	HSRenderer *renderer;  // every draw but rsText's statistics goes through this
+	HSRenderer *renderer;  // every draw goes through this
 };
 
 __private_extern__ void draw(HyperspaceSaverSettings *inSettings);

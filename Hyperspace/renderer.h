@@ -18,9 +18,8 @@
 //
 // Every draw Hyperspace makes goes through here -- the stars, the lens flare,
 // the goo, the starburst, the tunnel -- and every texture is created here,
-// including the caustics, which are rendered offscreen and read back. Only
-// rsText's statistics overlay still draws through GL directly. Each frame
-// starts with beginFrame, which sets the camera and fog that every world-space
+// including the caustics, which are rendered offscreen and read back. Each
+// frame starts with beginFrame, which sets the camera and fog that every world-space
 // draw in it is seen through.
 
 #ifndef HYPERSPACE_RENDERER_H
