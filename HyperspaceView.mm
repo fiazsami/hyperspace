@@ -32,6 +32,8 @@
 
 // The most time one frame may move the scene by.
 static const float kMaxFrameTime = 0.1f;
+// The frame interval when no screen answers with its refresh.
+static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 
 @interface HyperspaceView (Private)
 - (void)readDefaults:(ScreenSaverDefaults *)inDefaults;
@@ -82,7 +84,7 @@ static const float kMaxFrameTime = 0.1f;
 				// Metal draws the shaded look only, whatever an older version saved.
 				lSettings.dShaders = 1;
                 
-				self.animationTimeInterval = 1.0/60.0;
+				self.animationTimeInterval = kFallbackInterval;
 				lSettings.first = 1;
             }
 		}
@@ -105,25 +107,30 @@ static const float kMaxFrameTime = 0.1f;
 // the longest, the slowest rate a variable-refresh display drops to. The
 // window's screen is nil for most windows inside legacyScreenSaver (hills
 // measured 25 in 32), and a nil screen answers 0 -- a timer that runs flat
-// out -- so the screen under the window is used instead, then the main
-// screen, then 1/60.
+// out -- so the screen under most of the window is used instead, then the
+// main screen, then kFallbackInterval.
 - (void)matchRefresh
 {
 	NSScreen *screen = self.window.screen;
 	if (screen == nil && self.window)
 	{
 		NSRect frame = self.window.frame;
+		CGFloat most = 0;
 		for (NSScreen *candidate in [NSScreen screens])
-			if (NSIntersectsRect(candidate.frame, frame))
+		{
+			NSRect overlap = NSIntersectionRect(candidate.frame, frame);
+			CGFloat area = overlap.size.width * overlap.size.height;
+			if (area > most)
 			{
+				most = area;
 				screen = candidate;
-				break;
 			}
+		}
 	}
 	if (screen == nil)
 		screen = [NSScreen mainScreen];
 	NSTimeInterval refresh = screen.minimumRefreshInterval;
-	self.animationTimeInterval = refresh > 0 ? refresh : 1.0 / 60.0;
+	self.animationTimeInterval = refresh > 0 ? refresh : kFallbackInterval;
 }
 
 
@@ -172,6 +179,9 @@ static const float kMaxFrameTime = 0.1f;
 
 - (void)startAnimation
 {
+	// Before super, which starts the timer at the interval set now. The window,
+	// and so the screen, may have changed since the view moved to it.
+	[self matchRefresh];
     [super startAnimation];
 	
 	if (lIsConfiguring == NO && lView)
@@ -197,7 +207,6 @@ static const float kMaxFrameTime = 0.1f;
 				[self rendererFailed:e];
 				return;
 			}
-			[self matchRefresh];	// the window, and so the screen, may have changed since it moved here
 			[self matchBacking];
 			lLastFrame = CACurrentMediaTime();
         }
@@ -270,9 +279,9 @@ static const float kMaxFrameTime = 0.1f;
 					id<CAMetalDrawable> drawable = [lLayer nextDrawable];
 					if (drawable == nil)
 						return;	// no frame; the next one carries the time, up to the cap below
-					// A stall -- a drawable that took the layer's full timeout, a
-					// throttled host -- would otherwise move the scene by all of
-					// it at once; past a tenth of a second the scene slows instead,
+					// A stall -- a nil drawable after the layer's full timeout,
+					// whose time this frame carries, or a throttled host -- would
+					// otherwise move the scene by all of it at once; past a tenth of a second the scene slows instead,
 					// which also slows it on a host drawing under 10 fps. The clock
 					// is monotonic, so the step is never negative.
 					CFTimeInterval now = CACurrentMediaTime();
