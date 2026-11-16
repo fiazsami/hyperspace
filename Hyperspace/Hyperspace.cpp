@@ -318,6 +318,7 @@ void draw(HyperspaceSaverSettings *inSettings){
 	if(alpha > 0.0f)
 		flare(flarepos, 1.0f, 1.0f, 1.0f, alpha, inSettings);
 	inSettings->renderer->setFog(true);
+	inSettings->renderer->endFrame();
 
 	// measure draw time
 	//drawTime += drawTimer.tick();
@@ -451,7 +452,7 @@ void initSaver(HWND hwnd){
 	reshape(rect.right, rect.bottom);
 #endif
 //#ifdef RS_XSCREENSAVER
-void initSaver(HyperspaceSaverSettings *inSettings){
+void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer){
 //#endif
 	// Seed random number generator
 	srand((unsigned)time(NULL));
@@ -470,7 +471,7 @@ void initSaver(HyperspaceSaverSettings *inSettings){
 	inSettings->numAnimTexFrames = 20;
 	inSettings->whichTexture = 0;
 
-	inSettings->renderer = new HSRendererGL;
+	inSettings->renderer = renderer ? renderer : new HSRendererGL;
 	initFlares(inSettings);
 
 	inSettings->thePath = new splinePath((inSettings->dDepth * 2) + 6);

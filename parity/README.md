@@ -12,6 +12,7 @@ parity/build.sh                                   # -> .parity-build/parity
 .parity-build/parity goo metal .parity-build/out/goo
 parity/killcheck.sh                               # every rule, both directions (~5 min)
 parity/killcheck.sh inject                        # the recorder's checks alone (~30 s)
+parity/backendcheck.sh                            # the Metal backend against GL (~1 min)
 ```
 
 Each shot writes `NNNNN_gl.png`, `NNNNN_metal.png` and `NNNNN_diffx8.png`
@@ -257,6 +258,42 @@ and after it: exactly 0 before the burst and after it ends (frame 420 on), and
 up to 0.73% of lit pixels while it lasts, all within about 40 pixels of the
 middle of the frame, where the sun is held.
 
+## Backend check
+
+`parity/backendcheck.sh` asks the question the passes lead up to: **does the
+saver, drawn through the Metal backend, look like the saver drawn through GL?**
+The passes replay GL's own recorded draws; this runs the saver's code through
+`HSRendererMetal` (`Hyperspace/rendererMetal.mm`), which computes its own
+matrices, fog and overlay projection and owns its textures, as the shipped port
+will.
+
+Two runs share the seed, so they draw the same frames: a plain run for its
+`_gl.png`, and `renderer=metal`, which draws only through the backend and writes
+`_backend.png`. `parity --compare-backend <pass>` judges them with that pass's
+rules. In backend mode a shot that generates any GL primitive is an error, so a
+draw that slipped past the backend cannot go unnoticed.
+
+The backend draws frames, fog, textures, quads and the overlay; it has no
+offscreen target, goo or tunnel yet, so only `stars` and `sun` run. Measured:
+`stars` worst 0.000% / 0.000% / bias 0.004, and `sun` 0.021% / 0.000% / 0.004.
+Five of the twelve `stars` shots (2400 on) carry lens flares, 13 overlay quads
+each, so the overlay is judged too.
+
+Its kill cases are defects in the backend's C++ rather than its shaders:
+`parity/defects/backend_<pass>_*.sed`, each a sed script over
+`rendererMetal.mm`, built into its own `parity` with `build.sh --backend` and
+required to FAIL. Killed: the model matrix before the camera, fog from the eye,
+an overlay ignoring the aspect ratio, (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) blending,
+nearest sampling, the quad's color ignored, and -- under `sun` -- `setFog(false)`
+ignored. A fixture that no longer changes the file is an error, not a survivor.
+
+One defect is not a fixture because it cannot show: dropping the map from GL's
+clip z (-w..w) to Metal's (0..w). Without it Metal clips where GL's NDC z < 0,
+which at the saver's near and far planes (0.001, 200) is within
+2nf/(n+f) ≈ 0.002 units of the eye, nearer than anything Hyperspace draws; the
+overlay sits at z = 0, on Metal's inclusive boundary. Measured: it passes
+`stars` at 0.000%. It is still kept, since nothing guarantees the planes.
+
 ## Limits
 
 - **One machine.** Calibrated on an Apple M5 Max under macOS 26. Another GPU or
@@ -265,10 +302,12 @@ middle of the frame, where the sun is held.
 - **Not in CI.** A hosted runner's GPU is virtualized and uncalibrated, so a
   verdict there would mean nothing yet. This runs locally.
 - **The replay reuses GL's matrices.** A real port computes them itself, which
-  can add a small error this does not measure.
+  can add a small error the passes do not measure. The backend check does, for
+  the draws the backend has.
 - **The starburst's sphere is never judged.** It is drawn with the goo program
   from a display list, which the recorder refuses. The `burst` pass reaches it,
   so the seam check covers it, but its Metal verdict on those shots is always
   that refusal.
-- **It is a comparison, not a renderer.** Nothing here draws the saver; the
-  shaders in `metal/` are what a Metal renderer would use.
+- **The passes compare; the backend renders.** The passes draw nothing of the
+  saver's own; `HSRendererMetal` does, so far for stars, the sun and the lens
+  flares only.

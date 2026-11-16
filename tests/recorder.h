@@ -57,6 +57,7 @@ public:
     std::vector<std::vector<HSTunnelVertex> > tunnel;
 
     void beginFrame(const HSFrame &) override {}
+    void endFrame() override {}
     void setFog(bool) override {}
     unsigned int createTexture(int width, int height, const unsigned char *) override
     {

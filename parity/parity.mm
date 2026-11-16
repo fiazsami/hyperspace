@@ -16,6 +16,13 @@
 // is for. Exit 0 = PASS, 1 = FAIL, 2 = harness or
 // shader error. Each shot writes <outdir>/NNNNN_gl.png, _metal.png, _diffx8.png.
 //
+// renderer=metal instead draws the saver through HSRendererMetal, the Metal
+// backend, and writes only <outdir>/NNNNN_backend.png; nothing is replayed or
+// judged. `parity --compare-backend <pass> <gl-dir> <backend-dir>` then judges
+// those against a plain run's _gl.png with the pass's rules
+// (parity/backendcheck.sh does both). The two runs share the seed, so they
+// draw the same frames.
+//
 // Nothing here is a golden image: GL and Metal render the same frame in the same
 // process, so the reference is always the shipped renderer on this machine. The
 // rules below were calibrated on one machine (Apple M5 Max, macOS 26); see
@@ -37,6 +44,7 @@
 #include "splinePath.h"
 #include "starBurst.h"
 #include "transform.h"
+#include "rendererMetal.h"
 
 extern GLhandleARB gooProgram, tunnelProgram;
 
@@ -628,18 +636,23 @@ static std::vector<uint8_t> readPNG(NSString *path, int &w, int &h)
 
 // parity --compare <ref-dir> <new-dir>: the GL images of two runs of the same pass,
 // shot by shot (parity/seamcheck.sh). Both sides are the GL renderer, so nothing
-// here is a translation residual: the rule is the tightest any pass uses, and a
-// shot missing from either side is an error.
-static int compareRuns(NSString *refDir, NSString *newDir)
+// here is a translation residual: the rule is the tightest any pass uses.
+// parity --compare-backend compares one run's GL images with another's
+// _backend.png (renderer=metal), under the pass's rules. Either way a shot
+// missing from either side is an error.
+static int compareRuns(NSString *refDir, NSString *newDir, NSString *newSuffix,
+                       double max2, double max8, double maxBias, const char *same, const char *different)
 {
-    auto shots = [](NSString *dir) -> NSArray<NSString *> * {
+    auto shots = [](NSString *dir, NSString *suffix) -> NSArray<NSString *> * {
         NSArray<NSString *> *all = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:nil];
         if (!all) { printf("ERROR cannot read %s\n", dir.UTF8String); return nil; }
-        NSArray<NSString *> *gl = [all filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"self ENDSWITH '_gl.png'"]];
-        if (!gl.count) { printf("ERROR no *_gl.png in %s\n", dir.UTF8String); return nil; }
-        return [gl sortedArrayUsingSelector:@selector(compare:)];
+        NSArray<NSString *> *found = [all filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"self ENDSWITH %@", suffix]];
+        if (!found.count) { printf("ERROR no *%s in %s\n", suffix.UTF8String, dir.UTF8String); return nil; }
+        NSMutableArray<NSString *> *frames = [NSMutableArray array];
+        for (NSString *n in found) [frames addObject:[n substringToIndex:n.length - suffix.length]];
+        return [frames sortedArrayUsingSelector:@selector(compare:)];
     };
-    NSArray<NSString *> *names = shots(refDir), *newNames = shots(newDir);
+    NSArray<NSString *> *names = shots(refDir, @"_gl.png"), *newNames = shots(newDir, newSuffix);
     if (!names || !newNames) return 2;
     if (![names isEqualToArray:newNames]) {
         NSMutableSet *onlyRef = [NSMutableSet setWithArray:names], *onlyNew = [NSMutableSet setWithArray:newNames];
@@ -648,12 +661,11 @@ static int compareRuns(NSString *refDir, NSString *newDir)
                [[onlyRef.allObjects componentsJoinedByString:@" "] UTF8String], [[onlyNew.allObjects componentsJoinedByString:@" "] UTF8String]);
         return 2;
     }
-    const double max2 = 0.1, max8 = 0.01, maxBias = 0.06;
     bool ok = true; double worst2 = 0, worst8 = 0, worstBias = 0; int worstMax = 0;
     for (NSString *n in names) {
         int rw = 0, rh = 0, nw = 0, nh = 0;
-        std::vector<uint8_t> a = readPNG([refDir stringByAppendingPathComponent:n], rw, rh);
-        std::vector<uint8_t> b = readPNG([newDir stringByAppendingPathComponent:n], nw, nh);
+        std::vector<uint8_t> a = readPNG([refDir stringByAppendingPathComponent:[n stringByAppendingString:@"_gl.png"]], rw, rh);
+        std::vector<uint8_t> b = readPNG([newDir stringByAppendingPathComponent:[n stringByAppendingString:newSuffix]], nw, nh);
         if (a.empty() || b.empty() || rw != nw || rh != nh) { printf("ERROR %s missing or a different size\n", n.UTF8String); return 2; }
         size_t lit = 0, l2 = 0, l8 = 0; int maxd = 0; double sb[3] = {0, 0, 0};
         for (size_t i = 0; i < (size_t)rw * rh; i++) {
@@ -672,7 +684,7 @@ static int compareRuns(NSString *refDir, NSString *newDir)
         printf("%s  max %3d  lit>2 %6.3f%%  lit>8 %6.3f%%  bias %5.3f  %s\n", n.UTF8String, maxd, p2, p8, bias, shotOk ? "ok" : "FAIL");
     }
     printf("%s shots=%lu worst_max=%d worst_lit>2=%.3f%% worst_lit>8=%.3f%% worst_bias=%.3f (limits %.2f%% / %.2f%% / %.3f)\n",
-           ok ? "SAME" : "DIFFERENT", (unsigned long)names.count, worstMax, worst2, worst8, worstBias, max2, max8, maxBias);
+           ok ? same : different, (unsigned long)names.count, worstMax, worst2, worst8, worstBias, max2, max8, maxBias);
     return ok ? 0 : 1;
 }
 
@@ -686,10 +698,17 @@ static NSString *readFile(NSString *path)
 int main(int argc, const char *argv[])
 {
     @autoreleasepool {
-        if (argc == 4 && !strcmp(argv[1], "--compare")) return compareRuns(@(argv[2]), @(argv[3]));
+        if (argc == 4 && !strcmp(argv[1], "--compare")) return compareRuns(@(argv[2]), @(argv[3]), @"_gl.png", 0.1, 0.01, 0.06, "SAME", "DIFFERENT");
+        if (argc == 5 && !strcmp(argv[1], "--compare-backend")) {
+            for (const Pass &p : kPasses)
+                if (!strcmp(argv[2], p.name)) return compareRuns(@(argv[3]), @(argv[4]), @"_backend.png", p.max2, p.max8, p.maxBias, "PASS", "FAIL");
+            fprintf(stderr, "unknown pass %s\n", argv[2]); return 2;
+        }
         if (argc == 2 && !strcmp(argv[1], "--inject-cases")) { for (const char *k : kInjectCases) printf("%s\n", k); return 0; }
         if (argc < 4) {
-            fprintf(stderr, "usage: parity <stars|goo|tunnel|burst|sun> <metal-dir> <outdir> [shader=PATH] [inject=CASE] [frames=N] [every=N] [w=N] [h=N]\n");
+            fprintf(stderr, "usage: parity <stars|goo|tunnel|burst|sun> <metal-dir> <outdir> [shader=PATH] [inject=CASE] [renderer=metal] [frames=N] [every=N] [w=N] [h=N]\n"
+                            "       parity --compare <ref-dir> <new-dir>\n"
+                            "       parity --compare-backend <pass> <gl-dir> <backend-dir>\n");
             return 2;
         }
         const Pass *pass = nullptr;
@@ -699,6 +718,7 @@ int main(int argc, const char *argv[])
         NSString *shaderPath = [metalDir stringByAppendingPathComponent:@(pass->file)];
         int frames = pass->frames, every = pass->every, w = 1280, h = 720;
         const char *inject = nullptr;
+        bool backend = false, shaderGiven = false;
         auto intOpt = [](const char *arg, const char *key, int &out) {
             size_t n = strlen(key);
             if (strncmp(arg, key, n)) return false;
@@ -707,7 +727,8 @@ int main(int argc, const char *argv[])
             out = (int)v; return true;
         };
         for (int i = 4; i < argc; i++) {
-            if (!strncmp(argv[i], "shader=", 7) && argv[i][7]) shaderPath = @(argv[i] + 7);
+            if (!strncmp(argv[i], "shader=", 7) && argv[i][7]) { shaderPath = @(argv[i] + 7); shaderGiven = true; }
+            else if (!strcmp(argv[i], "renderer=metal")) backend = true;
             else if (!strncmp(argv[i], "inject=", 7)) {
                 inject = argv[i] + 7;
                 bool known = false; for (const char *k : kInjectCases) known |= !strcmp(k, inject);
@@ -716,6 +737,11 @@ int main(int argc, const char *argv[])
             else if (intOpt(argv[i], "frames=", frames) || intOpt(argv[i], "every=", every) ||
                      intOpt(argv[i], "w=", w) || intOpt(argv[i], "h=", h)) {}
             else { fprintf(stderr, "bad option %s\n", argv[i]); return 2; }
+        }
+        // The backend draws with metal/ as it stands, and has no goo or tunnel yet.
+        if (backend && (shaderGiven || inject)) { fprintf(stderr, "renderer=metal takes no shader= or inject=\n"); return 2; }
+        if (backend && (pass->goo || pass->tunnels)) {
+            fprintf(stderr, "renderer=metal cannot draw the %s pass yet: the backend has no goo or tunnel\n", pass->name); return 2;
         }
         [[NSFileManager defaultManager] createDirectoryAtPath:outdir withIntermediateDirectories:YES attributes:nil error:nil];
         const float dt = 1.0f / 60.0f;
@@ -771,11 +797,23 @@ int main(int argc, const char *argv[])
         s.first = 1;
         reshape(w, h, &s);
         glClearColor(0, 0, 0, 0); glClear(GL_COLOR_BUFFER_BIT); glFlush();
-        initSaver(&s);
-        printf("renderer: %s\n", glGetString(GL_RENDERER));
+        // The GL context stays in backend mode: initSaver still builds the GL
+        // programs and rsText, and a draw that slips past the backend into GL is
+        // caught below rather than crashing.
+        HSRendererMetal *metalRenderer = nullptr;
+        id<MTLTexture> backendTarget = nil;
+        if (backend) {
+            MTLTextureDescriptor *bd = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:w height:h mipmapped:NO];
+            bd.usage = MTLTextureUsageRenderTarget; bd.storageMode = MTLStorageModeShared;
+            backendTarget = [dev newTextureWithDescriptor:bd];
+            metalRenderer = new HSRendererMetal((__bridge void *)dev, metalDir.fileSystemRepresentation);
+            metalRenderer->setTarget((__bridge void *)backendTarget);
+        }
+        initSaver(&s, metalRenderer);
+        printf("renderer: %s\n", backend ? "HSRendererMetal" : (const char *)glGetString(GL_RENDERER));
         printf("config: pass=%s seed=%ld goo=%d tunnels=%d shaders=%d %dx%d frames=%d every=%d shader=%s%s%s\n",
-               pass->name, (long)gSeed, s.dUseGoo, s.dUseTunnels, s.dShaders, w, h, frames, every, shaderPath.UTF8String,
-               inject ? " inject=" : "", inject ? inject : "");
+               pass->name, (long)gSeed, s.dUseGoo, s.dUseTunnels, s.dShaders, w, h, frames, every,
+               backend ? "(backend: metal/)" : shaderPath.UTF8String, inject ? " inject=" : "", inject ? inject : "");
         if (inject) injectSetup(inject);
         if (inject && !strcmp(inject, "tunnelnotex") && !tunnelProgram) { printf("ERROR inject=tunnelnotex needs the tunnel program\n"); return 2; }
         if (inject && !strcmp(inject, "goopartialcube") && !gooProgram) { printf("ERROR inject=goopartialcube needs the goo program\n"); return 2; }
@@ -904,6 +942,21 @@ int main(int argc, const char *argv[])
             gRecording = false;
             if (!shot) continue;
 
+            if (backend) {
+                // Nothing may draw through GL: every draw goes to the backend.
+                GLuint generated = 0; glGetQueryObjectuiv(primQuery, GL_QUERY_RESULT, &generated);
+                if (generated || gUnsupported || !gBatches.empty()) {
+                    printf("ERROR frame %d drew through GL in backend mode (%u primitives)\n", f, generated); return 2;
+                }
+                [backendTarget getBytes:mtl.data() bytesPerRow:(size_t)w * 4 fromRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0];
+                int draws = metalRenderer->drawCount();
+                shots++; judgedTotal += draws;
+                printf("%5d  %12d  backend\n", f, draws);
+                NSString *base = [outdir stringByAppendingPathComponent:[NSString stringWithFormat:@"%05d", f]];
+                writePNG([base stringByAppendingString:@"_backend.png"], mtl.data(), w, h);
+                continue;
+            }
+
             // A GL error means some call -- the saver's or the recorder's -- did not do
             // what the recording assumes it did.
             GLenum glErr = glGetError();
@@ -1012,6 +1065,7 @@ int main(int argc, const char *argv[])
         }
         // A pass that drew nothing would compare black with black and pass.
         if (judgedTotal == 0) { printf("ERROR the %s pass drew nothing in any shot; nothing was compared\n", pass->name); return 2; }
+        if (backend) { printf("WROTE pass=%s shots=%d through HSRendererMetal\n", pass->name, shots); return 0; }
         printf("%s pass=%s shots=%d worst_lit>2=%.2f%% worst_lit>8=%.2f%% worst_bias=%.3f (limits %.2f%% / %.2f%% / %.3f)\n",
                ok ? "PASS" : "FAIL", pass->name, shots, worst2, worst8, worstBias, pass->max2, pass->max8, pass->maxBias);
         return ok ? 0 : 1;
