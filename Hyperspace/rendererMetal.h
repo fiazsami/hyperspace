@@ -64,6 +64,9 @@ public:
 	void beginGoo(const float color[4], unsigned int nebula,
 		unsigned int normals0, unsigned int normals1, bool shaded);
 	void drawGooSurface(impSurface *surface, const float offset[3]);
+	// The goo is built here, on the GPU (metal/GooBuild.metal).
+	bool buildsGoo() const;
+	void drawGooField(const HSGooField &field);
 	void drawGooSphere(const float center[3], float radius);
 	void endGoo();
 	void beginTunnel(unsigned int caustic0, unsigned int caustic1, float lerp, bool shaded);

@@ -51,6 +51,8 @@ public:
     float aspect = 0.0f;
     unsigned int nextName = 100;
     std::vector<GooDraw> goo;
+    bool gooOnGPU = false;              // what buildsGoo answers
+    std::vector<HSGooField> gooFields;  // drawGooField's, when it does
     std::vector<GooSphere> spheres;
     std::vector<GooBegin> gooBegins;
     int gooEnds = 0;
@@ -122,6 +124,8 @@ public:
         memcpy(d.offset, offset, sizeof d.offset);
         goo.push_back(d);
     }
+    bool buildsGoo() const override { return gooOnGPU; }
+    void drawGooField(const HSGooField &field) override { gooFields.push_back(field); }
     void drawGooSphere(const float center[3], float radius) override
     {
         GooSphere d;

@@ -46,6 +46,24 @@ struct HSTunnelVertex{
 
 class impSurface;
 
+// The goo as its field, for a backend that builds the surface itself
+// (HSRenderer::buildsGoo). The surface is where goo::function equals surface,
+// built in blocks of resolution^3 cells unitSize wide, each block spanning
+// volumeSize in x, y and z and centred on (offset x, 0, offset z) -- the
+// blocks goo::update chose, in its order. Vertices are placed relative to
+// origin and drawn moved back by it, as drawGooSurface's offset does, so that
+// positions stay small however far the camera has travelled.
+struct HSGooField{
+	float c[4];             // goo::c: the four waves' amplitudes this frame
+	float camx, camz;       // the eye, which goo::function's bubble surrounds
+	float origin[2];        // x and z the vertices are placed relative to
+	float unitSize;         // a cell's edge
+	float volumeSize;       // a block's edge
+	float surface;          // the value of goo::function on the surface
+	int resolution;         // cells along a block's edge
+	std::vector<float> offsets;   // each block's centre, x then z
+};
+
 // What a frame is seen through: the viewport, the camera's projection and view
 // (column-major, as GL takes them), and black linear fog from fogStart to
 // fogEnd units from the eye.
@@ -132,6 +150,13 @@ public:
 	virtual void beginGoo(const float color[4], unsigned int nebula,
 		unsigned int normals0, unsigned int normals1, bool shaded) = 0;
 	virtual void drawGooSurface(impSurface *surface, const float offset[3]) = 0;
+	// A backend that builds the goo's surface from its field answers true.
+	// goo::update then skips building the surfaces on the CPU -- most of a
+	// frame's CPU time -- and goo::draw passes the field to drawGooField,
+	// once a frame between beginGoo and endGoo, in place of the surfaces.
+	// The defaults are a backend that does not: drawGooField is never called.
+	virtual bool buildsGoo() const { return false; }
+	virtual void drawGooField(const HSGooField &field) { (void)field; }
 	virtual void drawGooSphere(const float center[3], float radius) = 0;
 	virtual void endGoo() = 0;
 
@@ -155,6 +180,14 @@ void hsQuad(const float m[16], float half, HSVertex out[4]);
 // nothing here does, so texture sizes must be powers of two) or channels is
 // not 1 to 4.
 bool hsBuildMipmaps(const unsigned char *pixels, int size, int channels, HSMipChain &out);
+
+// Each of impCubeVolume's 256 corner configurations as triangles, for a
+// backend that builds the goo (HSRenderer::buildsGoo): row mask holds the
+// triangle count, then three edge indices per triangle (impCubeTables'
+// numbering), in the order and winding impCubeVolume::polygonize emits them.
+// Five triangles at most, so 16 entries a row.
+const int HS_GOO_TABLE_ROW = 16;
+void hsGooTriangleTable(short out[256][HS_GOO_TABLE_ROW]);
 
 // The unit sphere drawGooSphere draws, as HS_SPHERE_BANDS triangle strips:
 // band b's 66 points in strip order, alternating the rings at latitude angle

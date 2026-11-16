@@ -60,9 +60,13 @@ public:
 
 	goo(int res, float rad);
 	~goo();
+	// Chooses the blocks in view, and builds their surfaces unless the
+	// settings' renderer builds them itself (HSRenderer::buildsGoo).
 	void update(float x, float z, float heading, float fov, HyperspaceSaverSettings *inSettings);
 	static float function(float* position, void *contextInfo);
-	// Each surface update() made, between the caller's beginGoo and endGoo.
+	// Each block update() chose, between the caller's beginGoo and endGoo: its
+	// surface, or for a renderer that builds the goo, the field. Pass the
+	// renderer update() saw, or a CPU renderer gets surfaces never built.
 	void draw(HSRenderer *renderer);
 };
 

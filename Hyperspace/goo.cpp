@@ -26,6 +26,9 @@
 
 //extern float frameTime, simulationTime;
 
+// The value of goo::function on the surface.
+static const float kGooSurface = 0.4f;
+
 
 
 goo::goo(int res, float rad){
@@ -53,7 +56,7 @@ goo::goo(int res, float rad){
 	volume->setCrawlFromSides(true);
 	volume->function = function;
 	volume->contextInfoForFunction = this;
-	volume->setSurfaceValue(0.4f);
+	volume->setSurfaceValue(kGooSurface);
 	surface = new impSurface**[arraySize];
 	useSurface = new bool*[arraySize];
 	for(i=0; i<arraySize; i++){
@@ -99,6 +102,9 @@ void goo::update(float x, float z, float heading, float fov, HyperspaceSaverSett
 	clip[2][0] = sinf(heading);
 	clip[2][1] = -cosf(heading);
 
+	// A renderer that builds the goo itself needs only the blocks chosen.
+	const bool cpu = !(inSettings->renderer && inSettings->renderer->buildsGoo());
+
 	// Empty crawl point vector.
 	// This is only needed so that the right version of impCubeVolume::makeSurface() is called.
 	impCrawlPointVector cpv;
@@ -112,9 +118,11 @@ void goo::update(float x, float z, float heading, float fov, HyperspaceSaverSett
 					if(shiftx * clip[2][0] + shiftz * clip[2][1] < radius + volumeSize * 1.41421f){
 						shiftx += centerx;
 						shiftz += centerz;
-						volume->setSurface(surface[i][j]);
-						surface[i][j]->reset();
-						volume->makeSurface(cpv);
+						if(cpu){
+							volume->setSurface(surface[i][j]);
+							surface[i][j]->reset();
+							volume->makeSurface(cpv);
+						}
 						useSurface[i][j] = true;
 					}
 				}
@@ -153,6 +161,32 @@ float goo::function(float* position, void *contextInfo){
 
 void goo::draw(HSRenderer *renderer){
 	int i, j;
+
+	if(renderer->buildsGoo()){
+		HSGooField field;
+		for(i=0; i<4; i++)
+			field.c[i] = c[i];
+		field.camx = camx;
+		field.camz = camz;
+		field.origin[0] = centerx;
+		field.origin[1] = centerz;
+		field.unitSize = unitSize;
+		field.volumeSize = volumeSize;
+		field.surface = kGooSurface;
+		field.resolution = resolution;
+		for(i=0; i<arraySize; i++){
+			for(j=0; j<arraySize; j++){
+				if(useSurface[i][j]){
+					field.offsets.push_back(centerx + volumeSize * (0.5f + float(i - arraySize / 2)));
+					field.offsets.push_back(centerz + volumeSize * (0.5f + float(j - arraySize / 2)));
+					useSurface[i][j] = false;
+				}
+			}
+		}
+		if(!field.offsets.empty())
+			renderer->drawGooField(field);
+		return;
+	}
 
 	for(i=0; i<arraySize; i++){
 		for(j=0; j<arraySize; j++){

@@ -220,11 +220,19 @@ backend stops on them. Measured, worst shot:
 
 | pass | lit>2 | lit>8 | bias | limits |
 |---|---|---|---|---|
-| `stars` | 0.000% | 0.000% | 0.004 | 1% / 0.1% / 0.06 |
-| `goo` | 4.244% | 0.958% | 0.011 | 8% / 2.5% / 0.06 |
-| `tunnel` | 0.738% | 0.163% | 0.015 | 3% / 0.6% / 0.06 |
-| `burst` | 0.490% | 0.133% | 0.003 | 8% / 2.5% / 0.06 |
-| `sun` | 0.021% | 0.000% | 0.004 | 1% / 0.1% / 0.06 |
+| `stars` | 0.000% | 0.000% | 0.002 | 1% / 0.1% / 0.06 |
+| `goo` | 4.612% | 1.127% | 0.015 | 8% / 2.5% / 0.06 |
+| `tunnel` | 0.107% | 0.029% | 0.002 | 3% / 0.6% / 0.06 |
+| `burst` | 0.906% | 0.201% | 0.006 | 8% / 2.5% / 0.06 |
+| `sun` | 0.000% | 0.000% | 0.002 | 1% / 0.1% / 0.06 |
+
+Re-measured 2026-11-16 on an M5 Max, when the goo's surface moved to the GPU.
+`tunnel`, `burst`, `stars` and `sun` come out the same on the commit before
+that change; the earlier figures here were older. `goo` was 3.011% / 0.674% /
+0.011 before it. The two runs no longer draw the same triangles: the kernel
+evaluates the field with a precise cos where the CPU reads rsCosf's table, and
+draws each cell's triangles unshared, in another order. Which of those the
+1.6 points come from was not measured.
 
 Five of the twelve `stars` shots (2400 on) carry lens flares, 13 overlay quads
 each, so the overlay is judged too. The `burst` shots from 90 to 240 carry the
@@ -263,12 +271,26 @@ narrowest by lit>2 are `tunnel_fog110` (3.72% against 3%) and
 against 0.06); `sun_fogalways` is inside lit>2 at 0.75% and killed by its bias,
 0.843.
 
+**The goo's build kernel.** The backend builds the goo's surface on the GPU
+(`metal/GooBuild.metal`), so the CPU's `impCubeVolume` no longer stands between
+the two runs: GL draws the surface the CPU built, Metal the one the kernel
+built, and the `goo` pass judges the kernel as much as the shader.
+`parity/defects/goobuild_<defect>.metal` is that kernel with one defect, made
+and checked like the shader fixtures (`base=` is `GooBuild.metal`'s blob), and
+run under `goo`. Killed: each vertex at its edge's midpoint, each vertex taking
+its edge's first corner's normal unmixed, and the normal's neighbour half a
+cell along instead of one. The kernel's first cut used the field's exact
+gradient for normals, and this pass failed it at 98% lit>2 -- the reflections
+moved across the whole surface -- which is why it copies impCubeVolume's
+forward differences instead.
+
 **Backend C++.** `parity/defects/backend_<pass>_*.sed`, each a sed script over
 `rendererMetal.mm`, built into its own `parity` with `build.sh --backend` and
 required to FAIL. Killed: the model matrix before the camera, fog from the eye,
 an overlay ignoring the aspect ratio, (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) blending,
-nearest sampling, the quad's color ignored; under `goo`, surfaces drawn at the
-origin, the nebula and a normal map swapped, the fog scale as 1/end, and the
+nearest sampling, the quad's color ignored; under `goo`, the GPU-built surface
+drawn at the origin, its blocks' cells starting a whole block from their
+centres, the nebula and a normal map swapped, the fog scale as 1/end, and the
 normal-map mix dropped; under `tunnel`, the caustic frames swapped, their mix
 ignored (alpha 1), front faces culled, no culling, the fog ending twice as
 far, the fog scale as 1/end, and the camera left out of its projection; under `burst`, the sphere at radius 1 and half its bands; under `sun`,
