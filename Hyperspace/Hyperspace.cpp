@@ -416,6 +416,7 @@ void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer){
 	if(renderer == NULL){
 		fprintf(stderr, "initSaver: no renderer\n");
 		inSettings->readyToDraw = 0;
+		inSettings->renderer = NULL;   // so cleanUp frees nothing of a run that did not start
 		return;
 	}
 	inSettings->renderer = renderer;
