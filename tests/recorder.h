@@ -56,6 +56,8 @@ public:
     int gooEnds = 0;
     std::vector<std::vector<HSTunnelVertex> > tunnel;
 
+    void beginFrame(const HSFrame &) override {}
+    void setFog(bool) override {}
     unsigned int createTexture(int width, int height, const unsigned char *) override
     {
         textureSizes.push_back(width * 1000 + height);

@@ -19,11 +19,9 @@
 // Every draw Hyperspace makes goes through here -- the stars, the lens flare,
 // the goo, the starburst, the tunnel -- and every texture is created here,
 // including the caustics, which are rendered offscreen and read back. Only
-// rsText's statistics overlay still draws through GL directly. What is not
-// here yet is the frame's fixed state: Hyperspace.cpp's draw() still sets the
-// camera, fog, blending, MODULATE and 2D texturing in GL each frame. The stars
-// and the sun rely on all of it; the goo and the tunnel set their own blending
-// and texturing but still take their fog from it (see rendererGL.h).
+// rsText's statistics overlay still draws through GL directly. Each frame
+// starts with beginFrame, which sets the camera and fog that every world-space
+// draw in it is seen through.
 
 #ifndef HYPERSPACE_RENDERER_H
 #define HYPERSPACE_RENDERER_H
@@ -48,6 +46,16 @@ struct HSTunnelVertex{
 
 class impSurface;
 
+// What a frame is seen through: the viewport, the camera's projection and view
+// (column-major, as GL takes them), and black linear fog from fogStart to
+// fogEnd units from the eye.
+struct HSFrame{
+	int viewport[4];
+	float projection[16];
+	float view[16];
+	float fogStart, fogEnd;
+};
+
 // A square, power-of-two image and every mip level down to 1x1, tightly
 // packed bytes, channels per pixel. levels[0] is the image itself.
 struct HSMipChain{
@@ -60,6 +68,13 @@ struct HSMipChain{
 class HSRenderer{
 public:
 	virtual ~HSRenderer(){}
+
+	// Clear to black and start drawing a frame through frame. Fog is on.
+	virtual void beginFrame(const HSFrame &frame) = 0;
+
+	// Fog for world-space draws until the next setFog or beginFrame. The sun
+	// and its lens flare draw with it off.
+	virtual void setFog(bool on) = 0;
 
 	// An RGBA8 texture, linear min and mag filtering, no mipmaps.
 	virtual unsigned int createTexture(int width, int height, const unsigned char *rgba) = 0;
@@ -74,9 +89,10 @@ public:
 	// Render into a size x size RGB target and read it back. beginOffscreen
 	// clears to black; strips drawn until endOffscreen are untextured,
 	// per-vertex colored, blended (SRC_ALPHA, ONE), with x and y running 0..1
-	// across the target. endOffscreen writes size * size * 3 bytes, bottom row
-	// first, and restores the viewport and the camera. Other pipeline state
-	// is the backend's to leave: callers set what they draw with next.
+	// across the target, unfogged. endOffscreen writes size * size * 3 bytes,
+	// bottom row first, and restores the viewport, the camera and the fog
+	// setting. Other pipeline state is the backend's to leave: callers set
+	// what they draw with next.
 	virtual void beginOffscreen(int size) = 0;
 	virtual void drawColorStrip(const HSColorVertex *v, int count) = 0;
 	virtual void endOffscreen(unsigned char *rgb) = 0;
@@ -84,8 +100,8 @@ public:
 	// The square hsQuad(model, half) describes, textured, its texture
 	// modulated by color, blended (SRC_ALPHA, ONE) over what is already drawn.
 	// model places it in world space, seen through the camera and fogged
-	// linearly with eye distance -- or, between beginOverlay and endOverlay,
-	// in the overlay plane.
+	// linearly with eye distance unless setFog(false) -- or, between
+	// beginOverlay and endOverlay, in the overlay plane, never fogged.
 	//
 	// The quad takes its model matrix rather than finished corners so that a
 	// backend can apply it after the camera's translation, as GL's matrix

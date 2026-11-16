@@ -44,6 +44,39 @@ void HSRendererGL::drawQuad(unsigned int texture, const float color[4], const fl
 	glPopMatrix();
 }
 
+void HSRendererGL::beginFrame(const HSFrame &frame){
+	glViewport(frame.viewport[0], frame.viewport[1], frame.viewport[2], frame.viewport[3]);
+	glMatrixMode(GL_PROJECTION);
+	glLoadMatrixf(frame.projection);
+	glMatrixMode(GL_MODELVIEW);
+	glLoadMatrixf(frame.view);
+	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
+	glDisable(GL_DEPTH_TEST);
+	const float black[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+	glFogfv(GL_FOG_COLOR, black);
+	glFogf(GL_FOG_MODE, GL_LINEAR);
+	glFogf(GL_FOG_START, frame.fogStart);
+	glFogf(GL_FOG_END, frame.fogEnd);
+	glEnable(GL_FOG);
+	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+	glEnable(GL_BLEND);
+	glActiveTextureARB(GL_TEXTURE2_ARB);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glActiveTextureARB(GL_TEXTURE1_ARB);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glActiveTextureARB(GL_TEXTURE0_ARB);
+	glEnable(GL_TEXTURE_2D);
+}
+
+void HSRendererGL::setFog(bool on){
+	if(on)
+		glEnable(GL_FOG);
+	else
+		glDisable(GL_FOG);
+}
+
 void HSRendererGL::beginOverlay(float aspect){
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 	glEnable(GL_BLEND);
@@ -126,6 +159,8 @@ void HSRendererGL::beginOffscreen(int size){
 	glLoadIdentity();
 	glReadBuffer(GL_BACK);
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	offscreenFog = glIsEnabled(GL_FOG);
+	glDisable(GL_FOG);
 	glDisable(GL_TEXTURE_2D);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 	glEnable(GL_BLEND);
@@ -154,6 +189,7 @@ void HSRendererGL::endOffscreen(unsigned char *rgb){
 	glMatrixMode(GL_MODELVIEW);
 	glPopMatrix();
 	glViewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3]);
+	setFog(offscreenFog);
 	offscreenSize = 0;
 }
 
@@ -177,6 +213,7 @@ void HSRendererGL::beginGoo(const float color[4], unsigned int nebula,
 	else{
 		glBindTexture(GL_TEXTURE_2D, nebula);
 		glEnable(GL_TEXTURE_2D);
+		glEnable(GL_NORMALIZE);   // sphere mapping reads the surface normals
 		glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
 		glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
 		glEnable(GL_TEXTURE_GEN_S);
@@ -227,6 +264,7 @@ void HSRendererGL::endGoo(){
 	else{
 		glDisable(GL_TEXTURE_GEN_S);
 		glDisable(GL_TEXTURE_GEN_T);
+		glDisable(GL_NORMALIZE);
 	}
 }
 
@@ -235,18 +273,15 @@ void HSRendererGL::beginTunnel(unsigned int caustic0, unsigned int caustic1, flo
 	tunnelAlpha = shaded ? lerp : 1.0f;
 	glCullFace(GL_BACK);
 	glEnable(GL_CULL_FACE);
-	glEnable(GL_TEXTURE_2D);
 	if(shaded){
 		glActiveTextureARB(GL_TEXTURE1_ARB);
 		glBindTexture(GL_TEXTURE_2D, caustic1);
-		glActiveTextureARB(GL_TEXTURE0_ARB);
-		glBindTexture(GL_TEXTURE_2D, caustic0);
+	}
+	glActiveTextureARB(GL_TEXTURE0_ARB);
+	glEnable(GL_TEXTURE_2D);
+	glBindTexture(GL_TEXTURE_2D, caustic0);
+	if(shaded)
 		glUseProgramObjectARB(tunnelProgram);
-	}
-	else{
-		glActiveTextureARB(GL_TEXTURE0_ARB);
-		glBindTexture(GL_TEXTURE_2D, caustic0);
-	}
 	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 	glEnable(GL_BLEND);

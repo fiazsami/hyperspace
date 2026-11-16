@@ -105,7 +105,6 @@ starBurst* theStarBurst;
 void draw(HyperspaceSaverSettings *inSettings){
 	if(inSettings->first){
 		if(inSettings->dUseTunnels){  // only tunnels use caustic textures
-			glDisable(GL_FOG);
 			// Caustic textures can only be created after rendering context has been created
 			// because they have to be drawn and then read back from the framebuffer.
 #ifdef WIN32
@@ -114,7 +113,6 @@ void draw(HyperspaceSaverSettings *inSettings){
 			else  // normal
 #endif
 				inSettings->theCausticTextures = new causticTextures(inSettings->renderer, 8, inSettings->numAnimTexFrames, 100, 256, 1.0f, 0.01f, 20.0f);
-			glEnable(GL_FOG);
 		}
 		if(inSettings->dShaders){
 #ifdef WIN32
@@ -124,7 +122,6 @@ void draw(HyperspaceSaverSettings *inSettings){
 #endif
 				inSettings->theWNCM = new wavyNormalCubeMaps(inSettings->renderer, inSettings->numAnimTexFrames, 128);
 		}
-		glViewport(inSettings->viewport[0], inSettings->viewport[1], inSettings->viewport[2], inSettings->viewport[3]);
 		inSettings->first = 0;
 	}
 
@@ -134,8 +131,6 @@ void draw(HyperspaceSaverSettings *inSettings){
 	//static rsTimer computeTimer, drawTimer;
 	// start compute time timer
 	//computeTimer.tick();
-
-	glMatrixMode(GL_MODELVIEW);
 
 	// Camera movements
 	static float camHeading[3] = {0.0f, 0.0f, 0.0f};  // current, target, and last
@@ -197,7 +192,6 @@ void draw(HyperspaceSaverSettings *inSettings){
 	hsTranslate(view, inSettings->camPos[0]*-1, inSettings->camPos[1]*-1, inSettings->camPos[2]*-1);
 	for(int i=0; i<16; i++)
 		inSettings->modelMat[i] = view[i];
-	glLoadMatrixf(view);
 	inSettings->unroll = camRoll[0] * RS_RAD2DEG;
 
 	if(inSettings->dUseGoo){
@@ -214,22 +208,18 @@ void draw(HyperspaceSaverSettings *inSettings){
 	// start draw time timer
 	//drawTimer.tick();
 
-	// clear
-	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT);
+	HSFrame frame;
+	for(int i=0; i<4; i++)
+		frame.viewport[i] = inSettings->viewport[i];
+	for(int i=0; i<16; i++){
+		frame.projection[i] = float(inSettings->projMat[i]);
+		frame.view[i] = view[i];
+	}
+	frame.fogStart = inSettings->depth * 0.7f;
+	frame.fogEnd = inSettings->depth;
+	inSettings->renderer->beginFrame(frame);
 
 	// draw stars
-	glCullFace(GL_BACK);
-	glEnable(GL_CULL_FACE);
-	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-	glEnable(GL_BLEND);
-	glEnable(GL_TEXTURE_2D);
-	glActiveTextureARB(GL_TEXTURE2_ARB);
-	glBindTexture(GL_TEXTURE_2D, NULL);
-	glActiveTextureARB(GL_TEXTURE1_ARB);
-	glBindTexture(GL_TEXTURE_2D, NULL);
-	glActiveTextureARB(GL_TEXTURE0_ARB);
 	static float temppos[2];
 	for(int i=0; i<inSettings->dStars; i++){
 		temppos[0] = inSettings->stars[i]->pos[0] - inSettings->camPos[0];
@@ -252,7 +242,6 @@ void draw(HyperspaceSaverSettings *inSettings){
 		}
 		inSettings->stars[i]->draw(inSettings->renderer, inSettings->flaretex[0], inSettings->camPos, inSettings->unroll, inSettings->modelMat, inSettings->projMat, inSettings->viewport);
 	}
-	glDisable(GL_CULL_FACE);
 
 	// pick animated texture frame
 	static float textureTime = 0.0f;
@@ -321,14 +310,14 @@ void draw(HyperspaceSaverSettings *inSettings){
 	}
 
 	// draw sun with lens flare
-	glDisable(GL_FOG);
+	inSettings->renderer->setFog(false);
 	float flarepos[3] = {0.0f, 2.0f, 0.0f};
 	inSettings->sunStar->draw(inSettings->renderer, inSettings->flaretex[0], inSettings->camPos, inSettings->unroll, inSettings->modelMat, inSettings->projMat, inSettings->viewport);
 	float diff[3] = {flarepos[0] - inSettings->camPos[0], flarepos[1] - inSettings->camPos[1], flarepos[2] - inSettings->camPos[2]};
 	float alpha = 0.5f - 0.005f * sqrtf(diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2]);
 	if(alpha > 0.0f)
 		flare(flarepos, 1.0f, 1.0f, 1.0f, alpha, inSettings);
-	glEnable(GL_FOG);
+	inSettings->renderer->setFog(true);
 
 	// measure draw time
 	//drawTime += drawTimer.tick();
@@ -420,7 +409,6 @@ void handleCommandLine(int argc, char* argv[]){
 
 
 void reshape(int width, int height, HyperspaceSaverSettings *inSettings){
-	glViewport(0, 0, width, height);
 	inSettings->aspectRatio = float(width) / float(height);
 
 	inSettings->xsize = width;
@@ -436,9 +424,6 @@ void reshape(int width, int height, HyperspaceSaverSettings *inSettings){
 	hsPerspective(proj, float(inSettings->dFov), inSettings->aspectRatio, 0.001f, 200.0f);
 	for(int i=0; i<16; i++)
 		inSettings->projMat[i] = proj[i];
-	glMatrixMode(GL_PROJECTION);
-	glLoadMatrixf(proj);
-	glMatrixMode(GL_MODELVIEW);
 }
 
 
@@ -484,10 +469,6 @@ void initSaver(HyperspaceSaverSettings *inSettings){
 	inSettings->camPos[2] = 0.0f;
 	inSettings->numAnimTexFrames = 20;
 	inSettings->whichTexture = 0;
-
-	glDisable(GL_DEPTH_TEST);
-	glEnable(GL_BLEND);
-	glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, GL_TRUE);
 
 	inSettings->renderer = new HSRendererGL;
 	initFlares(inSettings);
@@ -567,18 +548,10 @@ void initSaver(HyperspaceSaverSettings *inSettings){
 				nebulamap[i][j][2] = GLubyte(float(nebulamap[i][j][2]) * temp);
 			}
 		}
-		glEnable(GL_NORMALIZE);
 		HSMipChain chain;
 		hsBuildMipmaps(&nebulamap[0][0][0], NEBULAMAPSIZE, 3, chain);
 		inSettings->nebulatex = inSettings->renderer->createMipmappedTexture(chain);
 	}
-
-	glEnable(GL_FOG);
-	float fog_color[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-	glFogfv(GL_FOG_COLOR, fog_color);
-	glFogf(GL_FOG_MODE, GL_LINEAR);
-	glFogf(GL_FOG_START, inSettings->depth * 0.7f);
-	glFogf(GL_FOG_END, inSettings->depth);
 
 	// Initialize text
 	inSettings->textwriter = new rsText;
