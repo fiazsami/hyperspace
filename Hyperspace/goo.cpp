@@ -175,6 +175,7 @@ void goo::draw(HSRenderer *renderer){
 		field.volumeSize = volumeSize;
 		field.surface = isoValue;
 		field.resolution = resolution;
+		field.offsets.reserve(2 * arraySize * arraySize);
 		for(i=0; i<arraySize; i++){
 			for(j=0; j<arraySize; j++){
 				if(useSurface[i][j]){

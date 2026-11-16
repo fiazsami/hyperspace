@@ -16,6 +16,7 @@
 #include <rsMath/rsMath.h>
 #include <Implicit/impCubeTables.h>
 #include <math.h>
+#include <stdlib.h>
 
 void hsQuad(const float m[16], float half, HSVertex out[4]){
 	for(int i = 0; i < 4; i++){
@@ -78,6 +79,8 @@ void hsGooTriangleTable(short out[256][HS_GOO_TABLE_ROW]){
 		int count = 0;
 		for(int at = 0; row[at] != 0; at += row[at] + 1)
 			for(int i = 1; i < row[at] - 1; i++){
+				// Five triangles fill a row; the tables never need a sixth.
+				if(1 + 3 * (count + 1) > HS_GOO_TABLE_ROW) abort();
 				for(int j = 0; j < 3; j++)
 					out[mask][1 + 3 * count + j] = short(row[at + ((i % 2) ? i + j : i + (2 - j))]);
 				count++;

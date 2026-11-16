@@ -151,9 +151,10 @@ public:
 		unsigned int normals0, unsigned int normals1, bool shaded) = 0;
 	virtual void drawGooSurface(impSurface *surface, const float offset[3]) = 0;
 	// A backend that builds the goo's surface from its field answers true.
-	// goo::update then skips building the surfaces on the CPU -- most of a
-	// frame's CPU time -- and goo::draw passes the field to drawGooField,
-	// once a frame between beginGoo and endGoo, in place of the surfaces.
+	// goo::draw then passes it the field, once a frame between beginGoo and
+	// endGoo, and builds no surfaces on the CPU -- most of a frame's CPU time.
+	// For a backend that does not, goo::draw builds each surface and draws it
+	// with drawGooSurface.
 	// The defaults are a backend that does not: drawGooField is never called.
 	virtual bool buildsGoo() const { return false; }
 	virtual void drawGooField(const HSGooField &field) { (void)field; }

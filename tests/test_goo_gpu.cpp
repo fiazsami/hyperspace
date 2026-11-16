@@ -1,10 +1,14 @@
 /* Tests for the goo built by the renderer (HSRenderer::buildsGoo): what goo
  * hands such a renderer, and the triangle table its build reads.
  *
- * The table is checked the strong way: metal/GooBuild.metal's algorithm --
- * every cell, its corner mask, the table's triangles -- run here on the CPU
- * over the blocks goo chose, must give the triangles impCubeVolume built for
- * the same blocks, wound the same way.
+ * The table is checked through a C++ replica of metal/GooBuild.metal's
+ * algorithm -- every cell, its corner mask, the table's triangles -- run over
+ * the blocks goo chose, which must give the triangles impCubeVolume built for
+ * the same blocks, wound the same way. It is a replica: it evaluates
+ * goo::function in block coordinates, where the kernel evaluates its own copy
+ * of the field with precise cos from the field's origin. The kernel itself,
+ * its edge table and its arithmetic, only runs on a GPU, and parity's goo
+ * pass and its goobuild_*.metal fixtures are what judge it.
  */
 
 #include "harness.h"

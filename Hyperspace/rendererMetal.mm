@@ -312,11 +312,13 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	hsGooTriangleTable(table);
 	st->gooTable = [st->device newBufferWithBytes:table length:sizeof table options:MTLResourceStorageModeShared];
 	st->gooCounter = [st->device newBufferWithLength:sizeof(uint32_t) options:MTLResourceStorageModeShared];
-	*(uint32_t *)st->gooCounter.contents = 0;
 	st->gooPeak = [st->device newBufferWithLength:sizeof(uint32_t) options:MTLResourceStorageModeShared];
 	*(uint32_t *)st->gooPeak.contents = 0;
 	st->gooBuildCommands = nil;
-	st->gooArgs = [st->device newBufferWithLength:sizeof(MTLDrawPrimitivesIndirectArguments) options:MTLResourceStorageModePrivate];
+	// Zeroed, so a first build that fails draws nothing rather than reading
+	// a vertex count from uninitialized memory.
+	const MTLDrawPrimitivesIndirectArguments noDraw = {0, 0, 0, 0};
+	st->gooArgs = [st->device newBufferWithBytes:&noDraw length:sizeof noDraw options:MTLResourceStorageModeShared];
 	st->gooVertices = nil;
 	st->gooCapacity = 0;
 }
@@ -769,14 +771,12 @@ void HSRendererMetal::drawGooField(const HSGooField &field){
 	id<MTLComputeCommandEncoder> ce = [build computeCommandEncoder];
 	[ce setComputePipelineState:st->gooBuild];
 	[ce setBytes:&u length:sizeof u atIndex:0];
-	// setBytes takes 4 KB at most: 512 blocks. The saver's widest view has
-	// about 400, but goo's radius is not bounded here.
+	// setBytes takes 4 KB at most: 512 blocks. The saver's settings allow
+	// 400 at most (arraySize 20).
 	const NSUInteger offsetBytes = field.offsets.size() * sizeof(float);
-	if(offsetBytes <= 4096)
-		[ce setBytes:field.offsets.data() length:offsetBytes atIndex:1];
-	else
-		[ce setBuffer:[st->device newBufferWithBytes:field.offsets.data() length:offsetBytes
-			options:MTLResourceStorageModeShared] offset:0 atIndex:1];
+	if(offsetBytes > 4096)
+		fail("drawGooField", "more blocks than setBytes can carry");
+	[ce setBytes:field.offsets.data() length:offsetBytes atIndex:1];
 	[ce setBuffer:st->gooTable offset:0 atIndex:2];
 	[ce setBuffer:st->gooCounter offset:0 atIndex:3];
 	[ce setBuffer:st->gooVertices offset:0 atIndex:4];

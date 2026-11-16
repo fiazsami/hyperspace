@@ -1,4 +1,4 @@
-// Kill-check fixture: goo build kernel with one deliberate defect (nomix): every vertex takes the normal of its edge's first corner, not the mix along the edge. parity/backendcheck.sh requires it to FAIL. base=b729cd6949fc314ad608bec596d0f3d7bc34a4c0
+// Kill-check fixture: goo build kernel with one deliberate defect (nomix): every vertex takes the normal of its edge's first corner, not the mix along the edge. parity/backendcheck.sh requires it to FAIL. base=7826f41e5244c27a222f3fd6bc0a6a01c25e21e6
 // The goo's surface, built on the GPU: impCubeVolume's polygonization of
 // goo::function, one thread per cell, for HSRendererMetal::drawGooField.
 // Compiled with Interface.metal prepended.
@@ -19,16 +19,21 @@
 // along the edge. The exact gradient points far enough from that at these cell
 // sizes that the reflections shift across the whole surface.
 
-// goo::function at a point in the world.
+// Positions here are relative to the field's origin, as the vertices are
+// written, so they stay small however far the camera travels; only the field
+// itself is evaluated in the world, as goo::function adds a block's shift.
+
+// goo::function at p, a point relative to the origin.
 static float gooField(float3 p, constant GooBuildUniforms &u)
 {
     const float y = p.y;
-    const float x = p.x - u.cam.x, z = p.z - u.cam.y;
+    const float px = p.x + u.origin.x, pz = p.z + u.origin.y;
+    const float x = px - u.cam.x, z = pz - u.cam.y;
     return 1.25f * y * y
-        + u.c.x * precise::cos(p.x - 2.71f * y)
-        + u.c.y * precise::cos(4.21f * y + p.z)
-        + u.c.z * precise::cos(1.91f * p.x - 1.67f * p.z)
-        + u.c.w * precise::cos(1.53f * p.x + 1.11f * y + 2.11f * p.z)
+        + u.c.x * precise::cos(px - 2.71f * y)
+        + u.c.y * precise::cos(4.21f * y + pz)
+        + u.c.z * precise::cos(1.91f * px - 1.67f * pz)
+        + u.c.w * precise::cos(1.53f * px + 1.11f * y + 2.11f * pz)
         - 0.1f / (x * x + y * y + z * z);
 }
 
@@ -69,13 +74,11 @@ kernel void goo_build(constant GooBuildUniforms &u      [[buffer(0)]],
                       device GooVertex *out              [[buffer(4)]],
                       uint3 id                           [[thread_position_in_grid]])
 {
+    // dispatchThreads launches exactly res x res x res * blocks threads.
     const uint res = u.resolution;
-    if (id.x >= res || id.y >= res)
-        return;
     const uint block = id.z / res;
-    const float2 offset = offsets[block];
-    // The cell's lowest corner in the world; impCubeVolume centres its cells
-    // on the block.
+    const float2 offset = offsets[block] - u.origin;
+    // The cell's lowest corner; impCubeVolume centres its cells on the block.
     const float3 base = float3(offset.x, 0.0f, offset.y) - u.halfVolume
         + float3(id.x, id.y, id.z % res) * u.unitSize;
     float value[8];
@@ -104,12 +107,11 @@ kernel void goo_build(constant GooBuildUniforms &u      [[buffer(0)]],
     float3 normal[8];
     for (uint i = 0; i < 8; i++)
         normal[i] = cornerNormal(i, base, value, u);
-    const float3 origin = float3(u.origin.x, 0.0f, u.origin.y);
     for (uint v = 0; v < vertices; v++) {
         const uchar2 e = kEdge[row[1 + v]];
         const float t = (u.surface - value[e.x]) / (value[e.y] - value[e.x]);
         const float3 p = base + mix(corner(e.x), corner(e.y), t) * u.unitSize;
-        out[at + v].position = packed_float3(p - origin);
+        out[at + v].position = packed_float3(p);
         out[at + v].normal = packed_float3(normal[e.x]);
     }
 }
