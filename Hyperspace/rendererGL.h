@@ -21,8 +21,9 @@
 // MODULATE, and linear fog from 0.7 * depth to depth -- is not set here: it is
 // the state draw() and initSaver() leave, set once per frame rather than per
 // star, as it was before the seam. beginOverlay sets its own, and so do
-// beginGoo and beginTunnel; endGoo turns GL_TEXTURE_2D back on. The goo and tunnel programs are the ones
-// initShaders() links; shaded must be false if it was never called.
+// beginGoo and beginTunnel; endGoo turns GL_TEXTURE_2D back on. The goo and
+// tunnel programs are the ones initShaders() links; shaded must be false if it
+// was never called.
 class HSRendererGL : public HSRenderer{
 public:
 	unsigned int createTexture(int width, int height, const unsigned char *rgba);
