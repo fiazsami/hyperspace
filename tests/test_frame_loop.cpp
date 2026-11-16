@@ -1,13 +1,16 @@
 /* Tests for Hyperspace.cpp, the frame loop: setDefaults, reshape, initSaver,
  * draw and cleanUp, driven through a recording renderer.
  *
+ * initSaver seeds rand() with time(NULL); this file defines time(), as
+ * parity/parity.mm does, so the seed -- the path, the stars, the bursts -- is
+ * the same on every run, and so are coverage and the kill-check.
+ *
  * draw() keeps the camera's heading and roll, the animation clock and the
- * starburst timer in function statics that outlive each case, and initSaver
- * seeds rand() from the clock. So nothing here asserts on where the camera
- * happens to be or on a random placement: frames run with frameTime 0 where a
- * value must hold still, ranges are checked where initSaver draws at random,
- * and the animation clock is measured as progress between two frames rather
- * than from a known start.
+ * starburst timer in function statics that outlive each case. So nothing here
+ * asserts on where the camera happens to be: frames run with frameTime 0
+ * where a value must hold still, ranges are checked where initSaver draws at
+ * random, and the animation clock is measured as progress between two frames
+ * rather than from a known start.
  */
 
 #include "harness.h"
@@ -25,6 +28,10 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+
+// Binds initSaver's srand(time(NULL)) here: nothing else in the suite reads the clock.
+extern "C" time_t time(time_t *t) { if (t) *t = 20261116; return 20261116; }
 
 void setDefaults(HyperspaceSaverSettings *inSettings);
 void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer);
@@ -72,13 +79,15 @@ HyperspaceSaverSettings *started(FrameRecorder *r, bool goo, bool tunnels, bool 
     s->dShaders = shaders;
     s->first = 1;
     reshape(400, 200, s);
-    // Unshaded, initSaver darkens the global nebula in place; put it back so
-    // every case starts from the shipped image.
+    // Unshaded, initSaver darkens the global nebula in place, again on every
+    // start (ss-568); put it back so every case starts from the shipped image.
     static unsigned char shipped[256][256][3];
     memcpy(shipped, nebulamap, sizeof shipped);
     initSaver(s, r);
     memcpy(nebulamap, shipped, sizeof shipped);
-    srand(11);   // initSaver seeded from the clock; draw's choices should not be
+    srand(11);
+    // cleanUp never frees the stars, the sun or the starburst (ss-t6q), so each
+    // case leaks them; freeing them here would double-free once that is fixed.
     return s;
 }
 
@@ -205,8 +214,9 @@ TEST(initSaver_unshaded_darkens_the_nebula_toward_its_centre)
             if (t > 1.0f) t = 1.0f;
             t = t * t;
             t = t * t;
+            // +-1: the truncation may round differently in another translation unit
             for (int c = 0; c < 3; c++)
-                if (level0[(i * 256 + j) * 3 + c] != (unsigned char)(float(saved[i][j][c]) * t)) wrong++;
+                if (abs(int(level0[(i * 256 + j) * 3 + c]) - int((unsigned char)(float(saved[i][j][c]) * t))) > 1) wrong++;
         }
     CHECK(wrong == 0);
     CHECK(level0[(128 * 256 + 128) * 3] == 0);           // the centre goes black
@@ -360,7 +370,11 @@ TEST(draw_wraps_a_star_that_leaves_the_fogged_box_to_the_far_side)
     float behind[3] = {cam[0] + 1.5f * d, 0.5f, cam[2] - 1.5f * d};
     memcpy(p->pos, behind, sizeof behind);
     memcpy(p->lastPos, behind, sizeof behind);
-    stretchedParticle *q = s->stars[1];
+    stretchedParticle *o = s->stars[1];
+    float before[3] = {cam[0] - 1.5f * d, 0.25f, cam[2] + 1.5f * d};
+    memcpy(o->pos, before, sizeof before);
+    memcpy(o->lastPos, before, sizeof before);
+    stretchedParticle *q = s->stars[2];
     float inside[3] = {cam[0] + 0.5f * d, -0.5f, cam[2] - 0.5f * d};
     memcpy(q->pos, inside, sizeof inside);
     frame(s, 0.0f);
@@ -368,6 +382,8 @@ TEST(draw_wraps_a_star_that_leaves_the_fogged_box_to_the_far_side)
     CHECK_NEAR(p->pos[0], cam[0] - 0.5f * d, 1e-4);
     CHECK_NEAR(p->pos[2], cam[2] + 0.5f * d, 1e-4);
     CHECK_NEAR(p->pos[1], 0.5, kTol);   // height is never wrapped
+    CHECK_NEAR(o->pos[0], cam[0] + 0.5f * d, 1e-4);
+    CHECK_NEAR(o->pos[2], cam[2] - 0.5f * d, 1e-4);
     // lastPos moves with it, so the streak does not cross the box; not checked
     // here, because drawing the star then overwrites lastPos with pos.
     for (int i = 0; i < 3; i++) CHECK_NEAR(q->pos[i], inside[i], kTol);
@@ -383,8 +399,17 @@ TEST(draw_bursts_ahead_of_the_camera_within_five_minutes_and_again_within_one_to
     // static, so earlier cases may have spent some of it -- and each later one
     // 60 to 300 s after the last. A burst starts a run of frames that draw its
     // sphere, a few seconds long; its stars, at 0.25 units/s or more, have left
-    // the fog box long before the next is due, so no restart is refused.
+    // the fog box before the next is due -- provided they outrun the camera,
+    // which moves at about dSpeed * 0.04 = 0.4 units/s. A star that keeps pace
+    // stays active and restart() refuses, which would stretch a gap past 300
+    // s for reasons of its own; so every star here moves at 1 unit/s, keeping
+    // its random direction, and clears the box within seconds.
     // Forty gaps, because one random gap says little about the range.
+    for (int i = 0; i < SB_NUM_STARS; i++) {
+        float *v = s->theStarBurst->stars_velocity[i];
+        float length = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        for (int c = 0; c < 3; c++) v[c] /= length;
+    }
     const int wanted = 41;
     struct Burst { int second; float offset[2], dir[3], height; } bursts[wanted];
     int found = 0;
@@ -429,20 +454,26 @@ TEST(draw_bursts_ahead_of_the_camera_within_five_minutes_and_again_within_one_to
     delete s;
 }
 
-TEST(draw_keeps_the_goo_a_colour_through_minutes_of_cycling)
+TEST(draw_clamps_the_goo_colour_at_zero_through_its_cycle)
 {
     FrameRecorder *r = new FrameRecorder;
     HyperspaceSaverSettings *s = started(r, true, false, false);
-    // Each channel follows a sine at 0.02 to 0.04 rad/s, clamped at zero, so
-    // 400 s takes every channel through a whole period and past the wrap.
-    int seen = 0;
+    // Each channel is a sine at 0.02 to 0.04 rad/s, clamped at zero, so 400 s
+    // takes every channel through its negative half. What this pins is the
+    // clamp: channels reach exactly 0 and never go below. The phase wrap at
+    // 2 pi runs too, but sine is periodic, so nothing here can see it.
+    int clamped[3] = {0, 0, 0};
     for (int second = 1; second <= 400; second++) {
         r->gooBegins.clear();
         frame(s, 1.0f);
-        for (size_t i = 0; i < r->gooBegins.size(); i++, seen++)
-            for (int c = 0; c < 3; c++) CHECK(r->gooBegins[i].color[c] >= 0.0f && r->gooBegins[i].color[c] <= 1.0f);
+        CHECK(!r->gooBegins.empty());   // the goo's, then a burst's sphere when one shows
+        for (int c = 0; c < 3; c++) {
+            float v = r->gooBegins[0].color[c];
+            CHECK(v >= 0.0f && v <= 1.0f);
+            if (v == 0.0f) clamped[c]++;
+        }
     }
-    CHECK(seen >= 400);
+    for (int c = 0; c < 3; c++) CHECK(clamped[c] > 0);
     cleanUp(s);
     delete s;
 }
