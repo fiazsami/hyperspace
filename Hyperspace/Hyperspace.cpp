@@ -38,8 +38,8 @@
 #include <stdio.h>
 #include <math.h>
 #include <time.h>
+#include <string>
 #include <OpenGL/gl.h>
-#include <OpenGL/glu.h>
 #include <rsMath/rsMath.h>
 #include <Hyperspace/flare.h>
 #include <Hyperspace/causticTextures.h>
@@ -67,8 +67,6 @@ int readyToDraw = 0;
 int xsize, ysize;
 float aspectRatio;
 float frameTime = 0.0f;
-// text output
-rsText* textwriter;
 // Parameters edited in the dialog box
 int dSpeed;
 int dStars;
