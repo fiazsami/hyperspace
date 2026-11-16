@@ -321,7 +321,7 @@ void draw(HyperspaceSaverSettings *inSettings){
 
 
 void setDefaults(HyperspaceSaverSettings *inSettings){
-	inSettings->dSpeed = 10;
+	inSettings->dSpeed = 23;
 	inSettings->dStars = 2000;
 	inSettings->dStarSize = 10;
 	inSettings->dResolution = 10;

@@ -103,7 +103,7 @@ TEST(setDefaults_picks_the_shipped_settings)
     HyperspaceSaverSettings s;
     memset(&s, 0, sizeof s);
     setDefaults(&s);
-    CHECK(s.dSpeed == 10);
+    CHECK(s.dSpeed == 23);
     CHECK(s.dStars == 2000);
     CHECK(s.dStarSize == 10);
     CHECK(s.dResolution == 10);
