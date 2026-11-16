@@ -273,16 +273,16 @@ Two runs share the seed, so they draw the same frames: a plain run for its
 rules. In backend mode a shot that generates any GL primitive is an error, so a
 draw that slipped past the backend cannot go unnoticed.
 
-The backend draws frames, fog, quads, the overlay, and the goo and starburst
-sphere in their shaded look (the shaders-off look is ss-5dl, and the backend
-stops on it), and the offscreen target the caustics are made in. It has no
-tunnel yet, so `tunnel` is refused.
-Measured, worst shot:
+The backend draws everything the shaded saver draws: frames, fog, quads, the
+overlay, the goo and starburst sphere, the offscreen target the caustics are
+made in, and the tunnel. The shaders-off goo and tunnel are ss-5dl, and the
+backend stops on them. Measured, worst shot:
 
 | pass | lit>2 | lit>8 | bias | limits |
 |---|---|---|---|---|
 | `stars` | 0.000% | 0.000% | 0.004 | 1% / 0.1% / 0.06 |
 | `goo` | 4.244% | 0.958% | 0.011 | 8% / 2.5% / 0.06 |
+| `tunnel` | 0.738% | 0.163% | 0.015 | 3% / 0.6% / 0.06 |
 | `burst` | 0.490% | 0.133% | 0.003 | 8% / 2.5% / 0.06 |
 | `sun` | 0.021% | 0.000% | 0.004 | 1% / 0.1% / 0.06 |
 
@@ -291,7 +291,9 @@ each, so the overlay is judged too. The `burst` shots from 90 to 240 carry the
 starburst's sphere, which the replay could never judge (the recorder refuses a
 display list drawn with a program): this is its verdict, GL against Metal, both
 drawing it as the same 32 strips. `goo` comes out a little tighter than the
-replay's 5.28% / 1.35% / 0.012.
+replay's 5.28% / 1.35% / 0.012, and `tunnel` well inside the replay's
+1.50% / 0.28% / 0.012: the backend samples caustics it made itself, through
+the same offscreen path GL used, where the replay sampled GL's.
 
 Its kill cases are defects in the backend's C++ rather than its shaders:
 `parity/defects/backend_<pass>_*.sed`, each a sed script over
@@ -300,8 +302,10 @@ required to FAIL. Killed: the model matrix before the camera, fog from the eye,
 an overlay ignoring the aspect ratio, (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) blending,
 nearest sampling, the quad's color ignored; under `goo`, surfaces drawn at the
 origin, the nebula and a normal map swapped, the fog scale as 1/end, and the
-normal-map mix dropped; under `burst`, the sphere at radius 1 and half its
-bands; under `sun`, `setFog(false)` ignored. A fixture that no longer changes the file is an error, not a survivor.
+normal-map mix dropped; under `tunnel`, the caustic frames swapped, their mix
+ignored (alpha 1), front faces culled, no culling, and the fog ending twice as
+far; under `burst`, the sphere at radius 1 and half its bands; under `sun`,
+`setFog(false)` ignored. A fixture that no longer changes the file is an error, not a survivor.
 
 No pass reads a texture back, so `parity --backend-textures` checks uploads
 directly: a 2D texture, 3- and 4-channel mip chains, and a cube of
@@ -348,4 +352,4 @@ overlay sits at z = 0, on Metal's inclusive boundary. Measured: it passes
   pass's replay verdict on those shots is always that refusal. The backend
   check judges it instead.
 - **The passes compare; the backend renders.** The passes draw nothing of the
-  saver's own; `HSRendererMetal` does, so far for everything but the tunnel.
+  saver's own; `HSRendererMetal` does.

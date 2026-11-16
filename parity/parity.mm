@@ -888,11 +888,8 @@ int main(int argc, const char *argv[])
                      intOpt(argv[i], "w=", w) || intOpt(argv[i], "h=", h)) {}
             else { fprintf(stderr, "bad option %s\n", argv[i]); return 2; }
         }
-        // The backend draws with metal/ as it stands, and has no tunnel yet.
+        // The backend draws with metal/ as it stands.
         if (backend && (shaderGiven || inject)) { fprintf(stderr, "renderer=metal takes no shader= or inject=\n"); return 2; }
-        if (backend && pass->tunnels) {
-            fprintf(stderr, "renderer=metal cannot draw the %s pass yet: the backend has no tunnel\n", pass->name); return 2;
-        }
         const float dt = 1.0f / 60.0f;
         [[NSFileManager defaultManager] createDirectoryAtPath:outdir withIntermediateDirectories:YES attributes:nil error:nil];
 
