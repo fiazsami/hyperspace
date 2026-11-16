@@ -52,7 +52,6 @@
 #include <Hyperspace/stretchedParticle.h>
 #include <Hyperspace/starBurst.h>
 #include <Hyperspace/nebulamap.h>
-#include <Hyperspace/shaders.h>
 #include <Hyperspace/transform.h>
 #include <Hyperspace/rendererGL.h>
 #include "Hyperspace.h"
@@ -520,7 +519,6 @@ void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer){
 		inSettings->theStarBurst->stars[i]->radius = rsRandf(float(inSettings->dStarSize) * 0.001f) + float(inSettings->dStarSize) * 0.001f;
 
 	if(inSettings->dShaders){
-		initShaders();
 		inSettings->numAnimTexFrames = 20;
 		HSMipChain faces[6];  // the same nebula on every face
 		hsBuildMipmaps(&nebulamap[0][0][0], NEBULAMAPSIZE, 3, faces[0]);
@@ -554,8 +552,9 @@ void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer){
 		inSettings->nebulatex = inSettings->renderer->createMipmappedTexture(chain);
 	}
 
-	// Initialize text
-	inSettings->textwriter = new rsText;
+	// Initialize text. rsText is drawn with raw GL, so only the GL renderer
+	// can show statistics; nothing on the Mac sets kStatistics.
+	inSettings->textwriter = inSettings->kStatistics ? new rsText : NULL;
 
 	//outfile.open("outfile");
 
@@ -575,6 +574,10 @@ void cleanUp(HyperspaceSaverSettings *inSettings){
 	delete inSettings->thePath;
 	delete inSettings->theWNCM;
 	delete inSettings->renderer;
+	// The caustics and cube maps are made by the first draw(), so a start and
+	// stop with no frame between them would delete these again.
+	inSettings->theCausticTextures = NULL;
+	inSettings->theWNCM = NULL;
 	inSettings->renderer = NULL;
 	inSettings->first = 1;
 }

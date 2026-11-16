@@ -21,9 +21,8 @@
 // unit 0, MODULATE, and the frame's fog -- once per frame rather than per
 // star. beginOverlay sets its own blending and texturing, and so do beginGoo
 // and beginTunnel; endGoo turns GL_TEXTURE_2D back on. The tunnel expects
-// texture coordinate generation off, which endGoo leaves. The goo and tunnel
-// programs are the ones initShaders() links; shaded must be false if it was
-// never called.
+// texture coordinate generation off, which endGoo leaves. Creating one links
+// the goo and tunnel programs, so a GL context must be current.
 class HSRendererGL : public HSRenderer{
 public:
 	void beginFrame(const HSFrame &frame);
@@ -47,7 +46,7 @@ public:
 	void drawTunnelStrip(const HSTunnelVertex *v, int count);
 	void endTunnel();
 
-	HSRendererGL() : offscreenSize(0), offscreenFog(false), overlayFog(false), gooShaded(false), tunnelShaded(false), tunnelAlpha(1.0f), sphereList(0) {}
+	HSRendererGL();
 
 private:
 	int savedViewport[4];

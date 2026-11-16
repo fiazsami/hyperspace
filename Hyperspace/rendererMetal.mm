@@ -3,6 +3,7 @@
  */
 
 #import <Metal/Metal.h>
+#import <QuartzCore/CAMetalLayer.h>
 #import <simd/simd.h>
 #include <Hyperspace/rendererMetal.h>
 #include <Hyperspace/transform.h>
@@ -72,8 +73,9 @@ struct Texture {
 };
 
 [[noreturn]] void fail(const char *what, const char *detail){
-	fprintf(stderr, "HSRendererMetal: %s%s%s\n", what, detail ? ": " : "", detail ? detail : "");
-	abort();
+	std::string message = std::string("HSRendererMetal: ") + what + (detail ? std::string(": ") + detail : std::string());
+	fprintf(stderr, "%s\n", message.c_str());
+	throw HSRendererMetalError(message);
 }
 
 simd_float4x4 fromGL(const float m[16]){
@@ -129,6 +131,7 @@ struct HSRendererMetalState {
 	id<MTLRenderPipelineState> ffPipeline, gooPipeline, tunnelPipeline;
 	MTLPixelFormat pipelineFormat;
 	id<MTLTexture> target;
+	id<CAMetalDrawable> drawable;   // set for one frame by setDrawable, presented by endFrame
 	id<MTLCommandBuffer> commands;
 	id<MTLRenderCommandEncoder> encoder;
 	std::map<unsigned int, Texture> textures;
@@ -227,6 +230,7 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->ffPipeline = st->gooPipeline = st->tunnelPipeline = nil;
 	st->pipelineFormat = MTLPixelFormatInvalid;
 	st->target = nil;
+	st->drawable = nil;
 	st->commands = nil;
 	st->encoder = nil;
 	st->nextName = 1;
@@ -274,16 +278,29 @@ HSRendererMetal::~HSRendererMetal(){
 	delete st;
 }
 
-void HSRendererMetal::setTarget(void *target){
-	if(st->encoder)
-		fail("setTarget", "called inside a frame");
-	st->target = (__bridge id<MTLTexture>)target;
+// Pipelines are built for the target's pixel format, so a new format rebuilds them.
+static void useTarget(HSRendererMetalState *st, id<MTLTexture> target){
+	st->target = target;
 	if(st->target.pixelFormat == st->pipelineFormat)
 		return;
 	st->ffPipeline = additivePipeline(st->device, st->ffLibrary, @"ff_vertex", @"ff_fragment", st->target.pixelFormat);
 	st->gooPipeline = additivePipeline(st->device, st->gooLibrary, @"goo_vertex", @"goo_fragment", st->target.pixelFormat);
 	st->tunnelPipeline = additivePipeline(st->device, st->tunnelLibrary, @"tunnel_vertex", @"tunnel_fragment", st->target.pixelFormat);
 	st->pipelineFormat = st->target.pixelFormat;
+}
+
+void HSRendererMetal::setTarget(void *target){
+	if(st->encoder)
+		fail("setTarget", "called inside a frame");
+	st->drawable = nil;
+	useTarget(st, (__bridge id<MTLTexture>)target);
+}
+
+void HSRendererMetal::setDrawable(void *drawable){
+	if(st->encoder)
+		fail("setDrawable", "called inside a frame");
+	st->drawable = (__bridge id<CAMetalDrawable>)drawable;
+	useTarget(st, st->drawable.texture);
 }
 
 int HSRendererMetal::drawCount() const{
@@ -335,10 +352,24 @@ void HSRendererMetal::endFrame(){
 	if(st->inOverlay)
 		fail("endFrame", "beginOverlay was not ended");
 	[st->encoder endEncoding];
-	[st->commands commit];
-	[st->commands waitUntilCompleted];
-	if(st->commands.status == MTLCommandBufferStatusError)
-		fail("the GPU failed the frame", st->commands.error.localizedDescription.UTF8String);
+	if(st->drawable){
+		// The saver's frame: present it and go on to the next while the GPU
+		// draws. A failed frame is one frame lost, not a reason to stop.
+		[st->commands presentDrawable:st->drawable];
+		[st->commands addCompletedHandler:^(id<MTLCommandBuffer> done){
+			if(done.status == MTLCommandBufferStatusError)
+				NSLog(@"HSRendererMetal: the GPU failed a frame: %@", done.error.localizedDescription);
+		}];
+		[st->commands commit];
+		st->drawable = nil;
+		st->target = nil;
+	}
+	else{
+		[st->commands commit];
+		[st->commands waitUntilCompleted];
+		if(st->commands.status == MTLCommandBufferStatusError)
+			fail("the GPU failed the frame", st->commands.error.localizedDescription.UTF8String);
+	}
 	st->encoder = nil;
 	st->commands = nil;
 }

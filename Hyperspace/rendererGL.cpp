@@ -15,6 +15,7 @@
 #include <Hyperspace/transform.h>
 #include <Implicit/impSurface.h>
 #include <OpenGL/gl.h>
+#include <Hyperspace/shaders.h>
 
 unsigned int HSRendererGL::createTexture(int width, int height, const unsigned char *rgba){
 	GLuint name;
@@ -198,8 +199,12 @@ void HSRendererGL::endOffscreen(unsigned char *rgb){
 	offscreenSize = 0;
 }
 
-// Linked by initShaders(), in shaders.h, which only Hyperspace.cpp includes.
-extern GLhandleARB gooProgram, tunnelProgram;
+// gooProgram and tunnelProgram are linked by initShaders(), in shaders.h,
+// which only this file includes. The renderer links them on creation, so a
+// saver drawing through another backend never touches GL.
+HSRendererGL::HSRendererGL() : offscreenSize(0), offscreenFog(false), overlayFog(false), gooShaded(false), tunnelShaded(false), tunnelAlpha(1.0f), sphereList(0){
+	initShaders();
+}
 
 void HSRendererGL::beginGoo(const float color[4], unsigned int nebula,
 	unsigned int normals0, unsigned int normals1, bool shaded){

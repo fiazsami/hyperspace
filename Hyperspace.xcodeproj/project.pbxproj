@@ -85,7 +85,32 @@
 		E0CDA0C209A8F5C50004FDE6 /* OpenGL.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E0CDA0C109A8F5C50004FDE6 /* OpenGL.framework */; };
 		E0CDA21209A900520004FDE6 /* Rgbhsl.h in Headers */ = {isa = PBXBuildFile; fileRef = E0CDA21109A900520004FDE6 /* Rgbhsl.h */; };
 		E0CDA21409A900660004FDE6 /* Rgbhsl.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0CDA21309A900660004FDE6 /* Rgbhsl.cpp */; };
+		A4A40001A4A400010000000E /* rendererMetal.mm in Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A400010000000D /* rendererMetal.mm */; };
+		A4A40001A4A4000100000010 /* rendererMetal.h in Headers */ = {isa = PBXBuildFile; fileRef = A4A40001A4A400010000000F /* rendererMetal.h */; };
+		A4A40001A4A4000100000012 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000011 /* Metal.framework */; };
+		A4A40001A4A4000100000014 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000013 /* QuartzCore.framework */; };
+		A4A40001A4A400010000001A /* Interface.metal in Copy Metal Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000016 /* Interface.metal */; };
+		A4A40001A4A400010000001B /* FixedFunction.metal in Copy Metal Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000017 /* FixedFunction.metal */; };
+		A4A40001A4A400010000001C /* Goo.metal in Copy Metal Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000018 /* Goo.metal */; };
+		A4A40001A4A400010000001D /* Tunnel.metal in Copy Metal Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000019 /* Tunnel.metal */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A4A40001A4A400010000001E /* Copy Metal Sources */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = metal;
+			dstSubfolderSpec = 7;
+			files = (
+				A4A40001A4A400010000001A /* Interface.metal in Copy Metal Sources */,
+				A4A40001A4A400010000001B /* FixedFunction.metal in Copy Metal Sources */,
+				A4A40001A4A400010000001C /* Goo.metal in Copy Metal Sources */,
+				A4A40001A4A400010000001D /* Tunnel.metal in Copy Metal Sources */,
+			);
+			name = "Copy Metal Sources";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		06F27B2DFFEEEFEF11CA0E56 /* ScreenSaver.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ScreenSaver.framework; path = /System/Library/Frameworks/ScreenSaver.framework; sourceTree = "<absolute>"; };
@@ -176,6 +201,14 @@
 		E0CDA21309A900660004FDE6 /* Rgbhsl.cpp */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.cpp.cpp; path = Rgbhsl.cpp; sourceTree = "<group>"; };
 		F50079790118B23001CA0E54 /* HyperspaceView.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = HyperspaceView.h; sourceTree = "<group>"; };
 		F500797A0118B23001CA0E54 /* HyperspaceView.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = HyperspaceView.mm; sourceTree = "<group>"; };
+		A4A40001A4A400010000000D /* rendererMetal.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = rendererMetal.mm; sourceTree = "<group>"; };
+		A4A40001A4A400010000000F /* rendererMetal.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = rendererMetal.h; sourceTree = "<group>"; };
+		A4A40001A4A4000100000011 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		A4A40001A4A4000100000013 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		A4A40001A4A4000100000016 /* Interface.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = Interface.metal; sourceTree = "<group>"; };
+		A4A40001A4A4000100000017 /* FixedFunction.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = FixedFunction.metal; sourceTree = "<group>"; };
+		A4A40001A4A4000100000018 /* Goo.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = Goo.metal; sourceTree = "<group>"; };
+		A4A40001A4A4000100000019 /* Tunnel.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = Tunnel.metal; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -186,6 +219,8 @@
 				8D255ACE0486D3F9007BF209 /* Cocoa.framework in Frameworks */,
 				8D255ACF0486D3F9007BF209 /* ScreenSaver.framework in Frameworks */,
 				E0CDA0C209A8F5C50004FDE6 /* OpenGL.framework in Frameworks */,
+				A4A40001A4A4000100000012 /* Metal.framework in Frameworks */,
+				A4A40001A4A4000100000014 /* QuartzCore.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -198,6 +233,7 @@
 				08FB77AFFE84173DC02AAC07 /* Classes */,
 				32DBCFA70370C4F300C91783 /* Other Sources */,
 				089C167CFE841241C02AAC07 /* Resources */,
+				A4A40001A4A4000100000015 /* metal */,
 				089C1671FE841209C02AAC07 /* Frameworks and Libraries */,
 				19C28FB8FE9D52D311CA2CBB /* Products */,
 			);
@@ -240,6 +276,8 @@
 				1058C7ADFEA557BF11CA2CBB /* Cocoa.framework */,
 				06F27B2DFFEEEFEF11CA0E56 /* ScreenSaver.framework */,
 				E0CDA0C109A8F5C50004FDE6 /* OpenGL.framework */,
+				A4A40001A4A4000100000011 /* Metal.framework */,
+				A4A40001A4A4000100000013 /* QuartzCore.framework */,
 			);
 			name = "Linked Frameworks";
 			sourceTree = "<group>";
@@ -311,6 +349,8 @@
 				A4A40001A4A4000100000006 /* renderer.h */,
 				A4A40001A4A4000100000009 /* rendererGL.cpp */,
 				A4A40001A4A400010000000A /* rendererGL.h */,
+				A4A40001A4A400010000000D /* rendererMetal.mm */,
+				A4A40001A4A400010000000F /* rendererMetal.h */,
 				E0CDA07E09A8E6680004FDE6 /* tunnel.h */,
 				E0CDA06109A8E5C00004FDE6 /* tunnel.cpp */,
 				E0CDA08009A8E66E0004FDE6 /* wavyNormalCubeMaps.h */,
@@ -385,6 +425,17 @@
 			path = Implicit;
 			sourceTree = "<group>";
 		};
+		A4A40001A4A4000100000015 /* metal */ = {
+			isa = PBXGroup;
+			children = (
+				A4A40001A4A4000100000016 /* Interface.metal */,
+				A4A40001A4A4000100000017 /* FixedFunction.metal */,
+				A4A40001A4A4000100000018 /* Goo.metal */,
+				A4A40001A4A4000100000019 /* Tunnel.metal */,
+			);
+			path = metal;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXHeadersBuildPhase section */
@@ -405,6 +456,7 @@
 				A4A40001A4A4000100000004 /* transform.h in Headers */,
 				A4A40001A4A4000100000008 /* renderer.h in Headers */,
 				A4A40001A4A400010000000C /* rendererGL.h in Headers */,
+				A4A40001A4A4000100000010 /* rendererMetal.h in Headers */,
 				E0CDA07F09A8E6680004FDE6 /* tunnel.h in Headers */,
 				E0CDA08109A8E66E0004FDE6 /* wavyNormalCubeMaps.h in Headers */,
 				E0CDA09509A8E8270004FDE6 /* Hyperspace.h in Headers */,
@@ -444,6 +496,7 @@
 			buildPhases = (
 				8D255AC60486D3F9007BF209 /* Headers */,
 				8D255AC90486D3F9007BF209 /* Resources */,
+				A4A40001A4A400010000001E /* Copy Metal Sources */,
 				8D255ACB0486D3F9007BF209 /* Sources */,
 				8D255ACD0486D3F9007BF209 /* Frameworks */,
 				8D255AD00486D3F9007BF209 /* Rez */,
@@ -520,6 +573,7 @@
 				A4A40001A4A4000100000003 /* transform.cpp in Sources */,
 				A4A40001A4A4000100000007 /* renderer.cpp in Sources */,
 				A4A40001A4A400010000000B /* rendererGL.cpp in Sources */,
+				A4A40001A4A400010000000E /* rendererMetal.mm in Sources */,
 				E0CDA06409A8E5C00004FDE6 /* wavyNormalCubeMaps.cpp in Sources */,
 				E0CDA06509A8E5C00004FDE6 /* splinePath.cpp in Sources */,
 				E0CDA06709A8E5C00004FDE6 /* flare.cpp in Sources */,

@@ -27,8 +27,8 @@
 #import "Hyperspace.h"
 #import "flare.h"
 #import <sys/time.h>
-#import <OpenGL/OpenGL.h>
-#import "Hyperspace/extensions.h"
+#import <Metal/Metal.h>
+#import "Hyperspace/rendererMetal.h"
 
 @interface HyperspaceView (Private)
 - (void)readDefaults:(ScreenSaverDefaults *)inDefaults;
@@ -54,31 +54,30 @@
 		lMainScreenOnly = [defaults boolForKey:@"MainScreenOnly"];
 		if (lMainScreen || !lMainScreenOnly)
 		{
-			NSOpenGLPixelFormatAttribute attribs[] = 
-			{
-				NSOpenGLPFAAccelerated,
-				NSOpenGLPFAColorSize, (NSOpenGLPixelFormatAttribute)32,
-				NSOpenGLPFADoubleBuffer,
-				NSOpenGLPFAMinimumPolicy,
-				NSOpenGLPFAAllowOfflineRenderers,
-				(NSOpenGLPixelFormatAttribute)0
-			};
-            NSOpenGLPixelFormat *format = [[NSOpenGLPixelFormat alloc] initWithAttributes:attribs];
-            
-            if (format)
+			id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+            if (device)
             {
-                lView = [[NSOpenGLView alloc] initWithFrame:NSZeroRect pixelFormat:format];
-				lView.wantsBestResolutionOpenGLSurface = YES;
+				// A layer-hosting view: the layer is set before wantsLayer.
+				lLayer = [CAMetalLayer layer];
+				lLayer.device = device;
+				lLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+				lLayer.framebufferOnly = YES;
+				lLayer.opaque = YES;
+                lView = [[NSView alloc] initWithFrame:self.bounds];
+				lView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+				lView.layer = lLayer;
+				lView.wantsLayer = YES;
                 [self addSubview:lView];
 				
                 lSettings.frameTime = 0;
                 
-				[[lView openGLContext] makeCurrentContext];	// must do this before RSSShadersSupported() will work
 				setDefaults(&lSettings);
                 if ([defaults objectForKey:@"Speed"])
                 {
                     [self readDefaults:defaults];
                 }
+				// Metal draws the shaded look only, whatever an older version saved.
+				lSettings.dShaders = 1;
                 
 				self.animationTimeInterval = 1.0/60.0;
 				lSettings.first = 1;
@@ -94,15 +93,42 @@
 	[super setFrameSize:size];
 	if (lView)
 		[lView setFrameSize:size];
-	
-	if (lView.wantsBestResolutionOpenGLSurface)	// on Lion & later, if we're using a best resolution surface, then call glViewport() with the appropriate width and height for the backing
-	{
-		NSRect newBounds = [self convertRectToBacking:self.bounds];
-		
-		reshape(int(newBounds.size.width), int(newBounds.size.height), &lSettings);
-	}
-	else
-		reshape(int(size.width), int(size.height), &lSettings);
+	[self matchBacking];
+}
+
+
+// The drawable and the viewport are both in pixels, so a Retina screen draws
+// at full resolution and the two always agree.
+- (void)matchBacking
+{
+	if (lView == nil)
+		return;
+	NSRect backing = [self convertRectToBacking:self.bounds];
+	lLayer.contentsScale = self.window ? self.window.backingScaleFactor : 1.0;
+	lLayer.drawableSize = backing.size;
+	reshape(int(backing.size.width), int(backing.size.height), &lSettings);
+}
+
+
+// A renderer that cannot run is dropped, and the view shows the
+// requirements message instead of taking the screen saver down with it.
+- (void)rendererFailed:(const HSRendererMetalError &)error
+{
+	NSLog(@"Hyperspace: %s", error.what());
+	lRenderer = NULL;	// leaked: its state after a throw cannot be trusted to clean up
+	lSettings.renderer = NULL;
+	lSettings.readyToDraw = 0;
+	[lView removeFromSuperview];
+	lView = nil;
+	lLayer = nil;
+	[self setNeedsDisplay:YES];
+}
+
+
+- (void)viewDidChangeBackingProperties
+{
+	[super viewDidChangeBackingProperties];
+	[self matchBacking];
 }
 
 
@@ -113,6 +139,7 @@
 	{
 		self.animationTimeInterval = self.window.screen.maximumRefreshInterval;
 	}
+	[self matchBacking];
 }
 
 
@@ -124,20 +151,27 @@
     {
         if (lMainScreen || !lMainScreenOnly)
         {
-			GLint interval = 1;
-            
-            [self lockFocus];
-            [[lView openGLContext] makeCurrentContext];
-            
-            glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-            glClear(GL_COLOR_BUFFER_BIT);
-            glFlush();
-            CGLSetParameter(CGLGetCurrentContext(), kCGLCPSwapInterval, &interval);	// don't allow screen tearing
-            [[lView openGLContext] flushBuffer];
-            
-            initSaver(&lSettings);
+			// A stopAnimation skipped while the configure sheet was up left the
+			// last scene alive; end it before building the next.
+			if (lRenderer)
+			{
+				cleanUp(&lSettings);
+				lRenderer = NULL;
+			}
+			// The shaders are compiled from source in the bundle's metal folder.
+			NSString *metalDir = [[NSBundle bundleForClass:[self class]].resourcePath stringByAppendingPathComponent:@"metal"];
+			try
+			{
+				lRenderer = new HSRendererMetal((__bridge void *)lLayer.device, metalDir.fileSystemRepresentation);
+				initSaver(&lSettings, lRenderer);
+			}
+			catch (const HSRendererMetalError &e)
+			{
+				[self rendererFailed:e];
+				return;
+			}
+			[self matchBacking];
 			gettimeofday(&timer.prev_tv, NULL);	// reset the timer
-			[self unlockFocus];
         }
     }
 }
@@ -151,8 +185,8 @@
     {
         if (lMainScreen || !lMainScreenOnly)
 		{
-			[[lView openGLContext] makeCurrentContext];
-			cleanUp(&lSettings);
+			cleanUp(&lSettings);	// deletes lRenderer
+			lRenderer = NULL;
             lSettings.frameTime=0;
 		}
 	}
@@ -198,12 +232,27 @@
     {
         if (lMainScreen || !lMainScreenOnly)
         {
-			lSettings.frameTime = timer.tick();
-			if (lSettings.readyToDraw)
+			if (lSettings.readyToDraw && lRenderer)
 			{
-				[[lView openGLContext] makeCurrentContext];
-				draw(&lSettings);
-				[[lView openGLContext] flushBuffer];
+				@autoreleasepool	// so each frame's drawable goes back to the layer promptly
+				{
+					// Waits while every drawable is in flight, which is what paces
+					// the saver to the display; nil only after the layer's
+					// one-second timeout, as when the display sleeps.
+					id<CAMetalDrawable> drawable = [lLayer nextDrawable];
+					if (drawable == nil)
+						return;	// no frame, so no time passes: the next tick carries it
+					lSettings.frameTime = timer.tick();
+					try
+					{
+						lRenderer->setDrawable((__bridge void *)drawable);
+						draw(&lSettings);
+					}
+					catch (const HSRendererMetalError &e)
+					{
+						[self rendererFailed:e];
+					}
+				}
 			}
         }
     }
@@ -224,6 +273,8 @@
 		if ([[NSBundle bundleForClass:self.class] loadNibNamed:@"ConfigureSheet" owner:self topLevelObjects:NULL])
 		{
 			[ibVersionTxt setStringValue:[[[NSBundle bundleForClass:[self class]] infoDictionary] objectForKey:@"CFBundleVersion"]];	// set the version text
+			// Metal always draws the shaded look, so there is nothing to choose.
+			[ibShaderCbx setHidden:YES];
 			[self setDialogValue];
 		}
 		else
@@ -299,8 +350,7 @@
 			lSettings.dFov = [sender intValue];
 			[ibFovTxt setIntValue:[sender intValue]];
 			break;
-		case 7:	// shaders
-			lSettings.dShaders = ([sender state] == NSOnState ? true : false);
+		case 7:	// shaders: hidden, Metal always draws the shaded look
 			break;
 		case 8:	// main screen
 			lMainScreenOnly = ([sender state] == NSOnState ? true : false);

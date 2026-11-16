@@ -949,9 +949,9 @@ int main(int argc, const char *argv[])
         s.first = 1;
         reshape(w, h, &s);
         glClearColor(0, 0, 0, 0); glClear(GL_COLOR_BUFFER_BIT); glFlush();
-        // The GL context stays in backend mode: initSaver still builds the GL
-        // programs and rsText, and a draw that slips past the backend into GL is
-        // caught below rather than crashing.
+        // The GL context stays in backend mode only so that a draw slipping past
+        // the backend into GL is caught below rather than crashing: initSaver
+        // builds no GL programs (HSRendererGL links them) and no rsText.
         HSRendererMetal *metalRenderer = nullptr;
         id<MTLTexture> backendTarget = nil;
         if (backend) {
