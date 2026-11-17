@@ -156,6 +156,12 @@ jobs:
             if grep -qE "^_(gl[A-Z]|glu[A-Z]|CGL)|NSOpenGL" <<<"$undefined"; then
               echo "::error::$1 calls GL:"; grep -E "^_(gl[A-Z]|glu[A-Z]|CGL)|NSOpenGL" <<<"$undefined"; exit 1
             fi
+            # Apple silicon only (ss-au7): an x86_64 slice would mean ARCHS
+            # was lost, and with it the build's only reason to carry Intel code.
+            archs=$(lipo -archs "$bin") || { echo "::error::lipo failed on $bin"; exit 1; }
+            if [ "$archs" != "arm64" ]; then
+              echo "::error::$1 is built for '$archs', not arm64 only"; exit 1
+            fi
           }
 
           for configuration in Release Debug; do
