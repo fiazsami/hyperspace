@@ -293,8 +293,22 @@ pass's shader, and its one fixture is the defect only it can see:
 fog off are the lens flares, in the overlay plane at eye depth 0, where fog
 changes nothing -- so under `stars` that fixture passes. When a shader in
 `metal/` changes, regenerate the fixtures from the new text, with the new
-`base=`, rather than editing the rule. These fixtures were written for the replay and now run here; all 29
-are killed. The
+`base=`, rather than editing the rule. These fixtures were written for the
+replay and now run here; all 30 are killed.
+
+One replay fixture was retired. `stars_radialfog` fogged on radial distance in
+`ff_vertex`. Since ss-6ee the stars and flares are drawn instanced, through
+`ff_quad_vertex`, which is given only the z row of each quad's modelview, so
+radial distance cannot be written there; and `ff_vertex` now draws only
+offscreen, unfogged, where that fixture would survive. Three fixtures judge the
+quad path's fog depth instead: `stars_depth110` makes it 10% too deep (the
+vertex-side twin of `stars_fog110`, and the only subtle one),
+`stars_depthsigned` drops its abs(), and the backend's `depthcolumn` takes the
+modelview's third column for its z row. The last two amount to no fog at all.
+The fragment-side fixtures (`fog110`, `notexture`, `nofog`, `fogalways`) judge
+the quad path unchanged.
+
+Of the shader fixtures, the
 narrowest by lit>2 are `tunnel_fog110` (3.72% against 3%) and
 `tunnel_radialfog` (4.28%), and both are far outside on bias (0.219 and 0.200
 against 0.06); `sun_fogalways` is inside lit>2 at 0.75% and killed by its bias,
@@ -324,7 +338,10 @@ under `goosoft`.
 `rendererMetal.mm`, built into its own `parity` with `build.sh --backend` and
 required to FAIL. Killed: the model matrix before the camera, fog from the eye,
 an overlay ignoring the aspect ratio, (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) blending,
-nearest sampling, the quad's color ignored; under `goo`, the GPU-built surface
+nearest sampling, the quad's color ignored, a run of batched quads not ended
+by a change of fog (`fogkey`), the quad's fog depth from the wrong row of its
+modelview (`depthcolumn`, which amounts to no fog), only a flush's first 36-quad run drawn
+(`onerun`); under `goo`, the GPU-built surface
 drawn at the origin, its blocks' cells starting a whole block from their
 centres, the nebula and a normal map swapped, the fog scale as 1/end, and the
 normal-map mix dropped; under `tunnel`, the caustic frames swapped, their mix

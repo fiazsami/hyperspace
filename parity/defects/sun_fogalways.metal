@@ -1,4 +1,4 @@
-// Kill-check fixture: sun shader (the stars pass's) with one deliberate defect (fogalways): fog on every draw, the sun's included. Only the sun pass can see it. parity/backendcheck.sh requires it to FAIL. base=e287b09b384dab56a1025047541d4cf9b71b72ab
+// Kill-check fixture: sun shader (the stars pass's) with one deliberate defect (fogalways): fog on every draw, the sun's included. Only the sun pass can see it. parity/backendcheck.sh requires it to FAIL. base=6536483048df0cf1081a43e2cbbdb0f83f954ece
 // The GL fixed-function path Hyperspace uses for stars, sun and lens flare:
 // vertex color MODULATE texture, then linear fog on eye-plane depth (Apple's GL
 // fogs on |z_eye|, not radial distance -- measured, see parity/README.md).
@@ -13,6 +13,22 @@ vertex FFOut ff_vertex(uint vid [[vertex_id]], const device FFVertex *v [[buffer
     o.texcoord = v[vid].texcoord;
     o.color = saturate(v[vid].color);   // GL_CLAMP_VERTEX_COLOR defaults to TRUE
     o.depth = abs((u.modelview * p).z);
+    return o;
+}
+
+// drawQuad's quads, instanced: instance i is the i-th queued quad, and vertex
+// v its corner (v & 1, v >> 1) -- hsQuad's order (Hyperspace/renderer.cpp,
+// which GL and the tests draw), drawn as a strip of 4.
+vertex FFOut ff_quad_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
+                            const device QuadInstance *q [[buffer(0)]])
+{
+    const float u = float(vid & 1), v = float(vid >> 1);
+    const float4 p = float4((2.0 * u - 1.0) * q[iid].halfSize, (2.0 * v - 1.0) * q[iid].halfSize, 0.0, 1.0);
+    FFOut o;
+    o.position = q[iid].mvp * p;
+    o.texcoord = float2(u, v);
+    o.color = saturate(q[iid].color);   // GL_CLAMP_VERTEX_COLOR defaults to TRUE
+    o.depth = abs(dot(q[iid].modelviewZ, p));
     return o;
 }
 
