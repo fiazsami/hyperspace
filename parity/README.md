@@ -34,6 +34,7 @@ them.
 | `tunnel` | the tunnel: two caustic textures, two octaves | `metal/Tunnel.metal` | 2 min, 36 shots |
 | `burst` | the starburst's sphere, then the goo | `metal/Goo.metal` | 8 s, 16 shots |
 | `sun` | `stars`, with the sun held in view | `metal/FixedFunction.metal` | 20 s, 12 shots |
+| `goosoft` | `goo` with the backend's goo soft, as the saver draws it, judged on 16×16 block means (below) | `metal/Soften.metal` | 60 s, 12 shots |
 
 Stars draw in every pass, through `FixedFunction.metal`. The tunnel needs two
 minutes because one rarely puts the camera inside a tunnel; most shots of the
@@ -101,6 +102,29 @@ defects, **before** any candidate shader was scored:
 | `stars` | 1.0% | 0.1% | 0.00% / 0.00% / bias 0.003 | fog scale ×1.1: 14.14% / 4.17% / bias 0.998 |
 | `goo` | 8.0% | 2.5% | 5.28% / 1.35% / bias 0.012 | fog scale ×1.1: 9.65% / 3.05% / bias 0.357 |
 | `tunnel` | 3.0% | 0.6% | 1.50% / 0.28% / bias 0.012 | radial fog: 4.81% / 0.28% / bias 0.197 |
+
+`goosoft` came later, with the soft goo (ss-5j5), and was fixed the same way,
+at resolution 20, before the fixtures were written. Softening moves light a
+few pixels, so pixel by pixel the soft goo differs from GL's sharp goo almost
+everywhere it is lit. `goosoft` therefore compares both images after averaging
+each over 16×16 blocks: those absorb most of the blur, while goo drawn in the
+wrong place still shows. Worst shot, block means:
+
+| | lit>2 | lit>8 | bias |
+|---|---|---|---|
+| faithful | 34.2% | 4.48% | 0.665 |
+| drawn two pixels left (`goosoft_shift2`) | 62.9% | 25.5% | 0.801 |
+| upside down (`goosoft_flip`) | 98.6% | 96.3% | 0.586 |
+| tent divided by 15, ~7% too bright (`goosoft_tent15`) | 84.9% | 42.7% | 7.231 |
+| never added back (`backend_goosoft_nocomposite`) | 99.96% | 99.7% | 121.6 |
+| limits | 50% | 12% | 2.0 |
+
+The flip and the shift are why the blocks are there: an earlier version judged
+the signed bias alone, and both passed it, the flip scoring better than the
+faithful build. Smaller blocks separate less (at 8×8 the faithful build's
+lit>8 is 14.1% against the four-pixel shift's 50.6%). What `goosoft` still
+cannot see: whether the goo is soft at all. A soft goo drawn sharp passes, and
+the look itself was chosen by eye, from the bake-off.
 
 `backendcheck.sh` re-proves the separation on every run. Loosening a limit to
 let a change through defeats the instrument; if a correct change fails, find
@@ -220,13 +244,18 @@ backend stops on them. Measured, worst shot:
 
 | pass | lit>2 | lit>8 | bias | limits |
 |---|---|---|---|---|
-| `stars` | 0.000% | 0.000% | 0.002 | 1% / 0.1% / 0.06 |
-| `goo` | 4.611% | 1.121% | 0.015 | 8% / 2.5% / 0.06 |
-| `tunnel` | 0.107% | 0.029% | 0.002 | 3% / 0.6% / 0.06 |
-| `burst` | 0.906% | 0.201% | 0.006 | 8% / 2.5% / 0.06 |
+| `stars` | 0.000% | 0.000% | 0.001 | 1% / 0.1% / 0.06 |
+| `goo` | 4.139% | 0.849% | 0.023 | 8% / 2.5% / 0.06 |
+| `tunnel` | 0.107% | 0.028% | 0.002 | 3% / 0.6% / 0.06 |
+| `burst` | 0.816% | 0.170% | 0.006 | 8% / 2.5% / 0.06 |
 | `sun` | 0.000% | 0.000% | 0.002 | 1% / 0.1% / 0.06 |
+| `goosoft` | 34.189% | 4.480% | 0.665 | 50% / 12% / 2.0, on 16×16 block means |
 
-Re-measured 2026-11-16 on an M5 Max, when the goo's surface moved to the GPU.
+At the default goo resolution of 20, since ss-5j5 raised it from 10. At 10,
+measured when the goo's surface moved to the GPU, `goo` was 4.611% / 1.121% /
+0.015 and `burst` 0.906% / 0.201% / 0.006; the others come out the same.
+
+Earlier, re-measured 2026-11-16 on an M5 Max, when the goo's surface moved to the GPU.
 `tunnel`, `burst`, `stars` and `sun` come out the same on the commit before
 that change; the earlier figures here were older. `goo` was 3.011% / 0.674% /
 0.011 before it. The two runs no longer draw the same triangles: the kernel
@@ -284,6 +313,12 @@ table, which the unit tests cannot see. The kernel's first cut used the field's 
 gradient for normals, and this pass failed it at 98% lit>2 -- the reflections
 moved across the whole surface -- which is why it copies impCubeVolume's
 forward differences instead.
+
+**The soft goo.** `goosoft_tent15.metal` is `Soften.metal` with the tent
+divided by 15, `goosoft_flip.metal` adds the goo upside down, and
+`goosoft_shift2.metal` two pixels to the left; `backend_goosoft_nocomposite.sed`
+draws the soft goo into its target and never adds it back. All four are killed
+under `goosoft`.
 
 **Backend C++.** `parity/defects/backend_<pass>_*.sed`, each a sed script over
 `rendererMetal.mm`, built into its own `parity` with `build.sh --backend` and

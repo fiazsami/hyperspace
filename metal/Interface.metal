@@ -70,6 +70,7 @@ struct GooBuildUniforms {
 //   FixedFunction.metal  ff_vertex / ff_fragment           texture(0), sampler(0)
 //   Goo.metal            goo_vertex / goo_fragment         normaltex0..1, tex: texture(0..2)
 //   Tunnel.metal         tunnel_vertex / tunnel_fragment   tex0, tex1: texture(0..1)
+//   Soften.metal         soften_vertex / soften_fragment   goo: texture(0)
 //   GooBuild.metal       goo_build, goo_build_count        compute: GooBuildUniforms, block offsets,
 //                                                          triangle table, counter, GooVertex out
 // Blending (SRC_ALPHA, ONE) and culling are pipeline state, set by the caller.

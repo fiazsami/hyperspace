@@ -22,18 +22,18 @@
 # caustic textures through both backends' offscreen targets and compares every
 # level. Their fixtures are backend_textures_*.sed and backend_caustics_*.sed.
 #
-# About 7.5 minutes for everything (7m23s measured on an M5 Max: seven passes,
-# 27 backend and 29 shader fixtures; since then the goo build kernel's
-# 4 and one more backend fixture).
+# About 8 minutes for everything (8m03s measured on an M5 Max, 2026-11-16:
+# eight passes, 63 fixtures, the goo at resolution 20; since then two more
+# goosoft fixtures).
 #
-#   parity/backendcheck.sh [stars|goo|tunnel|burst|sun|textures|caustics ...]    default: all seven
+#   parity/backendcheck.sh [stars|goo|tunnel|burst|sun|goosoft|textures|caustics ...]    default: all eight
 #
 # Exit 0 = the backend passes and every fixture is killed, 1 = otherwise,
 # 2 = a run or build failed.
 set -uo pipefail
 shopt -s nullglob
 cd "$(dirname "$0")/.."
-passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo tunnel burst sun textures caustics)
+passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo tunnel burst sun goosoft textures caustics)
 
 OUT=.parity-build/backend
 rm -rf "$OUT"; mkdir -p "$OUT/variants"
@@ -66,7 +66,7 @@ for pass in "${passes[@]}"; do
             # the defect in place of the pass's shader file.
             name=$(basename "$fixture" .metal); bin=.parity-build/parity; metal=$OUT/variants/$name-metal
             case $name in goobuild_*) file=GooBuild.metal;; *)
-                case $pass in goo|burst) file=Goo.metal;; tunnel) file=Tunnel.metal;; *) file=FixedFunction.metal;; esac;;
+                case $pass in goo|burst) file=Goo.metal;; goosoft) file=Soften.metal;; tunnel) file=Tunnel.metal;; *) file=FixedFunction.metal;; esac;;
             esac
             # Line 1 names the blob of metal/$file the fixture was made from. A
             # shader changed since then would make the fixture differ by the

@@ -97,6 +97,8 @@ struct Pass {
     double max2, max8, maxBias;
     int burstAt;   // frame at which to set off the starburst; 0 leaves it to the saver's timer
     float sunAhead;   // distance ahead of the camera to hold the sun at; 0 leaves it where the saver puts it
+    bool softGoo;     // the backend draws the goo soft, as the saver does (HSRendererMetal::setSoftGoo)
+    int block;        // >1: both images averaged over block x block pixels before they are compared
 };
 static const Pass kPasses[] = {
     // 60 s; stars are tiny, so the lit-pixel normalization matters most here.
@@ -117,6 +119,14 @@ static const Pass kPasses[] = {
     // fog on comes out black. The stars pass's limits. Its lens flare
     // stays at (0, 2, 0): drawn on the sun, its core hides it.
     {"sun",    false, false, 1200, 100, 1.0, 0.1, 0.06, 0, 12.0f},
+    // The goo pass with the backend's goo soft, as the saver draws it, against
+    // GL's sharp goo, both averaged over 16x16 blocks: softening moves light
+    // a few pixels, which blocks that size mostly absorb, while goo drawn in
+    // the wrong place still shows. Measured at resolution 20, worst shot:
+    // faithful 34.2% / 4.48% / bias 0.665; drawn two pixels off 62.9% / 25.5%
+    // / 0.801; upside down 98.6% / 96.3% / 0.586 (brightness alone passes
+    // both); the tent divided by 15, bias 7.231; never added back, 121.6.
+    {"goosoft", true, false, 3600, 300, 50.0, 12.0, 2.0, 0, 0.0f, true, 16},
 };
 
 static void writePNG(NSString *path, const uint8_t *rgba, int w, int h)
@@ -146,15 +156,37 @@ static std::vector<uint8_t> readPNG(NSString *path, int &w, int &h)
     return px;
 }
 
+// The mean of each whole block x block square of an RGBA image, rounded; a
+// partial block at the right or bottom edge is dropped.
+static std::vector<uint8_t> blockMean(const std::vector<uint8_t> &img, int &w, int &h, int block)
+{
+    const int bw = w / block, bh = h / block;
+    std::vector<uint8_t> out((size_t)bw * bh * 4);
+    for (int by = 0; by < bh; by++)
+        for (int bx = 0; bx < bw; bx++)
+            for (int c = 0; c < 4; c++) {
+                int sum = 0;
+                for (int y = 0; y < block; y++)
+                    for (int x = 0; x < block; x++)
+                        sum += img[((size_t)(by * block + y) * w + bx * block + x) * 4 + c];
+                out[((size_t)by * bw + bx) * 4 + c] = (uint8_t)((sum + block * block / 2) / (block * block));
+            }
+    w = bw; h = bh;
+    return out;
+}
+
 // parity --compare <ref-dir> <new-dir>: the GL images of two runs of the same pass,
 // shot by shot (parity/seamcheck.sh). Both sides are the GL renderer, so nothing
 // here is a translation residual: the rule is the tightest any pass uses.
 // parity --compare-backend compares one run's GL images with another's
 // _backend.png (renderer=metal), under the pass's rules. Either way a shot
 // missing from either side is an error, and a shot outside the rule writes
-// <new-dir>/NNNNN_diffx8.png: the per-pixel difference, times 8.
+// <new-dir>/NNNNN_diffx8.png: the per-pixel difference, times 8. A pass with
+// block > 1 compares block means, and its diff is of those: NNNNN_diffx8_blockN.png,
+// one pixel a block.
 static int compareRuns(NSString *refDir, NSString *newDir, NSString *newSuffix,
-                       double max2, double max8, double maxBias, const char *same, const char *different)
+                       double max2, double max8, double maxBias, const char *same, const char *different,
+                       int block = 1)
 {
     auto shots = [](NSString *dir, NSString *suffix) -> NSArray<NSString *> * {
         NSArray<NSString *> *all = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:nil];
@@ -180,6 +212,10 @@ static int compareRuns(NSString *refDir, NSString *newDir, NSString *newSuffix,
         std::vector<uint8_t> a = readPNG([refDir stringByAppendingPathComponent:[n stringByAppendingString:@"_gl.png"]], rw, rh);
         std::vector<uint8_t> b = readPNG([newDir stringByAppendingPathComponent:[n stringByAppendingString:newSuffix]], nw, nh);
         if (a.empty() || b.empty() || rw != nw || rh != nh) { printf("ERROR %s missing or a different size\n", n.UTF8String); return 2; }
+        if (block > 1) {
+            if (rw < block || rh < block) { printf("ERROR %s is %dx%d, smaller than one %d-pixel block\n", n.UTF8String, rw, rh, block); return 2; }
+            a = blockMean(a, rw, rh, block); b = blockMean(b, nw, nh, block);
+        }
         size_t lit = 0, l2 = 0, l8 = 0; int maxd = 0; double sb[3] = {0, 0, 0};
         std::vector<uint8_t> heat((size_t)rw * rh * 4);
         for (size_t i = 0; i < (size_t)rw * rh; i++) {
@@ -197,7 +233,8 @@ static int compareRuns(NSString *refDir, NSString *newDir, NSString *newSuffix,
         bool shotOk = p2 <= max2 && p8 <= max8 && bias <= maxBias;
         ok &= shotOk; worst2 = MAX(worst2, p2); worst8 = MAX(worst8, p8); worstBias = MAX(worstBias, bias); worstMax = MAX(worstMax, maxd);
         printf("%s  max %3d  lit>2 %6.3f%%  lit>8 %6.3f%%  bias %5.3f  %s\n", n.UTF8String, maxd, p2, p8, bias, shotOk ? "ok" : "FAIL");
-        if (!shotOk) writePNG([newDir stringByAppendingPathComponent:[n stringByAppendingString:@"_diffx8.png"]], heat.data(), rw, rh);
+        if (!shotOk) writePNG([newDir stringByAppendingPathComponent:[n stringByAppendingString:
+                                  block > 1 ? [NSString stringWithFormat:@"_diffx8_block%d.png", block] : @"_diffx8.png"]], heat.data(), rw, rh);
     }
     printf("%s shots=%lu worst_max=%d worst_lit>2=%.3f%% worst_lit>8=%.3f%% worst_bias=%.3f (limits %.2f%% / %.2f%% / %.3f)\n",
            ok ? same : different, (unsigned long)names.count, worstMax, worst2, worst8, worstBias, max2, max8, maxBias);
@@ -340,11 +377,11 @@ int main(int argc, const char *argv[])
         if (argc == 3 && !strcmp(argv[1], "--backend-caustics")) return compareBackendCaustics(@(argv[2]));
         if (argc == 5 && !strcmp(argv[1], "--compare-backend")) {
             for (const Pass &p : kPasses)
-                if (!strcmp(argv[2], p.name)) return compareRuns(@(argv[3]), @(argv[4]), @"_backend.png", p.max2, p.max8, p.maxBias, "PASS", "FAIL");
+                if (!strcmp(argv[2], p.name)) return compareRuns(@(argv[3]), @(argv[4]), @"_backend.png", p.max2, p.max8, p.maxBias, "PASS", "FAIL", p.block);
             fprintf(stderr, "unknown pass %s\n", argv[2]); return 2;
         }
         if (argc < 4) {
-            fprintf(stderr, "usage: parity <stars|goo|tunnel|burst|sun> <metal-dir> <outdir> [renderer=metal] [frames=N] [every=N] [w=N] [h=N]\n"
+            fprintf(stderr, "usage: parity <stars|goo|tunnel|burst|sun|goosoft> <metal-dir> <outdir> [renderer=metal] [frames=N] [every=N] [w=N] [h=N]\n"
                             "       parity --compare <ref-dir> <new-dir>\n"
                             "       parity --compare-backend <pass> <gl-dir> <backend-dir>\n"
                             "       parity --backend-textures <metal-dir>\n"
@@ -410,6 +447,7 @@ int main(int argc, const char *argv[])
             backendTarget = [dev newTextureWithDescriptor:bd];
             metalRenderer = new HSRendererMetal((__bridge void *)dev, metalDir.fileSystemRepresentation);
             metalRenderer->setTarget((__bridge void *)backendTarget);
+            metalRenderer->setSoftGoo(pass->softGoo);
         }
         HSRenderer *renderer = metalRenderer;
         if (!backend) renderer = new HSRendererGL;

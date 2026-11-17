@@ -324,7 +324,7 @@ void setDefaults(HyperspaceSaverSettings *inSettings){
 	inSettings->dSpeed = 23;
 	inSettings->dStars = 2000;
 	inSettings->dStarSize = 10;
-	inSettings->dResolution = 10;
+	inSettings->dResolution = 20;
 	inSettings->dDepth = 5;
 	inSettings->dFov = 50;
 	inSettings->dUseTunnels = 1;
