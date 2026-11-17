@@ -87,5 +87,16 @@ __private_extern__ double hsFrameInterval(double refreshInterval, double minPerS
 // from calls at another cadence (105 a second on 144 Hz) they are spaced 1
 // and 2 calls apart by turns, which nothing that only filters calls can fix.
 __private_extern__ bool hsFrameDue(double now, double *nextDue, double interval, double slack);
+// Whether a view's frames are reaching the screen, from what became of them:
+// after unseenLimit seconds in which no frame was shown, the view draws only
+// one probe frame each probeInterval seconds, until one is shown. A view any
+// of whose frames are shown keeps drawing. Zero-initialised is a view drawing
+// normally.
+struct HSVisibility { double unseenSince; double probeAt; };
+// A frame's fate, as its drawable's presented handler reports it, at time now
+// (> 0: a zero unseenSince is the drawing state).
+__private_extern__ void hsFramePresented(HSVisibility *v, bool shown, double now);
+// Whether to draw a frame at time now.
+__private_extern__ bool hsShouldDraw(HSVisibility *v, double now, double unseenLimit, double probeInterval);
 
 #endif

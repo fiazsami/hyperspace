@@ -18,6 +18,8 @@
 
 #include <cstdlib>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "Hyperspace/renderer.h"
 #include "Hyperspace/transform.h"
@@ -181,6 +183,79 @@ TEST(hsFrameDue_restarts_the_schedule_after_a_stall_instead_of_catching_up)
     CHECK(hsFrameDue(2.0, &nextDue, interval, slack));
     CHECK(!hsFrameDue(2.0 + 1.0 / 144.0, &nextDue, interval, slack));
     CHECK_NEAR(nextDue, 2.0 + interval, 1e-9);
+}
+
+namespace {
+// Frames drawn in seconds of calls every 1/72 s, each frame's fate (shown(c),
+// for a frame drawn on call c) reported `lag` calls after it was drawn, as the
+// presented handlers report several frames late.
+template <typename Shown>
+int drawnWith(Shown shown, double seconds, int lag = 3)
+{
+    HSVisibility v = {};
+    std::vector<std::pair<int, bool>> inFlight;   // (call it lands on, shown)
+    int drawn = 0;
+    for (int call = 0; call < int(seconds * 72); call++)
+    {
+        const double now = 1.0 + call / 72.0;
+        for (size_t i = 0; i < inFlight.size();)
+            if (inFlight[i].first <= call)
+            {
+                hsFramePresented(&v, inFlight[i].second, now);
+                inFlight.erase(inFlight.begin() + i);
+            }
+            else
+                i++;
+        if (hsShouldDraw(&v, now, 1.0, 0.25))
+        {
+            inFlight.push_back({call + lag, shown(call)});
+            drawn++;
+        }
+    }
+    return drawn;
+}
+}
+
+TEST(hsShouldDraw_keeps_drawing_a_view_whose_frames_are_seen_at_all)
+{
+    // The second display under the frame cap: about a third never shown, in
+    // short runs. It must never stop.
+    CHECK(drawnWith([](int k) { return k % 3 != 0 && k % 7 != 0; }, 10.0) == 720);
+    // Just under a second unseen, then one shown, over and over: never stops.
+    CHECK(drawnWith([](int k) { return k % 70 == 69; }, 10.0) == 720);
+}
+
+TEST(hsShouldDraw_probes_four_times_a_second_after_a_second_of_frames_never_shown)
+{
+    // The stale window under the real one: Metal presented none of its frames.
+    // About a second of frames (plus those in flight), then a probe each 1/4 s.
+    const int drawn = drawnWith([](int) { return false; }, 10.0);
+    CHECK(drawn >= 72 + 4 * 8);
+    CHECK(drawn <= 76 + 4 * 9 + 1);
+}
+
+TEST(hsShouldDraw_resumes_when_a_probe_is_shown)
+{
+    // Unseen for three seconds, then the window comes back: full rate again
+    // within a probe interval and the handlers' lag -- the last seven seconds
+    // drawn but for a third of a second.
+    const int drawn = drawnWith([](int c) { return c >= 216; }, 10.0);
+    CHECK(drawn >= 72 * 7 - 24 + 72);
+    CHECK(drawn < 720 - 72);   // and it did pause while unseen
+}
+
+TEST(hsShouldDraw_measures_the_unseen_time_from_the_first_frame_not_shown)
+{
+    HSVisibility v = {};
+    hsFramePresented(&v, false, 5.0);
+    hsFramePresented(&v, false, 5.5);       // does not restart the clock
+    CHECK(hsShouldDraw(&v, 5.99, 1.0, 0.25));
+    CHECK(hsShouldDraw(&v, 6.0, 1.0, 0.25)); // the first probe
+    CHECK(!hsShouldDraw(&v, 6.1, 1.0, 0.25));
+    CHECK(hsShouldDraw(&v, 6.25, 1.0, 0.25));
+    hsFramePresented(&v, true, 6.3);
+    CHECK(hsShouldDraw(&v, 6.31, 1.0, 0.25));
+    CHECK(hsShouldDraw(&v, 6.32, 1.0, 0.25));
 }
 
 TEST(setDefaults_picks_the_shipped_settings)

@@ -336,6 +336,24 @@ bool hsFrameDue(double now, double *nextDue, double interval, double slack){
 }
 
 
+void hsFramePresented(HSVisibility *v, bool shown, double now){
+	if(shown)
+		v->unseenSince = 0.0;
+	else if(v->unseenSince == 0.0)
+		v->unseenSince = now;
+}
+
+
+bool hsShouldDraw(HSVisibility *v, double now, double unseenLimit, double probeInterval){
+	if(v->unseenSince == 0.0 || now - v->unseenSince < unseenLimit)
+		return true;
+	if(now < v->probeAt)
+		return false;
+	v->probeAt = now + probeInterval;
+	return true;
+}
+
+
 void setDefaults(HyperspaceSaverSettings *inSettings){
 	inSettings->dSpeed = 23;
 	inSettings->dStars = 2000;
