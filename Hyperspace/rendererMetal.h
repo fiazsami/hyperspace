@@ -41,8 +41,9 @@ public:
 	// presents it without waiting for the GPU; a frame the GPU fails is logged
 	// and skipped. Call it before every beginFrame: a drawable is one frame's.
 	void setDrawable(void *drawable);
-	// Draws issued since the last beginFrame: all of them, and the goo
-	// surfaces and tunnel strips among them.
+	// Draws asked for since the last beginFrame: all of them, and the goo
+	// surfaces and tunnel strips among them. Each drawQuad counts as one when
+	// it is queued, though the queue is drawn instanced, 36 quads a draw.
 	int drawCount() const;
 	int gooDrawCount() const;
 	int tunnelDrawCount() const;

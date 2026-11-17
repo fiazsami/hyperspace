@@ -78,6 +78,8 @@ struct GooBuildUniforms {
 
 // Entry points each pass provides (buffer 0 = vertices, buffer 1 = uniforms):
 //   FixedFunction.metal  ff_vertex / ff_fragment           texture(0), sampler(0)
+//                        ff_quad_vertex / ff_fragment      buffer 0 = QuadInstance[], no vertex
+//                                                          uniforms; fragment buffer 1 = FFUniforms
 //   Goo.metal            goo_vertex / goo_fragment         normaltex0..1, tex: texture(0..2)
 //   Tunnel.metal         tunnel_vertex / tunnel_fragment   tex0, tex1: texture(0..1)
 //   Soften.metal         soften_vertex / soften_fragment   goo: texture(0)

@@ -585,7 +585,10 @@ unsigned int HSRendererMetal::createCubeTexture(const HSMipChain faces[6]){
 static void flushQuads(HSRendererMetalState *st){
 	if(st->quads.empty())
 		return;
-	const Texture &tex = st->textures.find(st->quadTexture)->second;
+	std::map<unsigned int, Texture>::const_iterator found = st->textures.find(st->quadTexture);
+	if(found == st->textures.end())
+		fail("drawQuad", "a queued quad's texture is gone");
+	const Texture &tex = found->second;
 	FFUniforms u;
 	u.modelview = u.mvp = matrix_identity_float4x4;   // per quad, in the instances
 	u.fogColor = simd_make_float4(0, 0, 0, 1);
@@ -960,8 +963,9 @@ void HSRendererMetal::drawGooField(const HSGooField &field){
 
 	// Added over the whole target, which the goo target spans, but cut to the
 	// frame's viewport, which the blur would otherwise spread past. Nothing
-	// else draws in the goo pass (a second drawGooField fails) and endGoo
-	// resets the pipeline, so only the viewport and scissor are put back.
+	// else draws in the goo pass (a second drawGooField fails), and every
+	// draw binds its own pipeline and textures, so softenPipeline and the goo
+	// target may stay bound; only the viewport and scissor are put back.
 	const NSUInteger tw = st->target.width, th = st->target.height;
 	const double x0 = std::max(0.0, st->viewport.originX), y0 = std::max(0.0, st->viewport.originY);
 	const double x1 = std::min(double(tw), st->viewport.originX + st->viewport.width);
