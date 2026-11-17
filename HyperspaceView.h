@@ -40,6 +40,8 @@ class HSRendererMetal;
 	BOOL lIsConfiguring;
 	
 	CFTimeInterval lLastFrame;   // CACurrentMediaTime the next frame's step is measured from; 0 = no step
+	NSTimeInterval lRefresh;      // the screen's refresh interval (matchRefresh)
+	NSTimeInterval lFrameInterval;   // a whole number of refreshes: the interval frames are drawn at
 	
 	IBOutlet NSWindow *ibConfigureSheet;
 	IBOutlet NSTextField *ibVersionTxt;

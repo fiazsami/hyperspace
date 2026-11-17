@@ -34,6 +34,9 @@
 static const CFTimeInterval kMaxFrameTime = 0.1;
 // The frame interval when no screen answers with its refresh.
 static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
+// The fewest frames a second the saver draws, when the refresh allows fewer:
+// see matchRefresh.
+static const double kMinFramesPerSecond = 60.0;
 
 @interface HyperspaceView (Private)
 - (void)readDefaults:(ScreenSaverDefaults *)inDefaults;
@@ -102,19 +105,30 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 }
 
 
-// Paces frames to the fastest refresh of the screen the view is on.
+// Paces frames to the refresh of the screen the view is on, drawing every
+// n-th refresh: the largest n that still draws at least kMinFramesPerSecond
+// (144 Hz draws 72, 120 Hz 60, 165 Hz 82.5, 60 Hz every refresh). A whole n
+// keeps every frame on screen for the same number of refreshes; measured on
+// two 144 Hz displays, 72 a second looked no different and the saver's CPU
+// fell from 45% to 38% of a core (ss-50r).
 // minimumRefreshInterval is the shortest interval; maximumRefreshInterval is
 // the longest, the slowest rate a variable-refresh display drops to. The
 // window's screen is nil for most windows inside legacyScreenSaver (hills
 // measured 25 in 32), and a nil screen answers 0 -- a timer that runs flat
 // out -- so the main screen is used instead, then kFallbackInterval.
+// The macOS 26 host calls animateOneFrame at its own rate whatever
+// animationTimeInterval says (measured: an interval of 1/72 still drew about
+// 105 frames a second), so animateOneFrame skips calls itself.
 - (void)matchRefresh
 {
 	if (lView == nil)
 		return;	// nothing draws here: main screen only, or Metal failed
 	NSScreen *screen = self.window.screen ?: [NSScreen mainScreen];
 	NSTimeInterval refresh = screen.minimumRefreshInterval;
-	self.animationTimeInterval = refresh > 0 ? refresh : kFallbackInterval;
+	lRefresh = refresh > 0 ? refresh : kFallbackInterval;
+	const double perRefresh = floor(1.0 / (lRefresh * kMinFramesPerSecond) + 1e-6);
+	lFrameInterval = lRefresh * fmax(1.0, perRefresh);
+	self.animationTimeInterval = lFrameInterval;
 }
 
 
@@ -261,6 +275,11 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 					// the saver to the display; nil only after the layer's
 					// one-second timeout, as when the display sleeps.
 					CFTimeInterval asked = CACurrentMediaTime();
+					// Not yet time for a frame (matchRefresh). Half a refresh of
+					// slack, so a call that lands just early still draws on
+					// the refresh it belongs to.
+					if (lLastFrame > 0 && asked - lLastFrame < lFrameInterval - 0.5 * lRefresh)
+						return;
 					id<CAMetalDrawable> drawable = [lLayer nextDrawable];
 					CFTimeInterval now = CACurrentMediaTime();
 					// A long wait for a drawable is a stall, and it is dropped,
