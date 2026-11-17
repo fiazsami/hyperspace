@@ -16,7 +16,8 @@ vertex FFOut ff_vertex(uint vid [[vertex_id]], const device FFVertex *v [[buffer
 }
 
 // drawQuad's quads, instanced: instance i is the i-th queued quad, and vertex
-// v its corner (v & 1, v >> 1) -- hsQuad's order, drawn as a strip of 4.
+// v its corner (v & 1, v >> 1) -- hsQuad's order (Hyperspace/renderer.cpp,
+// which GL and the tests draw), drawn as a strip of 4.
 vertex FFOut ff_quad_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                             const device QuadInstance *q [[buffer(0)]])
 {

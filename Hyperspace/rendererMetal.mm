@@ -159,7 +159,7 @@ struct HSRendererMetalState {
 	std::vector<QuadInstance> quads;
 	unsigned int quadTexture;
 	bool quadFog;
-	id<MTLRenderPipelineState> ffPipeline, gooPipeline, tunnelPipeline;
+	id<MTLRenderPipelineState> gooPipeline, tunnelPipeline;
 	MTLPixelFormat pipelineFormat;
 	id<MTLTexture> target;
 	id<CAMetalDrawable> drawable;   // set for one frame by setDrawable, presented by endFrame
@@ -293,7 +293,7 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->ffLibrary = compilePass(st->device, metalDir, "FixedFunction.metal");
 	st->gooLibrary = compilePass(st->device, metalDir, "Goo.metal");
 	st->tunnelLibrary = compilePass(st->device, metalDir, "Tunnel.metal");
-	st->ffPipeline = st->gooPipeline = st->tunnelPipeline = st->quadPipeline = nil;
+	st->gooPipeline = st->tunnelPipeline = st->quadPipeline = nil;
 	st->quadTexture = 0;
 	st->quadFog = false;
 	st->pipelineFormat = MTLPixelFormatInvalid;
@@ -391,7 +391,6 @@ static void useTarget(HSRendererMetalState *st, id<MTLTexture> target){
 	st->target = target;
 	if(st->target.pixelFormat == st->pipelineFormat)
 		return;
-	st->ffPipeline = additivePipeline(st->device, st->ffLibrary, @"ff_vertex", @"ff_fragment", st->target.pixelFormat);
 	st->quadPipeline = additivePipeline(st->device, st->ffLibrary, @"ff_quad_vertex", @"ff_fragment", st->target.pixelFormat);
 	st->gooPipeline = additivePipeline(st->device, st->gooLibrary, @"goo_vertex", @"goo_fragment", st->target.pixelFormat);
 	st->tunnelPipeline = additivePipeline(st->device, st->tunnelLibrary, @"tunnel_vertex", @"tunnel_fragment", st->target.pixelFormat);
@@ -454,7 +453,6 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 	st->draws = st->gooDraws = st->tunnelDraws = 0;
 	st->gooBuildCommands = nil;
 	st->softCommands = nil;
-	st->quads.clear();   // a frame that failed may have left some
 
 	MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
 	rp.colorAttachments[0].texture = st->target;
@@ -469,7 +467,6 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 		double(frame.viewport[2]), double(frame.viewport[3]), 0.0, 1.0};
 	[st->encoder setViewport:vp];
 	[st->encoder setCullMode:MTLCullModeNone];
-	[st->encoder setRenderPipelineState:st->ffPipeline];
 	st->viewport = vp;
 }
 
@@ -582,7 +579,9 @@ unsigned int HSRendererMetal::createCubeTexture(const HSMipChain faces[6]){
 // Draws drawQuad's queue, instanced, in runs that fit setVertexBytes' 4 KB:
 // no per-frame buffer, so nothing to keep from the GPU while it reads one.
 // Every other draw, and endFrame, flushes first, so the order of draws is
-// the order of calls.
+// the order of calls: beginGoo, beginTunnel and endFrame call it, and a new
+// way to draw on the frame's encoder must too. Every draw binds its own
+// pipeline; nothing relies on one left bound.
 static void flushQuads(HSRendererMetalState *st){
 	if(st->quads.empty())
 		return;
@@ -604,7 +603,6 @@ static void flushQuads(HSRendererMetalState *st){
 		[st->encoder setVertexBytes:&st->quads[at] length:n * sizeof(QuadInstance) atIndex:0];
 		[st->encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4 instanceCount:n];
 	}
-	[st->encoder setRenderPipelineState:st->ffPipeline];
 	st->quads.clear();
 }
 
@@ -1016,7 +1014,6 @@ void HSRendererMetal::endGoo(){
 	if(!st->inGoo)
 		fail("endGoo", "no beginGoo");
 	st->inGoo = false;
-	[st->encoder setRenderPipelineState:st->ffPipeline];
 }
 void HSRendererMetal::beginTunnel(unsigned int caustic0, unsigned int caustic1, float lerp, bool shaded){
 	if(!st->encoder)
@@ -1089,5 +1086,4 @@ void HSRendererMetal::endTunnel(){
 	st->inTunnel = false;
 	[st->encoder setCullMode:MTLCullModeNone];
 	[st->encoder setFrontFacingWinding:MTLWindingClockwise];   // Metal's default, as beginFrame left it
-	[st->encoder setRenderPipelineState:st->ffPipeline];
 }

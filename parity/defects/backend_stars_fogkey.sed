@@ -1,2 +1,2 @@
-# Kill-check fixture: Metal backend defect (fogkey): a run of quads ends on a new texture only, not on a change of fog, so quads drawn unfogged (the overlay's flares) can be drawn with the fog of the run before them.
+# Kill-check fixture: Metal backend defect (fogkey): a run of quads ends on a new texture only, not on a change of fog. The stars (fogged) and the sun after setFog(false) share flaretex[0], so they stay one run, and the run takes the last quad's fog: the stars are drawn unfogged.
 s/if(!st->quads.empty() \&\& (texture != st->quadTexture || fog != st->quadFog))/if(!st->quads.empty() \&\& texture != st->quadTexture)/

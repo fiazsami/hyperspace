@@ -18,6 +18,8 @@
 #include <math.h>
 #include <stdlib.h>
 
+// Metal draws the same quad in metal/FixedFunction.metal's ff_quad_vertex:
+// a change to the corners' order or uvs here must be made there too.
 void hsQuad(const float m[16], float half, HSVertex out[4]){
 	for(int i = 0; i < 4; i++){
 		float u = float(i & 1), v = float(i >> 1);

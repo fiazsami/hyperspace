@@ -293,13 +293,15 @@ pass's shader, and its one fixture is the defect only it can see:
 fog off are the lens flares, in the overlay plane at eye depth 0, where fog
 changes nothing -- so under `stars` that fixture passes. When a shader in
 `metal/` changes, regenerate the fixtures from the new text, with the new
-`base=`, rather than editing the rule. These fixtures were written for the replay and now run here; all 28
-are killed. There were 29: `stars_radialfog` fogged on radial distance in
+`base=`, rather than editing the rule. These fixtures were written for the replay and now run here,
+with one replaced; all 29 are killed. One of the replay's 29, `stars_radialfog` fogged on radial distance in
 `ff_vertex`, and since the stars and flares are drawn instanced (ss-6ee) they
 go through `ff_quad_vertex`, which is given only the z row of each quad's
 modelview -- radial distance cannot be written there, and `ff_vertex` now
-draws only offscreen, unfogged, where the defect would survive. The
-fragment-side fixtures (`fog110`, `notexture`, `nofog`, `fogalways`) judge the
+draws only offscreen, unfogged, where the defect would survive. In its place
+`stars_depthsigned` drops the quad depth's abs(), and the backend's
+`depthcolumn` takes the modelview's third column for its z row, so the quad
+path's fog depth is still judged from both ends. The fragment-side fixtures (`fog110`, `notexture`, `nofog`, `fogalways`) judge the
 quad path unchanged. The
 narrowest by lit>2 are `tunnel_fog110` (3.72% against 3%) and
 `tunnel_radialfog` (4.28%), and both are far outside on bias (0.219 and 0.200
@@ -331,7 +333,8 @@ under `goosoft`.
 required to FAIL. Killed: the model matrix before the camera, fog from the eye,
 an overlay ignoring the aspect ratio, (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) blending,
 nearest sampling, the quad's color ignored, a run of batched quads not ended
-by a change of fog (`fogkey`), only a flush's first 36-quad run drawn
+by a change of fog (`fogkey`), the quad's fog depth from the wrong row of its
+modelview (`depthcolumn`), only a flush's first 36-quad run drawn
 (`onerun`); under `goo`, the GPU-built surface
 drawn at the origin, its blocks' cells starting a whole block from their
 centres, the nebula and a normal map swapped, the fog scale as 1/end, and the

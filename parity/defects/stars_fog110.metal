@@ -1,4 +1,4 @@
-// Kill-check fixture: stars shader with one deliberate defect (fog110). parity/backendcheck.sh requires it to FAIL. base=69da1ff8d3b894d1ffeb9c18cab8333b72c17c7d
+// Kill-check fixture: stars shader with one deliberate defect (fog110). parity/backendcheck.sh requires it to FAIL. base=6536483048df0cf1081a43e2cbbdb0f83f954ece
 // The GL fixed-function path Hyperspace uses for stars, sun and lens flare:
 // vertex color MODULATE texture, then linear fog on eye-plane depth (Apple's GL
 // fogs on |z_eye|, not radial distance -- measured, see parity/README.md).
@@ -17,7 +17,8 @@ vertex FFOut ff_vertex(uint vid [[vertex_id]], const device FFVertex *v [[buffer
 }
 
 // drawQuad's quads, instanced: instance i is the i-th queued quad, and vertex
-// v its corner (v & 1, v >> 1) -- hsQuad's order, drawn as a strip of 4.
+// v its corner (v & 1, v >> 1) -- hsQuad's order (Hyperspace/renderer.cpp,
+// which GL and the tests draw), drawn as a strip of 4.
 vertex FFOut ff_quad_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                             const device QuadInstance *q [[buffer(0)]])
 {
