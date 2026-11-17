@@ -153,9 +153,18 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 }
 
 
+// Drawing, until frames say otherwise; reports from earlier frames are dropped.
+- (void)resetVisibility
+{
+	lVisibility = HSVisibility();
+	lVisibilityEpoch++;
+}
+
+
 - (void)viewDidMoveToWindow
 {
 	[super viewDidMoveToWindow];
+	[self resetVisibility];
 	[self matchRefresh];
 	[self matchBacking];
 }
@@ -167,6 +176,7 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 	// and so the screen, may have changed since the view moved to it.
 	[self matchRefresh];
 	lLastFrame = 0;	// the first frame after a start takes no step
+	[self resetVisibility];
     [super startAnimation];
 	
 	if (lIsConfiguring == NO && lView)
@@ -247,6 +257,17 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 }
 
 
+// The macOS 26 host was measured leaving a saver window behind under a newer
+// one in the same place (window 3600 under 3611): both reported themselves
+// visible, and the covered one drew 72 frames a second of which Metal
+// presented none, a third of the saver's drawing (ss-287); occlusionState was
+// the same for it as for the windows on screen. So a view goes by what became
+// of its frames rather than by what its window says (hsShouldDraw has the
+// rule). The preview never pauses: whether its frames report a presentedTime
+// is not measured, and a preview wrongly paused would look frozen.
+static const double kUnseenLimit = 1.0;
+static const double kProbeInterval = 0.25;
+
 - (void)animateOneFrame
 {
 	if (lIsConfiguring == NO && lView)
@@ -261,6 +282,15 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 					// the saver to the display; nil only after the layer's
 					// one-second timeout, as when the display sleeps.
 					CFTimeInterval asked = CACurrentMediaTime();
+					// Frames are not reaching the screen: probe only (kUnseenLimit).
+					if (!self.isPreview && !hsShouldDraw(&lVisibility, asked, kUnseenLimit, kProbeInterval))
+					{
+						// A probe takes no step: draw() moves the camera and
+						// starburst timers in statics every view shares, so a
+						// step here would speed up the scene on screen.
+						lLastFrame = 0;
+						return;
+					}
 					id<CAMetalDrawable> drawable = [lLayer nextDrawable];
 					CFTimeInterval now = CACurrentMediaTime();
 					// A long wait for a drawable is a stall, and it is dropped,
@@ -271,6 +301,22 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 						lLastFrame += now - asked;
 					if (drawable == nil)
 						return;
+					// Whether this frame reached the screen: a presentedTime of 0
+					// is a frame Metal never presented. Handlers run off the main
+					// thread, and the count lives on it.
+					__weak HyperspaceView *weakSelf = self;
+					const unsigned epoch = lVisibilityEpoch;
+					if (!self.isPreview)
+					{
+						[drawable addPresentedHandler:^(id<MTLDrawable> presented) {
+							const bool shown = presented.presentedTime > 0;
+							dispatch_async(dispatch_get_main_queue(), ^{
+								HyperspaceView *view = weakSelf;
+								if (view && view->lVisibilityEpoch == epoch)
+									hsFramePresented(&view->lVisibility, shown, CACurrentMediaTime());
+							});
+						}];
+					}
 					// The step is the time since the last frame, from a
 					// monotonic clock, so never negative. A throttled host
 					// would otherwise move the scene by a whole gap at once;
