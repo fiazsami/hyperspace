@@ -133,6 +133,7 @@ static const double kMinFramesPerSecond = 60.0;
 	if (refresh <= 0)
 		refresh = kFallbackInterval;
 	lFrameInterval = hsFrameInterval(refresh, kMinFramesPerSecond);
+	lRefresh = refresh;
 	lSlack = 0.5 * refresh;
 	self.animationTimeInterval = refresh;
 }
@@ -301,7 +302,13 @@ static const double kProbeInterval = 0.25;
 				{
 					CFTimeInterval asked = CACurrentMediaTime();
 					// Not yet due (matchRefresh); half a refresh early still draws.
-					if (!hsFrameDue(asked, &lNextDue, lFrameInterval, lSlack))
+					// A window with no screen draws every refresh: capped, the
+					// second display's window (screen nil) presented 44.5 of its
+					// 72 frames a second, held up to 13 refreshes, and looked
+					// painfully slow; uncapped it presented 98-105 and dropped
+					// none. Asked each frame, as the screen can change.
+					const CFTimeInterval interval = self.window.screen ? lFrameInterval : lRefresh;
+					if (!hsFrameDue(asked, &lNextDue, interval, lSlack))
 						return;
 					// Frames are not reaching the screen: probe only (kUnseenLimit).
 					if (!self.isPreview && !hsShouldDraw(&lVisibility, asked, kUnseenLimit, kProbeInterval))
