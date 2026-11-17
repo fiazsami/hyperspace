@@ -656,6 +656,8 @@ void HSRendererMetal::beginOffscreen(int size){
 		td.usage = MTLTextureUsageRenderTarget;
 		td.storageMode = MTLStorageModeShared;	// the CPU reads it back; Apple silicon shares memory
 		st->offscreenTarget = [st->device newTextureWithDescriptor:td];
+		if(!st->offscreenTarget)
+			fail("offscreen target", "no Shared texture on this device");
 	}
 	st->offscreenVertices.clear();
 	st->offscreenStrips.clear();
