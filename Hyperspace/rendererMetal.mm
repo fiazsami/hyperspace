@@ -534,10 +534,10 @@ static id<MTLCommandBuffer> frameCommands(HSRendererMetalState *st){
 void HSRendererMetal::beginFrame(const HSFrame &frame){
 	if(!st->target)
 		fail("beginFrame", "no target: call setTarget first");
-	st->lastGPUms = 0.0;   // set again by endFrame for a target's frame only
-	st->frameBuffers.clear();
 	if(st->encoder)
 		fail("beginFrame", "the last frame was not ended");
+	st->lastGPUms = 0.0;   // set again by endFrame for a target's frame only
+	st->frameBuffers.clear();
 	st->projection = fromGL(frame.projection);
 	st->clipProjection = simd_mul(clipZ(), st->projection);
 	st->view = fromGL(frame.view);
@@ -656,6 +656,7 @@ void HSRendererMetal::endFrame(){
 			reached = std::max(reached, span.second);
 		}
 		st->lastGPUms = seconds * 1000.0;
+		st->frameBuffers.clear();   // nothing kept alive past the frame
 	}
 	st->encoder = nil;
 	st->commands = nil;

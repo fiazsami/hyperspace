@@ -22,6 +22,10 @@ def rows(path):
         yield [deref(e) for e in row], deref
 
 
+KEYS = ('draw(HyperspaceSaverSettings', 'goo::', 'tunnel::', 'starBurst', 'flare',
+        'HSRendererMetal::', 'nextDrawable', 'animateOneFrame')
+
+
 def walk(el, deref):
     """Every element under el, following refs: a tagged backtrace can hold its
     backtrace, and a backtrace its frames, by reference to an earlier row's."""
@@ -43,15 +47,17 @@ def cpu(path):
         if trace is None:
             continue
         total += w
-        for name in {f.attrib.get('name', '') for f in walk(trace, deref) if f.tag == 'frame'} - {''}:
-            inclusive[name] += w
+        names = {f.attrib.get('name', '') for f in walk(trace, deref) if f.tag == 'frame'}
+        # Once a sample per key: a key (a namespace, a class) spans many
+        # functions, and the share is of samples with any of them on the stack.
+        for key in KEYS:
+            if any(key in n for n in names):
+                inclusive[key] += w
     if not total:
         sys.exit('no saver samples in the trace')
     # Inclusive shares of the saver's samples, for the parts this project owns.
-    for key in ('draw(HyperspaceSaverSettings', 'goo::', 'tunnel::', 'starBurst', 'flare',
-                'HSRendererMetal::', 'nextDrawable', 'animateOneFrame'):
-        share = max([w for n, w in inclusive.items() if key in n] or [0])
-        print(f'  {key:30s} {100 * share / total:5.1f}% of the saver')
+    for key in KEYS:
+        print(f'  {key:30s} {100 * inclusive[key] / total:5.1f}% of the saver')
 
 
 def gpu(path, seconds):

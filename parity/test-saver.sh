@@ -19,7 +19,14 @@
 # never selects or launches a screen saver itself.
 set -uo pipefail
 cd "$(dirname "$0")/.."
-export DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}
+# The caller's, else xcode-select's if it is a full Xcode (the command line
+# tools have no xcodebuild or xctrace), else the usual Xcode.app.
+if [ -z "${DEVELOPER_DIR:-}" ]; then
+    DEVELOPER_DIR=$(xcode-select -p 2>/dev/null)
+    [ -x "$DEVELOPER_DIR/usr/bin/xcodebuild" ] || DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+fi
+[ -x "$DEVELOPER_DIR/usr/bin/xcodebuild" ] || { echo "no Xcode at $DEVELOPER_DIR: set DEVELOPER_DIR" >&2; exit 2; }
+export DEVELOPER_DIR
 OUT=$PWD/.parity-build/test-saver
 SAVERS="$HOME/Library/Screen Savers"
 NAME="Hyperspace Metal"
@@ -52,8 +59,12 @@ install)
     # What was there before the first install since the last restore -- its
     # backup, or "none" -- is what restore goes back to, however many installs
     # come between. Recorded once the new copy is in place.
+    # A copy is backed up only by the first install since a restore: a later
+    # one would be a test copy that restore never goes back to.
     backup=none
-    if [ -d "$SAVERS/$NAME.saver" ]; then
+    if [ -f "$OUT/last-backup" ]; then
+        :
+    elif [ -d "$SAVERS/$NAME.saver" ]; then
         backup=$OUT/backup-$(date +%Y%m%d-%H%M%S).saver
         cp -R "$SAVERS/$NAME.saver" "$backup" || exit 2
         echo "backed up the installed copy to $backup"

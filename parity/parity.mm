@@ -635,9 +635,9 @@ int main(int argc, const char *argv[])
             // autoreleased, and main's pool would hold every frame's to the end.
             timespec cpu0, cpu1;
             if (timed && f == warmup) getrusage(RUSAGE_SELF, &usage0);
-            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu0);
+            if (timed) clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu0);
             @autoreleasepool { draw(&s); }
-            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu1);
+            if (timed) clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu1);
             if (timed && f >= warmup) {
                 // Thread CPU time leaves out endFrame's wait for the GPU.
                 cpuMs.push_back((cpu1.tv_sec - cpu0.tv_sec) * 1e3 + (cpu1.tv_nsec - cpu0.tv_nsec) / 1e6);
@@ -702,16 +702,17 @@ int main(int argc, const char *argv[])
         // counts every primitive, and the backend run it is compared with
         // carries that check. A timed run counts every timed frame instead,
         // since it may take a single shot of a frame with nothing of its own.
+        if (timed && gpuMs.empty()) { printf("ERROR time needs more than %d frames\n", warmup); return 2; }
         if ((timed ? timedDraws : drawnTotal) == 0) {
             printf("ERROR the %s pass drew %s in any %s\n", pass->name, backend && strcmp(judgedKind, "all") ? (pass->goo ? "no goo" : "no tunnel") : "nothing",
                    timed ? "timed frame" : "shot");
             return 2;
         }
         if (timed) {
-            if (gpuMs.empty()) { printf("ERROR time needs more than %d frames\n", warmup); return 2; }
-            auto pct = [](std::vector<double> v, double p) {
-                std::sort(v.begin(), v.end());
-                return v[std::min(v.size() - 1, size_t(p * (v.size() - 1) + 0.5))];
+            std::sort(gpuMs.begin(), gpuMs.end());
+            std::sort(cpuMs.begin(), cpuMs.end());
+            auto pct = [](const std::vector<double> &sorted, double p) {
+                return sorted[std::min(sorted.size() - 1, size_t(p * (sorted.size() - 1) + 0.5))];
             };
             rusage usage1; getrusage(RUSAGE_SELF, &usage1);
             const double processMs = 1e3 * (cpuSeconds(usage1) - cpuSeconds(usage0) - shotCpuSeconds) / gpuMs.size();
