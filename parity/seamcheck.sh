@@ -22,12 +22,7 @@ sha=$(git rev-parse --verify "$ref^{commit}") || exit 2
 OUT=.parity-build/seam
 WT=$OUT/ref-tree
 mkdir -p "$OUT"
-# The reference tree is rebuilt only when <ref> moves.
-if [ "$(git -C "$WT" rev-parse HEAD 2>/dev/null)" != "$sha" ]; then
-    git worktree remove --force "$WT" 2>/dev/null; rm -rf "$WT"
-    git worktree add --detach "$WT" "$sha" >/dev/null || exit 2
-fi
-(cd "$WT" && parity/build.sh >/dev/null) || { echo "reference build failed" >&2; exit 2; }
+parity/at-ref.sh "$sha" "$WT" || exit 2
 parity/build.sh >/dev/null || exit 2
 
 # The passes <ref> knows, from its usage line: "parity <stars|goo|tunnel> ...".

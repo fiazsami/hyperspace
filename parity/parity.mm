@@ -10,11 +10,22 @@
 //   sun     the stars pass with the sun held in view
 //
 //   parity <pass> <metal-dir> <outdir> [renderer=metal] [frames=N] [every=N|shots=N] [w=N] [h=N] [samples=N] [tunneldetail=N]
+//          [look=saver] [time]
 //
 // shots=N shoots every frames/N frames, so a caller that wants N shots of a
 // pass need not know its length (parity/goldencheck.sh). samples=N is the
 // backend's samples per pixel, 1 unless given: GL draws aliased, so the
 // backend is judged against it at 1, and against its goldens at the saver's 4.
+// look=saver draws with the backend's own settings, as the saver does, in
+// place of parity's GL-faithful ones (samples, tunneldetail, and the goo
+// sharp): the same words mean "as the saver draws" at every commit, which is
+// what parity/refcheck.sh compares two commits by. time prints the backend's
+// GPU milliseconds a frame and the drawing thread's CPU milliseconds, median and
+// 95th percentile, and the whole process's CPU milliseconds a frame, user and
+// system, as a mean (getrusage): Metal's driver threads and the kernel's work
+// submitting each frame cost several times the drawing thread itself (0.22
+// against 0.027 ms a frame, measured), and a quiet saver is the total. The
+// first 30 frames are left out (pipelines and buffers warming up).
 // tunneldetail=N is how much finer the backend builds the tunnel
 // (HSRendererMetal::setTunnelDetail), likewise 1 unless given, as GL builds,
 // and the saver's 2 for the goldens.
@@ -44,8 +55,10 @@
 #import <Metal/Metal.h>
 #import <ImageIO/ImageIO.h>
 #include <dlfcn.h>
+#include <sys/resource.h>
 #include <ctime>
 #include <vector>
+#include <algorithm>
 #include "Hyperspace.h"
 #include "splinePath.h"
 #include "starBurst.h"
@@ -279,6 +292,51 @@ static int compareRuns(NSString *refDir, NSString *refSuffix, NSString *newDir, 
 // Six different faces, so a face out of order shows; GL's are read back by its
 // own target names (+x -x +y -y +z -z, which is also Metal's slice order), so
 // the comparison does not trust either side's mapping. Exit 0 = the same bytes.
+// parity --compare-look <ref-dir> <new-dir>: two backend runs' _backend.png,
+// shot by shot, by what a change of look must keep (parity/refcheck.sh):
+//   mid-tones  pixels whose reference luminance is 16-200 move by a mean of at
+//              most 2 levels, and 99% of them by at most 8;
+//   brightness no shot's mean luminance falls by more than 2%.
+// It also reports the pixels clipped (any channel 255) on each side, which a
+// change meant to soften highlights should lower; whether it must is the
+// caller's rule, not this one's. Luminance is Rec. 709 on the stored bytes.
+// Exit 0 = KEPT, 1 = CHANGED, 2 = a shot missing or a different size.
+static int compareLook(NSString *refDir, NSString *newDir)
+{
+    NSArray<NSString *> *all = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:refDir error:nil];
+    NSArray<NSString *> *names = [[all filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"self ENDSWITH '_backend.png'"]]
+                                  sortedArrayUsingSelector:@selector(compare:)];
+    if (!names.count) { printf("ERROR no *_backend.png in %s\n", refDir.UTF8String); return 2; }
+    bool kept = true; double worstMean = 0, worstDark = 0; int worstP99 = 0; size_t clipRef = 0, clipNew = 0, total = 0;
+    for (NSString *n in names) {
+        int rw = 0, rh = 0, nw = 0, nh = 0;
+        std::vector<uint8_t> a = readPNG([refDir stringByAppendingPathComponent:n], rw, rh);
+        std::vector<uint8_t> b = readPNG([newDir stringByAppendingPathComponent:n], nw, nh);
+        if (a.empty() || b.empty() || rw != nw || rh != nh) { printf("ERROR %s missing or a different size\n", n.UTF8String); return 2; }
+        size_t hist[256] = {0}, mids = 0, cr = 0, cn = 0; double sumD = 0, lumA = 0, lumB = 0;
+        for (size_t i = 0; i < (size_t)rw * rh; i++) {
+            const uint8_t *p = &a[i * 4], *q = &b[i * 4];
+            double la = 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2], lb = 0.2126 * q[0] + 0.7152 * q[1] + 0.0722 * q[2];
+            lumA += la; lumB += lb;
+            cr += p[0] == 255 || p[1] == 255 || p[2] == 255;
+            cn += q[0] == 255 || q[1] == 255 || q[2] == 255;
+            if (la >= 16 && la <= 200) { int d = (int)lround(fabs(lb - la)); hist[MIN(d, 255)]++; sumD += fabs(lb - la); mids++; }
+        }
+        int p99 = 0;
+        for (size_t c = 0, need = (size_t)ceil(0.99 * mids); p99 < 255 && (c += hist[p99]) < need; p99++) {}
+        double mean = mids ? sumD / mids : 0, dark = lumA > 0 ? 100.0 * (lumA - lumB) / lumA : 0;
+        bool ok = mean <= 2.0 && p99 <= 8 && dark <= 2.0;
+        kept &= ok; worstMean = MAX(worstMean, mean); worstP99 = MAX(worstP99, mids ? p99 : 0); worstDark = MAX(worstDark, dark);
+        clipRef += cr; clipNew += cn; total += (size_t)rw * rh;
+        printf("%s  mid mean %5.2f p99 %3d  darker %6.2f%%  clipped %6.3f%% -> %6.3f%%  %s\n", n.UTF8String, mean, mids ? p99 : 0,
+               dark, 100.0 * cr / ((size_t)rw * rh), 100.0 * cn / ((size_t)rw * rh), ok ? "ok" : "CHANGED");
+    }
+    printf("%s shots=%lu worst_mid_mean=%.2f worst_mid_p99=%d worst_darker=%.2f%% clipped=%.3f%%->%.3f%% (limits 2 / 8 / 2%%)\n",
+           kept ? "KEPT" : "CHANGED", (unsigned long)names.count, worstMean, worstP99, worstDark,
+           100.0 * clipRef / total, 100.0 * clipNew / total);
+    return kept ? 0 : 1;
+}
+
 static int compareBackendTextures(NSString *metalDir)
 {
     NSOpenGLPixelFormatAttribute attrs[] = { NSOpenGLPFAAccelerated, NSOpenGLPFAColorSize, 32, NSOpenGLPFAAllowOfflineRenderers, 0 };
@@ -407,6 +465,7 @@ int main(int argc, const char *argv[])
 {
     @autoreleasepool {
         if (argc == 4 && !strcmp(argv[1], "--compare")) return compareRuns(@(argv[2]), @"_gl.png", @(argv[3]), @"_gl.png", 0.1, 0.01, 0.06, "SAME", "DIFFERENT");
+        if (argc == 4 && !strcmp(argv[1], "--compare-look")) return compareLook(@(argv[2]), @(argv[3]));
         if (argc == 4 && !strcmp(argv[1], "--compare-golden"))
             return compareRuns(@(argv[2]), @"_backend.png", @(argv[3]), @"_backend.png", 0.1, 0.01, 0.06, "SAME", "DIFFERENT");
         if (argc == 3 && !strcmp(argv[1], "--backend-textures")) return compareBackendTextures(@(argv[2]));
@@ -417,7 +476,8 @@ int main(int argc, const char *argv[])
             fprintf(stderr, "unknown pass %s\n", argv[2]); return 2;
         }
         if (argc < 4) {
-            fprintf(stderr, "usage: parity <stars|goo|tunnel|burst|sun|goosoft> <metal-dir> <outdir> [renderer=metal] [frames=N] [every=N|shots=N] [w=N] [h=N] [samples=N] [tunneldetail=N]\n"
+            fprintf(stderr, "usage: parity <stars|goo|tunnel|burst|sun|goosoft> <metal-dir> <outdir> [renderer=metal] [frames=N] [every=N|shots=N] [w=N] [h=N] [samples=N] [tunneldetail=N] [look=saver] [time]\n"
+                            "       parity --compare-look <ref-dir> <new-dir>\n"
                             "       parity --compare <ref-dir> <new-dir>\n"
                             "       parity --compare-backend <pass> <gl-dir> <backend-dir>\n"
                             "       parity --compare-golden <golden-dir> <backend-dir>\n"
@@ -430,7 +490,7 @@ int main(int argc, const char *argv[])
         if (!pass) { fprintf(stderr, "unknown pass %s\n", argv[1]); return 2; }
         NSString *metalDir = @(argv[2]), *outdir = @(argv[3]);
         int frames = pass->frames, every = pass->every, wantShots = 0, samples = 1, tunnelDetail = 1, w = 1280, h = 720;
-        bool backend = false;
+        bool backend = false, saverLook = false, timed = false;
         auto intOpt = [](const char *arg, const char *key, int &out) {
             size_t n = strlen(key);
             if (strncmp(arg, key, n)) return false;
@@ -440,11 +500,14 @@ int main(int argc, const char *argv[])
         };
         for (int i = 4; i < argc; i++) {
             if (!strcmp(argv[i], "renderer=metal")) backend = true;
+            else if (!strcmp(argv[i], "look=saver")) saverLook = true;
+            else if (!strcmp(argv[i], "time")) timed = true;
             else if (intOpt(argv[i], "frames=", frames) || intOpt(argv[i], "every=", every) || intOpt(argv[i], "shots=", wantShots) ||
                      intOpt(argv[i], "w=", w) || intOpt(argv[i], "h=", h) || intOpt(argv[i], "samples=", samples) || intOpt(argv[i], "tunneldetail=", tunnelDetail)) {}
             else { fprintf(stderr, "bad option %s\n", argv[i]); return 2; }
         }
         if (wantShots) every = MAX(1, frames / wantShots);
+        if ((saverLook || timed) && !backend) { fprintf(stderr, "look=saver and time are the backend's: add renderer=metal\n"); return 2; }
         const float dt = 1.0f / 60.0f;
         [[NSFileManager defaultManager] createDirectoryAtPath:outdir withIntermediateDirectories:YES attributes:nil error:nil];
 
@@ -484,10 +547,12 @@ int main(int argc, const char *argv[])
             bd.usage = MTLTextureUsageRenderTarget; bd.storageMode = MTLStorageModeShared;
             backendTarget = [dev newTextureWithDescriptor:bd];
             metalRenderer = new HSRendererMetal((__bridge void *)dev, metalDir.fileSystemRepresentation);
-            metalRenderer->setSampleCount(samples);   // before the target, so the pipelines are built once
-            metalRenderer->setTunnelDetail(tunnelDetail);
+            if (!saverLook) {
+                metalRenderer->setSampleCount(samples);   // before the target, so the pipelines are built once
+                metalRenderer->setTunnelDetail(tunnelDetail);
+            }
             metalRenderer->setTarget((__bridge void *)backendTarget);
-            metalRenderer->setSoftGoo(pass->softGoo);
+            if (!saverLook) metalRenderer->setSoftGoo(pass->softGoo);
         }
         HSRenderer *renderer = metalRenderer;
         if (!backend) renderer = new HSRendererGL;
@@ -503,6 +568,9 @@ int main(int argc, const char *argv[])
         const char *judgedKind = pass->goo ? "goo" : pass->tunnels ? "tunnel" : "all";
         if (backend) printf(" shot  backend draws (%s)\n", judgedKind); else printf(" shot  GL primitives\n");
         int shots = 0; long drawnTotal = 0;
+        std::vector<double> gpuMs, cpuMs;   // time's, a frame each after the warm-up
+        const int warmup = 30;
+        rusage usage0 = {};
         // Counts every primitive GL generates, whatever entry point drew it.
         GLuint primQuery; glGenQueries(1, &primQuery);
 
@@ -538,7 +606,16 @@ int main(int argc, const char *argv[])
             }
             // One pool a frame: the backend's command buffer and encoder are
             // autoreleased, and main's pool would hold every frame's to the end.
+            timespec cpu0, cpu1;
+            if (timed && f == warmup) getrusage(RUSAGE_SELF, &usage0);
+            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu0);
             @autoreleasepool { draw(&s); }
+            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu1);
+            if (timed && f >= warmup) {
+                // Thread CPU time leaves out endFrame's wait for the GPU.
+                cpuMs.push_back((cpu1.tv_sec - cpu0.tv_sec) * 1e3 + (cpu1.tv_nsec - cpu0.tv_nsec) / 1e6);
+                gpuMs.push_back(metalRenderer->lastFrameGPUMilliseconds());
+            }
             if (shot && pass->sunAhead > 0) {
                 // Checked where the sun was drawn this frame, drawPos. A sun off
                 // to the side would leave a shot judging the stars alone, and one
@@ -590,6 +667,18 @@ int main(int argc, const char *argv[])
         if (drawnTotal == 0) {
             printf("ERROR the %s pass drew %s in any shot\n", pass->name, backend && strcmp(judgedKind, "all") ? (pass->goo ? "no goo" : "no tunnel") : "nothing");
             return 2;
+        }
+        if (timed) {
+            if (gpuMs.empty()) { printf("ERROR time needs more than %d frames\n", warmup); return 2; }
+            auto pct = [](std::vector<double> v, double p) {
+                std::sort(v.begin(), v.end());
+                return v[std::min(v.size() - 1, size_t(p * (v.size() - 1) + 0.5))];
+            };
+            rusage usage1; getrusage(RUSAGE_SELF, &usage1);
+            auto secs = [](const timeval &t) { return t.tv_sec + t.tv_usec / 1e6; };
+            const double processMs = 1e3 * (secs(usage1.ru_utime) - secs(usage0.ru_utime) + secs(usage1.ru_stime) - secs(usage0.ru_stime)) / gpuMs.size();
+            printf("TIME pass=%s %dx%d frames=%zu gpu_ms median=%.3f p95=%.3f draw_cpu_ms median=%.3f p95=%.3f process_cpu_ms mean=%.3f\n",
+                   pass->name, w, h, gpuMs.size(), pct(gpuMs, 0.5), pct(gpuMs, 0.95), pct(cpuMs, 0.5), pct(cpuMs, 0.95), processMs);
         }
         printf("WROTE pass=%s shots=%d through %s\n", pass->name, shots, backend ? "HSRendererMetal" : "HSRendererGL");
         return 0;

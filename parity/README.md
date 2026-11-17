@@ -18,6 +18,7 @@ parity/build.sh                                                    # -> .parity-
 parity/backendcheck.sh                                             # every pass and fixture (~7.5 min)
 parity/seamcheck.sh master                                         # GL against GL at <ref>
 parity/goldencheck.sh                                              # Metal against its goldens (~10 s)
+parity/refcheck.sh master                                          # this tree's saver against <ref>'s: cost and look
 ```
 
 Until ss-a4a.4.5 the passes were judged a second way: a recorder interposed
@@ -464,6 +465,61 @@ change that is meant to alter the picture, in one pull request:
    `parity/gl-retired`, with why;
 3. regenerates the fixtures of any shader it changed, and retires those that
    the change made the design.
+
+## Evolving the saver
+
+Every check above asks whether the saver still draws what it should. This one
+asks what a change costs and how it looks, against any earlier commit. **The
+reference is a commit, not a mode kept in the code**: no "classic" or
+"faithful" switch is carried at runtime, because git already holds every
+earlier saver, and a branch can be measured against any of them.
+
+```bash
+parity/refcheck.sh master                    # all five passes, ~20 s
+parity/refcheck.sh master goo tunnel         # some
+REFCHECK_COST=goo parity/refcheck.sh master  # look for all, cost for goo only
+parity/test-saver.sh install <ref>           # that commit's saver, as "Hyperspace Metal"
+parity/test-saver.sh profile                 # then run it full-screen
+parity/basemac.sh baseline                   # on another Mac: one result file
+```
+
+What makes "as the saver draws" mean the same at every commit is
+`look=saver`: parity draws with the backend's own settings rather than its
+GL-faithful ones (`samples=1`, `tunneldetail=1`, the goo sharp), so no list of
+options has to be kept in step with the renderer. `refcheck.sh` builds `<ref>`
+in a scratch worktree (`parity/at-ref.sh`, shared with seamcheck) and draws
+both sides with their own renderer and shaders. Commits from before this
+harness have no `look=saver` and are refused rather than approximated.
+
+**Cost** is `parity ... time` at 3440x1440 over 600 frames, the sides
+alternated (ref new ref new): the GPU's milliseconds a frame (each command
+buffer's `GPUEndTime - GPUStartTime`, summed, median) and the process's CPU
+milliseconds a frame (`getrusage`, user and system, mean). The process figure,
+not the drawing thread's, is the one that counts: Metal's driver threads and
+the kernel's submission work cost several times the drawing itself (0.35
+against 0.027 ms a frame for the goo, measured). A change is HIGHER only past
+the larger of twice the run-to-run noise and 2% of the reference -- refcheck
+against itself measured up to 1.3% between the sides with nothing changed.
+Proven able to fail: the saver at 1 sample read as -19% GPU on the tunnel, and
+its look as CHANGED.
+
+Offscreen numbers leave out the drawable, presenting, and WindowServer's
+compositing. `parity/test-saver.sh profile` measures those where users run the
+saver: it waits for "Hyperspace Metal" to run full-screen, then reports the
+saver's and WindowServer's CPU, where the saver's CPU goes, and each process's
+GPU busy time from a Metal System Trace (`parity/saverprofile.py`). It
+installs only the renamed test copy (`com.reallyslick.HyperspaceMetal`), never
+over the user's own Hyperspace, and backs up the copy it replaces.
+
+**Look** is six shots of each pass through `parity --compare-look`, which
+holds a change to what a change of look must keep: pixels with a reference
+luminance of 16-200 move by a mean of at most 2 levels and a 99th percentile of
+at most 8, and no shot's mean luminance falls by more than 2%. It reports the
+clipped pixels (any channel at 255) on each side without judging them; a change
+meant to soften highlights states its own rule for those. The look is judged
+by eye on `.parity-build/ref/index.html`, every shot full size, most changed
+first, each flipping between the two sides on click. The rules catch
+regressions; they do not decide taste.
 
 ## Limits
 

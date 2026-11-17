@@ -205,6 +205,7 @@ struct HSRendererMetalState {
 	MTLPixelFormat pipelineFormat;
 	NSUInteger samples, pipelineSamples;   // setSampleCount's; those the pipelines were built for
 	int tunnelDetail;                      // setTunnelDetail's
+	double lastGPUms;                      // lastFrameGPUMilliseconds's
 	id<MTLTexture> multisample;            // the frame's samples, memoryless, when samples > 1
 	id<MTLTexture> target;
 	id<CAMetalDrawable> drawable;   // set for one frame by setDrawable, presented by endFrame
@@ -392,6 +393,7 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->gooCapacity = 0;
 	st->softGoo = true;
 	st->tunnelDetail = 2;
+	st->lastGPUms = 0.0;
 	st->samples = 4;
 	if(![st->device supportsTextureSampleCount:st->samples])
 		st->samples = 1;
@@ -493,6 +495,10 @@ void HSRendererMetal::setTunnelDetail(int detail){
 
 int HSRendererMetal::tunnelDetail() const{
 	return st->tunnelDetail;
+}
+
+double HSRendererMetal::lastFrameGPUMilliseconds() const{
+	return st->lastGPUms;
 }
 
 void HSRendererMetal::setSampleCount(int samples){
@@ -612,6 +618,14 @@ void HSRendererMetal::endFrame(){
 				st->draws--;
 			}
 		}
+		// Summed, not spanned: the three may overlap on the GPU, and the sum is
+		// the work, which is what a quieter frame has less of.
+		double seconds = st->commands.GPUEndTime - st->commands.GPUStartTime;
+		if(st->softCommands)
+			seconds += st->softCommands.GPUEndTime - st->softCommands.GPUStartTime;
+		if(st->gooBuildCommands)
+			seconds += st->gooBuildCommands.GPUEndTime - st->gooBuildCommands.GPUStartTime;
+		st->lastGPUms = seconds * 1000.0;
 	}
 	st->encoder = nil;
 	st->commands = nil;
