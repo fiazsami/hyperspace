@@ -4,8 +4,9 @@
 # the saver in any direction (parity/README.md, Evolving the saver): the
 # reference is a commit, not a mode kept in the code.
 #
-# Cost: `parity <pass> ... look=saver time` at 3440x1440, 600 frames, the two
-# sides alternated (ref new ref new) so drift lands on both. Reported per pass:
+# Cost: `parity <pass> ... look=saver time` at 3440x1440 over the pass's own
+# frames (the footage its look shots come from: the tunnel pass is two minutes
+# because one rarely reaches the inside of a tunnel), the two sides alternated (ref new ref new) so drift lands on both. Reported per pass:
 # GPU ms a frame (median) and the process's CPU ms a frame (mean), each side's
 # two runs averaged, the change, and the noise -- the larger of each side's
 # own run-to-run difference. A change counts only past the larger of twice
@@ -62,13 +63,13 @@ for pass in "${passes[@]}"; do
     printf '  %-7s %s\n' "$pass" "$(tail -1 "$OUT/$pass.look")"
 done
 
-echo "cost (3440x1440, 600 frames, ref new ref new)"
+echo "cost (3440x1440, each pass's own frames, ref new ref new)"
 printf '  %-7s %26s %30s\n' "" "GPU ms/frame ref -> new" "process CPU ms/frame ref -> new"
 for pass in "${cost[@]}"; do
     for run in 1 2; do
         for side in ref new; do
             "$(bin_for $side)" "$pass" "$(metal_for $side)" "$OUT/time/$side$run-$pass" renderer=metal look=saver time \
-                frames=630 every=630 w=3440 h=1440 > "$OUT/time-$side$run-$pass.log" ||
+                shots=1 w=3440 h=1440 > "$OUT/time-$side$run-$pass.log" ||
                 { echo "$side $pass timing failed: $(tail -1 "$OUT/time-$side$run-$pass.log")" >&2; exit 2; }
         done
     done
@@ -76,6 +77,7 @@ for pass in "${cost[@]}"; do
         { for (i = 1; i <= NF; i++) { if ($i == "gpu_ms") g[NR] = substr($(i+1), 8); if ($i == "process_cpu_ms") c[NR] = substr($(i+1), 6) } }
         function abs(x) { return x < 0 ? -x : x }
         END {
+            if (NR != 4 || g[1] <= 0 || g[3] <= 0 || c[1] <= 0 || c[3] <= 0) { print "ERROR"; exit }
             gr = (g[1] + g[3]) / 2; gn = (g[2] + g[4]) / 2; gnoise = abs(g[1] - g[3]) > abs(g[2] - g[4]) ? abs(g[1] - g[3]) : abs(g[2] - g[4])
             cr = (c[1] + c[3]) / 2; cn = (c[2] + c[4]) / 2; cnoise = abs(c[1] - c[3]) > abs(c[2] - c[4]) ? abs(c[1] - c[3]) : abs(c[2] - c[4])
             gl = 2 * gnoise > 0.02 * gr ? 2 * gnoise : 0.02 * gr; cl = 2 * cnoise > 0.02 * cr ? 2 * cnoise : 0.02 * cr
@@ -83,6 +85,7 @@ for pass in "${cost[@]}"; do
             printf "%6.3f -> %6.3f (%+6.1f%%, noise %.3f)  %6.3f -> %6.3f (%+6.1f%%, noise %.3f)  %s",
                 gr, gn, 100 * (gn - gr) / gr, gnoise, cr, cn, 100 * (cn - cr) / cr, cnoise, higher ? "HIGHER" : "not higher"
         }')
+    [[ $line == ERROR* || -z $line ]] && { echo "$pass: no usable timings in $OUT/time-*-$pass.log" >&2; exit 2; }
     [[ $line == *HIGHER* ]] && bad=1
     printf '  %-7s %s\n' "$pass" "$line"
 done

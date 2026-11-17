@@ -70,8 +70,11 @@ profile)
     sleep 5
     ws=$(pgrep -x WindowServer | head -1)
     xcrun xctrace record --template "Time Profiler" --attach "$pid" --time-limit "${secs}s" --output "$dir/cpu.trace" > /dev/null 2>&1
-    top -l 3 -s 2 -stats pid,cpu 2>/dev/null | awk -v p="$pid" -v w="$ws" '$1 == p {s += $2; n++} $1 == w {ws += $2; m++}
-        END {printf "  saver CPU %.1f%%   WindowServer CPU %.1f%%   (top, 3 samples)\n", s / n, ws / m}'
+    # top's first sample has nothing to measure against and reads 0%: skipped.
+    top -l 4 -s 2 -stats pid,cpu 2>/dev/null | awk -v p="$pid" -v w="$ws" '/^Processes:/ {k++} k < 2 {next}
+        $1 == p {s += $2; n++} $1 == w {ws += $2; m++}
+        END {if (!n || !m) {print "  top did not see the saver and WindowServer"; exit 1}
+             printf "  saver CPU %.1f%%   WindowServer CPU %.1f%%   (top, 3 samples)\n", s / n, ws / m}'
     xcrun xctrace record --template "Metal System Trace" --all-processes --time-limit "${secs}s" --output "$dir/gpu.trace" > /dev/null 2>&1
     xcrun xctrace export --input "$dir/cpu.trace" --xpath '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]' > "$dir/cpu.xml" 2>/dev/null
     xcrun xctrace export --input "$dir/gpu.trace" --xpath '/trace-toc/run[@number="1"]/data/table[@schema="metal-gpu-intervals"]' > "$dir/gpu.xml" 2>/dev/null

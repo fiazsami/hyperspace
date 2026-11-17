@@ -475,7 +475,7 @@ reference is a commit, not a mode kept in the code**: no "classic" or
 earlier saver, and a branch can be measured against any of them.
 
 ```bash
-parity/refcheck.sh master                    # all five passes, ~20 s
+parity/refcheck.sh master                    # all five passes, about 35 s
 parity/refcheck.sh master goo tunnel         # some
 REFCHECK_COST=goo parity/refcheck.sh master  # look for all, cost for goo only
 parity/test-saver.sh install <ref>           # that commit's saver, as "Hyperspace Metal"
@@ -491,12 +491,14 @@ in a scratch worktree (`parity/at-ref.sh`, shared with seamcheck) and draws
 both sides with their own renderer and shaders. Commits from before this
 harness have no `look=saver` and are refused rather than approximated.
 
-**Cost** is `parity ... time` at 3440x1440 over 600 frames, the sides
-alternated (ref new ref new): the GPU's milliseconds a frame (each command
+**Cost** is `parity ... time` at 3440x1440 over each pass's own frames -- the
+footage its look shots come from, so the tunnel pass's cost includes the inside
+of a tunnel -- the sides alternated (ref new ref new): the GPU's milliseconds a frame (each command
 buffer's `GPUEndTime - GPUStartTime`, summed, median) and the process's CPU
-milliseconds a frame (`getrusage`, user and system, mean). The process figure,
+milliseconds a frame (`getrusage`, user and system, mean, less what reading
+back and writing shots costs, which the saver never does). The process figure,
 not the drawing thread's, is the one that counts: Metal's driver threads and
-the kernel's submission work cost several times the drawing itself (0.35
+the kernel's submission work cost several times the drawing itself (0.14
 against 0.027 ms a frame for the goo, measured). A change is HIGHER only past
 the larger of twice the run-to-run noise and 2% of the reference -- refcheck
 against itself measured up to 1.3% between the sides with nothing changed.
@@ -514,7 +516,9 @@ over the user's own Hyperspace, and backs up the copy it replaces.
 **Look** is six shots of each pass through `parity --compare-look`, which
 holds a change to what a change of look must keep: pixels with a reference
 luminance of 16-200 move by a mean of at most 2 levels and a 99th percentile of
-at most 8, and no shot's mean luminance falls by more than 2%. It reports the
+at most 8, pixels darker than 16 rise by a mean of at most 2 levels (no haze,
+no light where there was none), and no shot's mean luminance falls by more
+than 2%. It reports the
 clipped pixels (any channel at 255) on each side without judging them; a change
 meant to soften highlights states its own rule for those. The look is judged
 by eye on `.parity-build/ref/index.html`, every shot full size, most changed

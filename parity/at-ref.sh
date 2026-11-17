@@ -12,7 +12,10 @@ cd "$(dirname "$0")/.."
 [ $# -eq 2 ] || { echo "usage: parity/at-ref.sh <ref> <dir>" >&2; exit 2; }
 ref=$1; WT=$2
 sha=$(git rev-parse --verify "$ref^{commit}") || exit 2
-if [ "$(git -C "$WT" rev-parse HEAD 2>/dev/null)" != "$sha" ]; then
+# Inside a directory that is not (or no longer) a worktree, git answers for the
+# enclosing checkout instead, so the worktree's own top level is checked too.
+if [ "$(cd "$WT" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" != "$(cd "$WT" 2>/dev/null && pwd -P)" ] ||
+   [ "$(git -C "$WT" rev-parse HEAD 2>/dev/null)" != "$sha" ]; then
     git worktree remove --force "$WT" 2>/dev/null; rm -rf "$WT"
     mkdir -p "$(dirname "$WT")"
     git worktree add --detach "$WT" "$sha" >/dev/null || exit 2

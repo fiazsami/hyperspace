@@ -7,7 +7,7 @@
 #   parity/basemac.sh final <ref>
 #
 # Builds parity at <ref> (parity/at-ref.sh), then times every pass as the saver
-# draws it (look=saver time) at 3440x1440, 600 frames, twice, and writes
+# draws it (look=saver time) at 3440x1440 over the pass's own frames, twice, and writes
 # .parity-build/basemac/<mode>-<sha>.txt: the machine, the commit, and each
 # run's TIME line. Dividing its numbers by the same commit's on the reference
 # Mac gives that Mac's scale factor per pass. About a minute; keep other work
@@ -33,7 +33,7 @@ out=.parity-build/basemac/$mode-${sha:0:12}.txt
     for run in 1 2; do
         for pass in stars goo tunnel burst sun; do
             "$WT/.parity-build/parity" "$pass" "$WT/metal" ".parity-build/basemac/run" renderer=metal look=saver time \
-                frames=630 every=630 w=3440 h=1440 | grep '^TIME' || { echo "ERROR $pass run failed"; exit 2; }
+                shots=1 w=3440 h=1440 | grep '^TIME' || { echo "ERROR $pass run failed"; exit 2; }
         done
     done
 } | tee "$out"

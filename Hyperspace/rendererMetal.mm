@@ -517,6 +517,7 @@ void *HSRendererMetal::texture(unsigned int name) const{
 void HSRendererMetal::beginFrame(const HSFrame &frame){
 	if(!st->target)
 		fail("beginFrame", "no target: call setTarget first");
+	st->lastGPUms = 0.0;   // set again by endFrame for a target's frame only
 	if(st->encoder)
 		fail("beginFrame", "the last frame was not ended");
 	st->projection = fromGL(frame.projection);
