@@ -40,8 +40,9 @@ class HSRendererMetal;
 	BOOL lIsConfiguring;
 	
 	CFTimeInterval lLastFrame;   // CACurrentMediaTime the next frame's step is measured from; 0 = no step
-	CFTimeInterval lLastAsked;   // CACurrentMediaTime the last drawn frame was asked for, before its wait
-	NSTimeInterval lDrawAfter;   // the least time from lLastAsked to the next frame (matchRefresh)
+	CFTimeInterval lFrameInterval;   // a whole number of refreshes: the interval frames are drawn at (matchRefresh)
+	CFTimeInterval lSlack;           // half a refresh: how early a call may be and still draw
+	CFTimeInterval lNextDue;         // CACurrentMediaTime the next frame is due; 0 = draw the next call
 	
 	IBOutlet NSWindow *ibConfigureSheet;
 	IBOutlet NSTextField *ibVersionTxt;

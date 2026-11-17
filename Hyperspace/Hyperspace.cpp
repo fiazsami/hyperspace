@@ -321,8 +321,9 @@ void draw(HyperspaceSaverSettings *inSettings){
 
 
 double hsFrameInterval(double refreshInterval, double minPerSecond){
-	// 1% of tolerance: 119.88 / 60 is 1.998 and must count as 2.
-	const double perFrame = floor(1.0 / (refreshInterval * minPerSecond) + 0.01);
+	// 0.5% of tolerance, relative: 119.88 / 60 is 1.998 and must count as 2,
+	// while 119.4 / 60, 1.99, must not -- it would draw 59.7 a second.
+	const double perFrame = floor(1.005 / (refreshInterval * minPerSecond));
 	return refreshInterval * (perFrame > 1.0 ? perFrame : 1.0);
 }
 

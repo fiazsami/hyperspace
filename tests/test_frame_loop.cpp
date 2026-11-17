@@ -98,12 +98,14 @@ void frame(HyperspaceSaverSettings *s, float seconds)
 }
 }
 
-TEST(hsFrameInterval_draws_every_nth_refresh_keeping_at_least_the_minimum_rate)
+TEST(hsFrameInterval_draws_every_nth_refresh_keeping_the_minimum_rate_within_half_a_percent)
 {
     struct { double hz, fps; } cases[] = {
         {60, 60}, {75, 75}, {100, 100},     // at or under 2 x 60: every refresh
         {120, 60}, {144, 72}, {165, 82.5}, {240, 60},
         {119.88, 59.94}, {143.856, 71.928}, {239.76, 59.94},   // fractional rates
+        {119.4, 119.4}, {119.0, 119.0},     // under 2 x 60 by more than 0.5%: every refresh
+        {119.7, 59.85},                     // within 0.5%: every other
         {50, 50}, {30, 30},                 // slower than the minimum: every refresh
     };
     for (const auto &c : cases)

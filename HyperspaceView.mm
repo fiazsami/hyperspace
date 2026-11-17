@@ -117,9 +117,12 @@ static const double kMinFramesPerSecond = 60.0;
 // out -- so the main screen is used instead, then kFallbackInterval.
 // The macOS 26 host calls animateOneFrame at its own rate whatever
 // animationTimeInterval says (measured: an interval of 1/72 still drew about
-// 105 frames a second), so animateOneFrame skips calls itself. The interval
-// asked of the host stays one refresh, so a host that does honour it calls on
-// every refresh and the skip can land frames on whole multiples of it.
+// 105 frames a second), so animateOneFrame keeps its own schedule: a frame is
+// due one interval after the last one was due, whatever the host's cadence,
+// and the renderer holds each frame on screen for that interval
+// (setMinimumPresentDuration), so the holds stay whole refreshes even where
+// the calls are uneven. The host is asked for one refresh, the finest any
+// schedule needs.
 - (void)matchRefresh
 {
 	if (lView == nil)
@@ -128,9 +131,8 @@ static const double kMinFramesPerSecond = 60.0;
 	NSTimeInterval refresh = screen.minimumRefreshInterval;
 	if (refresh <= 0)
 		refresh = kFallbackInterval;
-	// Half a refresh of slack: a call that lands a little early still draws
-	// on the refresh it belongs to.
-	lDrawAfter = hsFrameInterval(refresh, kMinFramesPerSecond) - 0.5 * refresh;
+	lFrameInterval = hsFrameInterval(refresh, kMinFramesPerSecond);
+	lSlack = 0.5 * refresh;
 	self.animationTimeInterval = refresh;
 }
 
@@ -184,6 +186,7 @@ static const double kMinFramesPerSecond = 60.0;
 	// and so the screen, may have changed since the view moved to it.
 	[self matchRefresh];
 	lLastFrame = 0;	// the first frame after a start takes no step
+	lNextDue = 0;	// and is drawn on the first call
     [super startAnimation];
 	
 	if (lIsConfiguring == NO && lView)
@@ -275,12 +278,14 @@ static const double kMinFramesPerSecond = 60.0;
 				@autoreleasepool	// so each frame's drawable goes back to the layer promptly
 				{
 					CFTimeInterval asked = CACurrentMediaTime();
-					// Not yet time for a frame (matchRefresh). Measured from when
-					// the last frame was asked for, as this one is: from after its
-					// wait for a drawable, a wait would push frames a refresh late.
-					if (lLastFrame > 0 && asked - lLastAsked < lDrawAfter)
+					// Not yet due (matchRefresh); half a refresh early still draws.
+					if (lNextDue > 0 && asked < lNextDue - lSlack)
 						return;
-					lLastAsked = asked;
+					// The next is due an interval after this one was, so the rate
+					// holds whatever the host's cadence; after a stall of more than
+					// an interval, the schedule starts again from now.
+					lNextDue = (lNextDue > 0 && asked - lNextDue < lFrameInterval) ?
+						lNextDue + lFrameInterval : asked + lFrameInterval;
 					// Waits only while every drawable is in flight; nil only after
 					// the layer's one-second timeout, as when the display sleeps.
 					id<CAMetalDrawable> drawable = [lLayer nextDrawable];
@@ -302,6 +307,7 @@ static const double kMinFramesPerSecond = 60.0;
 					lLastFrame = now;
 					try
 					{
+						lRenderer->setMinimumPresentDuration(lFrameInterval);
 						lRenderer->setDrawable((__bridge void *)drawable);
 						draw(&lSettings);
 					}

@@ -217,6 +217,7 @@ struct HSRendererMetalState {
 	id<MTLTexture> gooTarget;
 	id<MTLCommandBuffer> softCommands;   // this frame's soft goo, nil until drawGooField
 	MTLViewport viewport;   // the frame's
+	double presentDuration;   // setMinimumPresentDuration; 0 = present when done
 };
 
 static NSString *readSource(const char *dir, const char *file){
@@ -356,6 +357,7 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->softenPipeline = nil;
 	st->gooTarget = nil;
 	st->softCommands = nil;
+	st->presentDuration = 0.0;
 }
 
 HSRendererMetal::~HSRendererMetal(){
@@ -406,6 +408,12 @@ void HSRendererMetal::setTarget(void *target){
 		fail("setTarget", "called inside a frame");
 	st->drawable = nil;
 	useTarget(st, (__bridge id<MTLTexture>)target);
+}
+
+void HSRendererMetal::setMinimumPresentDuration(double seconds){
+	if(st->encoder)
+		fail("setMinimumPresentDuration", "called inside a frame");
+	st->presentDuration = seconds > 0.0 ? seconds : 0.0;
 }
 
 void HSRendererMetal::setDrawable(void *drawable){
@@ -484,7 +492,10 @@ void HSRendererMetal::endFrame(){
 	if(st->drawable){
 		// The saver's frame: present it and go on to the next while the GPU
 		// draws. A failed frame is one frame lost, not a reason to stop.
-		[st->commands presentDrawable:st->drawable];
+		if(st->presentDuration > 0.0)
+			[st->commands presentDrawable:st->drawable afterMinimumDuration:st->presentDuration];
+		else
+			[st->commands presentDrawable:st->drawable];
 		[st->commands addCompletedHandler:^(id<MTLCommandBuffer> done){
 			if(done.status == MTLCommandBufferStatusError)
 				NSLog(@"HSRendererMetal: the GPU failed a frame: %@", done.error.localizedDescription);

@@ -41,6 +41,11 @@ public:
 	// presents it without waiting for the GPU; a frame the GPU fails is logged
 	// and skipped. Call it before every beginFrame: a drawable is one frame's.
 	void setDrawable(void *drawable);
+	// The least time each presented frame stays on screen, in seconds; 0
+	// (the default) presents as soon as the frame is done. The saver passes
+	// a whole number of refreshes, so every frame is held the same number of
+	// them whenever its call came. Between frames only.
+	void setMinimumPresentDuration(double seconds);
 	// Draws asked for since the last beginFrame: all of them, and the goo
 	// surfaces and tunnel strips among them. Each drawQuad counts as one when
 	// it is queued, though the queue is drawn instanced, 36 quads a draw.
