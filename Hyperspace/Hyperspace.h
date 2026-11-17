@@ -51,6 +51,8 @@ typedef struct HyperspaceSaverSettings
 	unsigned int nebulatex;
 	
 	stretchedParticle** stars;
+	float *starData;              // the stars as initSaver made them, for HSStarField
+	unsigned int starGeneration;
 	stretchedParticle* sunStar;
 	starBurst* theStarBurst;
 	

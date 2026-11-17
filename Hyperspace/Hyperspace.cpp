@@ -175,6 +175,9 @@ void draw(HyperspaceSaverSettings *inSettings){
 	hsRotate(view, -camRoll[0] * RS_RAD2DEG, 0, 0, 1);
 	hsRotate(view, (-pathAngle - camHeading[0]) * RS_RAD2DEG, 0, 1, 0);
 	hsRotationInverse(inSettings->billboardMat, view);   // faces the camera: undoes the view's rotation
+	float rotation[16];   // the view with the eye at the origin, for HSStarField
+	for(int i=0; i<16; i++)
+		rotation[i] = view[i];
 	hsTranslate(view, inSettings->camPos[0]*-1, inSettings->camPos[1]*-1, inSettings->camPos[2]*-1);
 	for(int i=0; i<16; i++)
 		inSettings->modelMat[i] = view[i];
@@ -201,27 +204,45 @@ void draw(HyperspaceSaverSettings *inSettings){
 	inSettings->renderer->beginFrame(frame);
 
 	// draw stars
-	static float temppos[2];
-	for(int i=0; i<inSettings->dStars; i++){
-		temppos[0] = inSettings->stars[i]->pos[0] - inSettings->camPos[0];
-		temppos[1] = inSettings->stars[i]->pos[2] - inSettings->camPos[2];
-		if(temppos[0] > inSettings->depth){
-			inSettings->stars[i]->pos[0] -= inSettings->depth * 2.0f;
-			inSettings->stars[i]->lastPos[0] -= inSettings->depth * 2.0f;
+	if(inSettings->renderer->drawsStars()){
+		if(inSettings->dStars > 0){
+			HSStarField field;
+			field.stars = inSettings->starData;
+			field.count = inSettings->dStars;
+			field.generation = inSettings->starGeneration;
+			field.texture = inSettings->flaretex[0];
+			for(int i=0; i<3; i++)
+				field.eye[i] = inSettings->camPos[i];
+			for(int i=0; i<16; i++)
+				field.view[i] = rotation[i];
+			field.unroll = inSettings->unroll;
+			field.depth = inSettings->depth;
+			inSettings->renderer->drawStarField(field);
 		}
-		if(temppos[0] < inSettings->depth*-1){
-			inSettings->stars[i]->pos[0] += inSettings->depth * 2.0f;
-			inSettings->stars[i]->lastPos[0] += inSettings->depth * 2.0f;
+	}
+	else{
+		for(int i=0; i<inSettings->dStars; i++){
+			static float temppos[2];
+			temppos[0] = inSettings->stars[i]->pos[0] - inSettings->camPos[0];
+			temppos[1] = inSettings->stars[i]->pos[2] - inSettings->camPos[2];
+			if(temppos[0] > inSettings->depth){
+				inSettings->stars[i]->pos[0] -= inSettings->depth * 2.0f;
+				inSettings->stars[i]->lastPos[0] -= inSettings->depth * 2.0f;
+			}
+			if(temppos[0] < inSettings->depth*-1){
+				inSettings->stars[i]->pos[0] += inSettings->depth * 2.0f;
+				inSettings->stars[i]->lastPos[0] += inSettings->depth * 2.0f;
+			}
+			if(temppos[1] > inSettings->depth){
+				inSettings->stars[i]->pos[2] -= inSettings->depth * 2.0f;
+				inSettings->stars[i]->lastPos[2] -= inSettings->depth * 2.0f;
+			}
+			if(temppos[1] < inSettings->depth*-1){
+				inSettings->stars[i]->pos[2] += inSettings->depth * 2.0f;
+				inSettings->stars[i]->lastPos[2] += inSettings->depth * 2.0f;
+			}
+			inSettings->stars[i]->draw(inSettings->renderer, inSettings->flaretex[0], inSettings->camPos, inSettings->unroll, inSettings->modelMat, inSettings->projMat, inSettings->viewport);
 		}
-		if(temppos[1] > inSettings->depth){
-			inSettings->stars[i]->pos[2] -= inSettings->depth * 2.0f;
-			inSettings->stars[i]->lastPos[2] -= inSettings->depth * 2.0f;
-		}
-		if(temppos[1] < inSettings->depth*-1){
-			inSettings->stars[i]->pos[2] += inSettings->depth * 2.0f;
-			inSettings->stars[i]->lastPos[2] += inSettings->depth * 2.0f;
-		}
-		inSettings->stars[i]->draw(inSettings->renderer, inSettings->flaretex[0], inSettings->camPos, inSettings->unroll, inSettings->modelMat, inSettings->projMat, inSettings->viewport);
 	}
 
 	// pick animated texture frame
@@ -490,6 +511,17 @@ void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer){
 		inSettings->stars[i]->pos[2] = rsRandf(2.0f * inSettings->depth) - inSettings->depth;
 		inSettings->stars[i]->fov = float(inSettings->dFov);
 	}
+	// A new generation each time, so a backend never keeps another run's stars.
+	static unsigned int starGenerations = 0;
+	inSettings->starGeneration = ++starGenerations;
+	inSettings->starData = new float[HS_STAR_FLOATS * (inSettings->dStars > 0 ? inSettings->dStars : 1)];
+	for(int i=0; i<inSettings->dStars; i++){
+		float *d = inSettings->starData + HS_STAR_FLOATS * i;
+		const stretchedParticle *star = inSettings->stars[i];
+		d[0] = star->pos[0]; d[1] = star->pos[1]; d[2] = star->pos[2];
+		d[3] = star->radius;
+		d[4] = star->color[0]; d[5] = star->color[1]; d[6] = star->color[2];
+	}
 
 	inSettings->sunStar = new stretchedParticle;
 	inSettings->sunStar->radius = float(inSettings->dStarSize) * 0.004f;
@@ -559,11 +591,13 @@ void cleanUp(HyperspaceSaverSettings *inSettings){
 	}
 	delete inSettings->thePath;
 	delete inSettings->theWNCM;
+	delete[] inSettings->starData;
 	delete inSettings->renderer;
 	// The caustics and cube maps are made by the first draw(), so a start and
 	// stop with no frame between them would delete these again.
 	inSettings->theCausticTextures = NULL;
 	inSettings->theWNCM = NULL;
+	inSettings->starData = NULL;
 	inSettings->renderer = NULL;
 	inSettings->first = 1;
 }

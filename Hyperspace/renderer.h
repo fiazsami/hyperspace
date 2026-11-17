@@ -83,6 +83,31 @@ struct HSTunnelField{
 	float maxSaturation;            // 0.1 shaded, 0.4 not
 };
 
+// The stars as a backend that draws them (HSRenderer::drawsStars) needs them:
+// count stars as initSaver made them, HS_STAR_FLOATS floats each -- x y z,
+// radius, r g b. They never move. Each frame a star is wrapped into the square
+// of half-side depth round the eye in x and z, as draw() wraps it, and drawn
+// as stretchedParticle::draw draws it: an aura and a white core, billboarded,
+// stretched along its motion on screen since the last frame and rolled by
+// unroll degrees, with texture. Two frames differ from the CPU's, both by a
+// star the CPU stretches from a screen position it never had: the first, and
+// one that projects again after it did not (hsProject failed). A backend
+// draws those unstretched. view is the frame's view with the eye at the
+// origin, its rotation alone, given apart from the eye so that no backend has
+// to cancel the eye's translation in float. A backend may keep stars between
+// frames for as long as generation is unchanged.
+const int HS_STAR_FLOATS = 7;
+struct HSStarField{
+	const float *stars;
+	int count;
+	unsigned int generation;
+	unsigned int texture;
+	float eye[3];
+	float view[16];     // column-major, as GL takes it
+	float unroll;
+	float depth;
+};
+
 // What a frame is seen through: the viewport, the camera's projection and view
 // (column-major, as GL takes them), and black linear fog from fogStart to
 // fogEnd units from the eye.
@@ -179,6 +204,13 @@ public:
 	virtual void drawGooField(const HSGooField &field) { (void)field; }
 	virtual void drawGooSphere(const float center[3], float radius) = 0;
 	virtual void endGoo() = 0;
+
+	// A backend that draws the stars from where they began answers true.
+	// Hyperspace's draw() then passes the field once a frame, in place of a
+	// drawQuad pair per star and the CPU's per-star work. The defaults are a
+	// backend that does not: drawStarField is never called.
+	virtual bool drawsStars() const { return false; }
+	virtual void drawStarField(const HSStarField &field) { (void)field; }
 
 	// The tunnel: triangle strips with back faces culled, each vertex's color
 	// modulating the caustic texture. Shaded, textures caustic0 and caustic1
