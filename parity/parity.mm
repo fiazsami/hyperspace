@@ -97,6 +97,7 @@ struct Pass {
     double max2, max8, maxBias;
     int burstAt;   // frame at which to set off the starburst; 0 leaves it to the saver's timer
     float sunAhead;   // distance ahead of the camera to hold the sun at; 0 leaves it where the saver puts it
+    bool softGoo;     // the backend draws the goo soft, as the saver does (HSRendererMetal::setSoftGoo)
 };
 static const Pass kPasses[] = {
     // 60 s; stars are tiny, so the lit-pixel normalization matters most here.
@@ -117,6 +118,14 @@ static const Pass kPasses[] = {
     // fog on comes out black. The stars pass's limits. Its lens flare
     // stays at (0, 2, 0): drawn on the sun, its core hides it.
     {"sun",    false, false, 1200, 100, 1.0, 0.1, 0.06, 0, 12.0f},
+    // The goo pass with the backend's goo soft, as the saver draws it, against
+    // GL's sharp goo. Softening moves light between pixels, so the per-pixel
+    // shares say nothing and are not limited; it must not add or remove
+    // light, so the signed bias is. Measured at resolution 20: faithful worst
+    // bias 0.656 (light GL clips at 255 spreads below it); weakest defect, the
+    // tent divided by 15 rather than 16, 7.431; the soft goo never added
+    // back, 127.6.
+    {"goosoft", true, false, 3600, 300, 100.0, 100.0, 2.0, 0, 0.0f, true},
 };
 
 static void writePNG(NSString *path, const uint8_t *rgba, int w, int h)
@@ -344,7 +353,7 @@ int main(int argc, const char *argv[])
             fprintf(stderr, "unknown pass %s\n", argv[2]); return 2;
         }
         if (argc < 4) {
-            fprintf(stderr, "usage: parity <stars|goo|tunnel|burst|sun> <metal-dir> <outdir> [renderer=metal] [frames=N] [every=N] [w=N] [h=N]\n"
+            fprintf(stderr, "usage: parity <stars|goo|tunnel|burst|sun|goosoft> <metal-dir> <outdir> [renderer=metal] [frames=N] [every=N] [w=N] [h=N]\n"
                             "       parity --compare <ref-dir> <new-dir>\n"
                             "       parity --compare-backend <pass> <gl-dir> <backend-dir>\n"
                             "       parity --backend-textures <metal-dir>\n"
@@ -410,6 +419,7 @@ int main(int argc, const char *argv[])
             backendTarget = [dev newTextureWithDescriptor:bd];
             metalRenderer = new HSRendererMetal((__bridge void *)dev, metalDir.fileSystemRepresentation);
             metalRenderer->setTarget((__bridge void *)backendTarget);
+            metalRenderer->setSoftGoo(pass->softGoo);
         }
         HSRenderer *renderer = metalRenderer;
         if (!backend) renderer = new HSRendererGL;

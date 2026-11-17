@@ -46,6 +46,12 @@ public:
 	int drawCount() const;
 	int gooDrawCount() const;
 	int tunnelDrawCount() const;
+	// Whether the goo's field is drawn soft: into a target half the frame's
+	// width and height, then added over the frame blurred by a 3x3 tent
+	// (metal/Soften.metal). On from creation, which is the saver's look; parity
+	// turns it off to judge the goo against GL, which draws it sharp. The
+	// starburst's sphere, drawn in the goo's look, is never softened.
+	void setSoftGoo(bool soft);
 	// The id<MTLTexture> a create* call returned name for, or NULL.
 	void *texture(unsigned int name) const;
 

@@ -106,7 +106,7 @@ TEST(setDefaults_picks_the_shipped_settings)
     CHECK(s.dSpeed == 23);
     CHECK(s.dStars == 2000);
     CHECK(s.dStarSize == 10);
-    CHECK(s.dResolution == 10);
+    CHECK(s.dResolution == 20);
     CHECK(s.dDepth == 5);
     CHECK(s.dFov == 50);
     CHECK(s.dUseTunnels);

@@ -34,6 +34,7 @@ them.
 | `tunnel` | the tunnel: two caustic textures, two octaves | `metal/Tunnel.metal` | 2 min, 36 shots |
 | `burst` | the starburst's sphere, then the goo | `metal/Goo.metal` | 8 s, 16 shots |
 | `sun` | `stars`, with the sun held in view | `metal/FixedFunction.metal` | 20 s, 12 shots |
+| `goosoft` | `goo` with the backend's goo soft, as the saver draws it; brightness only (below) | `metal/Soften.metal` | 60 s, 12 shots |
 
 Stars draw in every pass, through `FixedFunction.metal`. The tunnel needs two
 minutes because one rarely puts the camera inside a tunnel; most shots of the
@@ -101,6 +102,16 @@ defects, **before** any candidate shader was scored:
 | `stars` | 1.0% | 0.1% | 0.00% / 0.00% / bias 0.003 | fog scale ×1.1: 14.14% / 4.17% / bias 0.998 |
 | `goo` | 8.0% | 2.5% | 5.28% / 1.35% / bias 0.012 | fog scale ×1.1: 9.65% / 3.05% / bias 0.357 |
 | `tunnel` | 3.0% | 0.6% | 1.50% / 0.28% / bias 0.012 | radial fog: 4.81% / 0.28% / bias 0.197 |
+
+`goosoft` came later, with the soft goo (ss-5j5), and was fixed the same way,
+at resolution 20, before the fixtures were written. Softening moves light
+between pixels, so its per-pixel shares are not limited; it must not add or
+remove light, so its signed bias is. Faithful worst bias 0.656, from light GL
+clips at 255 spreading below it; weakest defect, the tent divided by 15 rather
+than 16 (about 7% too bright), 7.431; the soft goo never added back, 127.6. The
+limit, 2.0, is three times the faithful worst. It judges brightness, not
+blur: a soft goo drawn sharp would pass it, and the look itself was chosen by
+eye, from the bake-off.
 
 `backendcheck.sh` re-proves the separation on every run. Loosening a limit to
 let a change through defeats the instrument; if a correct change fails, find
@@ -220,13 +231,18 @@ backend stops on them. Measured, worst shot:
 
 | pass | lit>2 | lit>8 | bias | limits |
 |---|---|---|---|---|
-| `stars` | 0.000% | 0.000% | 0.002 | 1% / 0.1% / 0.06 |
-| `goo` | 4.611% | 1.121% | 0.015 | 8% / 2.5% / 0.06 |
-| `tunnel` | 0.107% | 0.029% | 0.002 | 3% / 0.6% / 0.06 |
-| `burst` | 0.906% | 0.201% | 0.006 | 8% / 2.5% / 0.06 |
+| `stars` | 0.000% | 0.000% | 0.001 | 1% / 0.1% / 0.06 |
+| `goo` | 4.139% | 0.849% | 0.023 | 8% / 2.5% / 0.06 |
+| `tunnel` | 0.107% | 0.028% | 0.002 | 3% / 0.6% / 0.06 |
+| `burst` | 0.816% | 0.170% | 0.006 | 8% / 2.5% / 0.06 |
 | `sun` | 0.000% | 0.000% | 0.002 | 1% / 0.1% / 0.06 |
+| `goosoft` | 62.900% | 35.774% | 0.656 | not limited / not limited / 2.0 |
 
-Re-measured 2026-11-16 on an M5 Max, when the goo's surface moved to the GPU.
+At the default goo resolution of 20, since ss-5j5 raised it from 10. At 10,
+measured when the goo's surface moved to the GPU, `goo` was 4.611% / 1.121% /
+0.015 and `burst` 0.906% / 0.201% / 0.006; the others come out the same.
+
+Earlier, re-measured 2026-11-16 on an M5 Max, when the goo's surface moved to the GPU.
 `tunnel`, `burst`, `stars` and `sun` come out the same on the commit before
 that change; the earlier figures here were older. `goo` was 3.011% / 0.674% /
 0.011 before it. The two runs no longer draw the same triangles: the kernel
@@ -284,6 +300,10 @@ table, which the unit tests cannot see. The kernel's first cut used the field's 
 gradient for normals, and this pass failed it at 98% lit>2 -- the reflections
 moved across the whole surface -- which is why it copies impCubeVolume's
 forward differences instead.
+
+**The soft goo.** `goosoft_tent15.metal` is `Soften.metal` with the tent
+divided by 15, and `backend_goosoft_nocomposite.sed` draws the soft goo into its
+target and never adds it back. Both are killed under `goosoft`.
 
 **Backend C++.** `parity/defects/backend_<pass>_*.sed`, each a sed script over
 `rendererMetal.mm`, built into its own `parity` with `build.sh --backend` and
