@@ -42,9 +42,6 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 
 @implementation HyperspaceView
 
-// Every view between startAnimation and stopAnimation, held weakly.
-static NSHashTable<HyperspaceView *> *sAnimating;
-
 - (id)initWithFrame:(NSRect)frame isPreview:(BOOL)isPreview
 {
 	NSString *identifier = [[NSBundle bundleForClass:[self class]] bundleIdentifier];
@@ -170,10 +167,8 @@ static NSHashTable<HyperspaceView *> *sAnimating;
 	// and so the screen, may have changed since the view moved to it.
 	[self matchRefresh];
 	lLastFrame = 0;	// the first frame after a start takes no step
+	lVisibility = HSVisibility();	// drawing, until frames say otherwise
     [super startAnimation];
-	if (sAnimating == nil)
-		sAnimating = [NSHashTable weakObjectsHashTable];
-	[sAnimating addObject:self];
 	
 	if (lIsConfiguring == NO && lView)
     {
@@ -206,7 +201,6 @@ static NSHashTable<HyperspaceView *> *sAnimating;
 
 - (void)stopAnimation
 {
-	[sAnimating removeObject:self];
     [super stopAnimation];
 	
 	if (lIsConfiguring == NO && lView)
@@ -255,28 +249,14 @@ static NSHashTable<HyperspaceView *> *sAnimating;
 
 
 // The macOS 26 host was measured leaving a saver window behind under a newer
-// one in exactly the same place (window 3600 under 3611): both reported
-// themselves visible, and the covered one drew 72 frames a second of which
-// none reached the screen, a third of the saver's drawing (ss-287). Such a
-// view draws nothing until the window over it goes.
-- (BOOL)isCoveredByNewer
-{
-	NSWindow *window = self.window;
-	if (window == nil || sAnimating.count < 2)
-		return NO;
-	HSWindowSlot others[8];
-	int count = 0;
-	for (HyperspaceView *view in sAnimating)
-	{
-		NSWindow *w = view.window;
-		if (view == self || w == nil || count == 8)
-			continue;
-		others[count++] = {w.frame.origin.x, w.frame.origin.y, w.frame.size.width, w.frame.size.height, (long)w.windowNumber};
-	}
-	const HSWindowSlot me = {window.frame.origin.x, window.frame.origin.y, window.frame.size.width, window.frame.size.height, (long)window.windowNumber};
-	return hsCoveredByNewer(me, others, count);
-}
-
+// one in the same place (window 3600 under 3611): both reported themselves
+// visible, and the covered one drew 72 frames a second of which Metal
+// presented none, a third of the saver's drawing (ss-287). So a view goes by
+// what became of its frames rather than by what its window says: after a
+// second of frames never shown, it draws one probe frame a second until one
+// is shown (hsShouldDraw). A view whose frames are shown at all never pauses.
+static const int kUnseenLimit = 72;
+static const double kProbeInterval = 1.0;
 
 - (void)animateOneFrame
 {
@@ -284,11 +264,6 @@ static NSHashTable<HyperspaceView *> *sAnimating;
     {
         if (lMainScreen || !lMainScreenOnly)
         {
-			if ([self isCoveredByNewer])
-			{
-				lLastFrame = 0;	// so it resumes without a step for the time it was covered
-				return;
-			}
 			if (lSettings.readyToDraw && lRenderer)
 			{
 				@autoreleasepool	// so each frame's drawable goes back to the layer promptly
@@ -297,6 +272,9 @@ static NSHashTable<HyperspaceView *> *sAnimating;
 					// the saver to the display; nil only after the layer's
 					// one-second timeout, as when the display sleeps.
 					CFTimeInterval asked = CACurrentMediaTime();
+					// Frames are not reaching the screen: probe only (kUnseenLimit).
+					if (!hsShouldDraw(&lVisibility, asked, kUnseenLimit, kProbeInterval))
+						return;
 					id<CAMetalDrawable> drawable = [lLayer nextDrawable];
 					CFTimeInterval now = CACurrentMediaTime();
 					// A long wait for a drawable is a stall, and it is dropped,
@@ -307,6 +285,18 @@ static NSHashTable<HyperspaceView *> *sAnimating;
 						lLastFrame += now - asked;
 					if (drawable == nil)
 						return;
+					// Whether this frame reached the screen: a presentedTime of 0
+					// is a frame Metal never presented. Handlers run off the main
+					// thread, and the count lives on it.
+					__weak HyperspaceView *weakSelf = self;
+					[drawable addPresentedHandler:^(id<MTLDrawable> presented) {
+						const bool shown = presented.presentedTime > 0;
+						dispatch_async(dispatch_get_main_queue(), ^{
+							HyperspaceView *view = weakSelf;
+							if (view)
+								hsFramePresented(&view->lVisibility, shown);
+						});
+					}];
 					// The step is the time since the last frame, from a
 					// monotonic clock, so never negative. A throttled host
 					// would otherwise move the scene by a whole gap at once;

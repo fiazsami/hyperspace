@@ -98,26 +98,44 @@ void frame(HyperspaceSaverSettings *s, float seconds)
 }
 }
 
-TEST(hsCoveredByNewer_yields_only_to_a_later_window_in_the_same_place)
+TEST(hsShouldDraw_keeps_drawing_a_view_whose_frames_are_seen_at_all)
 {
-    const HSWindowSlot me = {0, 0, 3440, 1440, 3600};
-    const HSWindowSlot later = {0, 0, 3440, 1440, 3611};
-    const HSWindowSlot earlier = {0, 0, 3440, 1440, 3500};
-    const HSWindowSlot elsewhere = {0, -1440, 3440, 1440, 3612};
-    const HSWindowSlot smaller = {0, 0, 1720, 1440, 3613};
-    const HSWindowSlot itself = {0, 0, 3440, 1440, 3600};
+    // The second display under the frame cap: about one frame in three never
+    // shown, in short runs. It must never stop.
+    HSVisibility v = {};
+    int drawn = 0;
+    for (int i = 0; i < 720; i++)
+    {
+        drawn += hsShouldDraw(&v, i / 72.0, 72, 1.0);
+        hsFramePresented(&v, i % 3 != 0 && i % 7 != 0);
+    }
+    CHECK(drawn == 720);
+}
 
-    CHECK(hsCoveredByNewer(me, &later, 1));
-    CHECK(!hsCoveredByNewer(me, &earlier, 1));
-    CHECK(!hsCoveredByNewer(me, &elsewhere, 1));   // the other display
-    CHECK(!hsCoveredByNewer(me, &smaller, 1));
-    CHECK(!hsCoveredByNewer(me, &itself, 1));     // never yields to its own window
-    CHECK(!hsCoveredByNewer(me, nullptr, 0));
-    // The measured case: three windows, the first covered, the others drawn.
-    const HSWindowSlot all[] = {me, later, elsewhere};
-    CHECK(hsCoveredByNewer(all[0], all, 3));
-    CHECK(!hsCoveredByNewer(all[1], all, 3));
-    CHECK(!hsCoveredByNewer(all[2], all, 3));
+TEST(hsShouldDraw_probes_once_a_second_after_a_second_of_frames_never_shown)
+{
+    // The stale window under the real one: Metal presented none of its frames.
+    HSVisibility v = {};
+    int drawn = 0;
+    for (int i = 0; i < 720; i++)   // ten seconds at 72 calls a second
+        if (hsShouldDraw(&v, i / 72.0, 72, 1.0))
+        {
+            drawn++;
+            hsFramePresented(&v, false);
+        }
+    CHECK(drawn == 72 + 9);   // the first second, then one probe a second
+}
+
+TEST(hsShouldDraw_resumes_when_a_probe_is_shown)
+{
+    HSVisibility v = {};
+    for (int i = 0; i < 72; i++)
+        hsFramePresented(&v, false);
+    CHECK(hsShouldDraw(&v, 10.0, 72, 1.0));    // the probe
+    CHECK(!hsShouldDraw(&v, 10.5, 72, 1.0));
+    hsFramePresented(&v, true);                 // the window came back
+    CHECK(hsShouldDraw(&v, 10.51, 72, 1.0));
+    CHECK(hsShouldDraw(&v, 10.52, 72, 1.0));
 }
 
 TEST(setDefaults_picks_the_shipped_settings)

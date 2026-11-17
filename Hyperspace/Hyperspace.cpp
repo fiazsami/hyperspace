@@ -320,13 +320,18 @@ void draw(HyperspaceSaverSettings *inSettings){
 }*/
 
 
-bool hsCoveredByNewer(const HSWindowSlot &me, const HSWindowSlot *others, int count){
-	for(int i = 0; i < count; i++){
-		const HSWindowSlot &o = others[i];
-		if(o.number > me.number && o.x == me.x && o.y == me.y && o.width == me.width && o.height == me.height)
-			return true;
-	}
-	return false;
+void hsFramePresented(HSVisibility *v, bool shown){
+	v->unseen = shown ? 0 : v->unseen + 1;
+}
+
+
+bool hsShouldDraw(HSVisibility *v, double now, int unseenLimit, double probeInterval){
+	if(v->unseen < unseenLimit)
+		return true;
+	if(now < v->probeAt)
+		return false;
+	v->probeAt = now + probeInterval;
+	return true;
 }
 
 

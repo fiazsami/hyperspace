@@ -70,11 +70,14 @@ __private_extern__ void reshape(int width, int height, HyperspaceSaverSettings *
 __private_extern__ void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer);
 __private_extern__ void cleanUp(HyperspaceSaverSettings *inSettings);
 __private_extern__ void setDefaults(HyperspaceSaverSettings *inSettings);
-// A saver window: its frame, and the window number the window server gave it.
-struct HSWindowSlot { double x, y, width, height; long number; };
-// Whether one of others has exactly me's frame and a higher window number: a
-// window opened later in the same place, which covers me. The macOS 26 host
-// was measured leaving such a window behind, drawing frames never shown.
-__private_extern__ bool hsCoveredByNewer(const HSWindowSlot &me, const HSWindowSlot *others, int count);
+// Whether a view's frames are reaching the screen, from what became of them:
+// after unseenLimit frames in a row never shown, the view draws only one probe
+// frame each probeInterval seconds, until one is shown. A view whose frames
+// are seen at all keeps drawing. Zero-initialised is a view drawing normally.
+struct HSVisibility { int unseen; double probeAt; };
+// A frame's fate, as its drawable's presented handler reports it.
+__private_extern__ void hsFramePresented(HSVisibility *v, bool shown);
+// Whether to draw a frame at time now.
+__private_extern__ bool hsShouldDraw(HSVisibility *v, double now, int unseenLimit, double probeInterval);
 
 #endif
