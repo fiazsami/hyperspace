@@ -70,5 +70,12 @@ __private_extern__ void reshape(int width, int height, HyperspaceSaverSettings *
 __private_extern__ void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer);
 __private_extern__ void cleanUp(HyperspaceSaverSettings *inSettings);
 __private_extern__ void setDefaults(HyperspaceSaverSettings *inSettings);
+// The interval to draw frames at on a display that refreshes every
+// refreshInterval seconds: every n-th refresh, the largest n that still draws
+// at least minPerSecond frames a second, so every frame stays on screen the
+// same number of refreshes. 144 Hz at 60 gives 1/72; 120 Hz 1/60; a display
+// at or under minPerSecond, every refresh. Rates reported a hair under a
+// whole one (119.88 Hz) count as that one. refreshInterval must be > 0.
+__private_extern__ double hsFrameInterval(double refreshInterval, double minPerSecond);
 
 #endif

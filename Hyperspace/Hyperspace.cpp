@@ -320,6 +320,13 @@ void draw(HyperspaceSaverSettings *inSettings){
 }*/
 
 
+double hsFrameInterval(double refreshInterval, double minPerSecond){
+	// 1% of tolerance: 119.88 / 60 is 1.998 and must count as 2.
+	const double perFrame = floor(1.0 / (refreshInterval * minPerSecond) + 0.01);
+	return refreshInterval * (perFrame > 1.0 ? perFrame : 1.0);
+}
+
+
 void setDefaults(HyperspaceSaverSettings *inSettings){
 	inSettings->dSpeed = 23;
 	inSettings->dStars = 2000;

@@ -34,8 +34,9 @@
 static const CFTimeInterval kMaxFrameTime = 0.1;
 // The frame interval when no screen answers with its refresh.
 static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
-// The fewest frames a second the saver draws, when the refresh allows fewer:
-// see matchRefresh.
+// The rate the saver may drop to on a faster display: it draws every n-th
+// refresh, keeping at least this many frames a second (matchRefresh). A
+// display slower than this draws every refresh.
 static const double kMinFramesPerSecond = 60.0;
 
 @interface HyperspaceView (Private)
@@ -106,11 +107,9 @@ static const double kMinFramesPerSecond = 60.0;
 
 
 // Paces frames to the refresh of the screen the view is on, drawing every
-// n-th refresh: the largest n that still draws at least kMinFramesPerSecond
-// (144 Hz draws 72, 120 Hz 60, 165 Hz 82.5, 60 Hz every refresh). A whole n
-// keeps every frame on screen for the same number of refreshes; measured on
-// two 144 Hz displays, 72 a second looked no different and the saver's CPU
-// fell from 45% to 38% of a core (ss-50r).
+// n-th refresh (hsFrameInterval): 144 Hz draws 72, 120 Hz 60, 165 Hz 82.5,
+// 60 Hz every refresh. Measured on two 144 Hz displays, 72 a second looked no
+// different and the saver's CPU fell from 45% to 38% of a core (ss-50r).
 // minimumRefreshInterval is the shortest interval; maximumRefreshInterval is
 // the longest, the slowest rate a variable-refresh display drops to. The
 // window's screen is nil for most windows inside legacyScreenSaver (hills
@@ -118,17 +117,21 @@ static const double kMinFramesPerSecond = 60.0;
 // out -- so the main screen is used instead, then kFallbackInterval.
 // The macOS 26 host calls animateOneFrame at its own rate whatever
 // animationTimeInterval says (measured: an interval of 1/72 still drew about
-// 105 frames a second), so animateOneFrame skips calls itself.
+// 105 frames a second), so animateOneFrame skips calls itself. The interval
+// asked of the host stays one refresh, so a host that does honour it calls on
+// every refresh and the skip can land frames on whole multiples of it.
 - (void)matchRefresh
 {
 	if (lView == nil)
 		return;	// nothing draws here: main screen only, or Metal failed
 	NSScreen *screen = self.window.screen ?: [NSScreen mainScreen];
 	NSTimeInterval refresh = screen.minimumRefreshInterval;
-	lRefresh = refresh > 0 ? refresh : kFallbackInterval;
-	const double perRefresh = floor(1.0 / (lRefresh * kMinFramesPerSecond) + 1e-6);
-	lFrameInterval = lRefresh * fmax(1.0, perRefresh);
-	self.animationTimeInterval = lFrameInterval;
+	if (refresh <= 0)
+		refresh = kFallbackInterval;
+	// Half a refresh of slack: a call that lands a little early still draws
+	// on the refresh it belongs to.
+	lDrawAfter = hsFrameInterval(refresh, kMinFramesPerSecond) - 0.5 * refresh;
+	self.animationTimeInterval = refresh;
 }
 
 
@@ -271,15 +274,15 @@ static const double kMinFramesPerSecond = 60.0;
 			{
 				@autoreleasepool	// so each frame's drawable goes back to the layer promptly
 				{
-					// Waits while every drawable is in flight, which is what paces
-					// the saver to the display; nil only after the layer's
-					// one-second timeout, as when the display sleeps.
 					CFTimeInterval asked = CACurrentMediaTime();
-					// Not yet time for a frame (matchRefresh). Half a refresh of
-					// slack, so a call that lands just early still draws on
-					// the refresh it belongs to.
-					if (lLastFrame > 0 && asked - lLastFrame < lFrameInterval - 0.5 * lRefresh)
+					// Not yet time for a frame (matchRefresh). Measured from when
+					// the last frame was asked for, as this one is: from after its
+					// wait for a drawable, a wait would push frames a refresh late.
+					if (lLastFrame > 0 && asked - lLastAsked < lDrawAfter)
 						return;
+					lLastAsked = asked;
+					// Waits only while every drawable is in flight; nil only after
+					// the layer's one-second timeout, as when the display sleeps.
 					id<CAMetalDrawable> drawable = [lLayer nextDrawable];
 					CFTimeInterval now = CACurrentMediaTime();
 					// A long wait for a drawable is a stall, and it is dropped,
