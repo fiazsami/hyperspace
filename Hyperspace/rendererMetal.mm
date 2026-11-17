@@ -228,24 +228,6 @@ static NSString *readSource(const char *dir, const char *file){
 	return s;
 }
 
-// A texture the GPU renders into and the CPU then reads. Apple silicon shares
-// memory, so Shared; an Intel Mac's GPU, which macOS 26 still runs on, cannot
-// share a texture, so Managed, synchronized before the read. The macOS 27 SDK
-// deprecates Managed because it does nothing on Apple silicon -- which is the
-// branch that never uses it.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-static MTLStorageMode readableStorage(id<MTLDevice> device){
-	return device.hasUnifiedMemory ? MTLStorageModeShared : MTLStorageModeManaged;
-}
-static void synchronizeForCPU(id<MTLCommandBuffer> commands, id<MTLTexture> texture){
-	if(texture.storageMode != MTLStorageModeManaged)
-		return;
-	id<MTLBlitCommandEncoder> blit = [commands blitCommandEncoder];
-	[blit synchronizeResource:texture];
-	[blit endEncoding];
-}
-#pragma clang diagnostic pop
 
 // Each pass file is compiled with the interface prepended, as parity does.
 static id<MTLLibrary> compilePass(id<MTLDevice> device, const char *dir, const char *file){
@@ -672,8 +654,10 @@ void HSRendererMetal::beginOffscreen(int size){
 		MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
 			width:size height:size mipmapped:NO];
 		td.usage = MTLTextureUsageRenderTarget;
-		td.storageMode = readableStorage(st->device);
+		td.storageMode = MTLStorageModeShared;	// the CPU reads it back; Apple silicon shares memory
 		st->offscreenTarget = [st->device newTextureWithDescriptor:td];
+		if(!st->offscreenTarget)
+			fail("offscreen target", "no Shared texture on this device");
 	}
 	st->offscreenVertices.clear();
 	st->offscreenStrips.clear();
@@ -735,7 +719,6 @@ void HSRendererMetal::endOffscreen(unsigned char *rgb){
 		}
 	}
 	[st->offscreenEncoder endEncoding];
-	synchronizeForCPU(st->offscreenCommands, st->offscreenTarget);
 	[st->offscreenCommands commit];
 	[st->offscreenCommands waitUntilCompleted];
 	if(st->offscreenCommands.status == MTLCommandBufferStatusError)
