@@ -83,7 +83,8 @@ for pass in "${cost[@]}"; do
         { for (i = 1; i <= NF; i++) { if ($i == "gpu_ms") g[NR] = substr($(i+1), 8); if ($i == "process_cpu_ms") c[NR] = substr($(i+1), 6) } }
         function abs(x) { return x < 0 ? -x : x }
         END {
-            for (i = 1; i <= 4; i++) if (NR != 4 || g[i] <= 0 || c[i] <= 0) { print "ERROR"; exit }
+            # +0: substr() gives strings, and "0.00000" <= 0 compares as text.
+            for (i = 1; i <= 4; i++) if (NR != 4 || g[i] + 0 <= 0 || c[i] + 0 <= 0) { print "ERROR"; exit }
             gr = (g[1] + g[3]) / 2; gn = (g[2] + g[4]) / 2; gnoise = abs(g[1] - g[3]) > abs(g[2] - g[4]) ? abs(g[1] - g[3]) : abs(g[2] - g[4])
             cr = (c[1] + c[3]) / 2; cn = (c[2] + c[4]) / 2; cnoise = abs(c[1] - c[3]) > abs(c[2] - c[4]) ? abs(c[1] - c[3]) : abs(c[2] - c[4])
             gl = 2 * gnoise > 0.02 * gr ? 2 * gnoise : 0.02 * gr; cl = 2 * cnoise > 0.02 * cr ? 2 * cnoise : 0.02 * cr

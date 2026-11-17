@@ -105,7 +105,8 @@ profile)
         grep -q '<row' "$dir/$t.xml" || { echo "the $t trace exported no rows: $dir/$t-export.log" >&2; exit 2; }
     done
     echo "where the saver's CPU goes:"; python3 -I parity/saverprofile.py cpu "$dir/cpu.xml"
-    echo "GPU:"; python3 -I parity/saverprofile.py gpu "$dir/gpu.xml" "$secs" | head -6
+    echo "GPU, busiest first (the saver is legacyScreenSaver ($pid)):"
+    python3 -I parity/saverprofile.py gpu "$dir/gpu.xml" "$secs" | awk -v p="($pid)" 'NR <= 8 || index($0, p) || /WindowServer/'
     echo "traces: $dir"
     ;;
 *)

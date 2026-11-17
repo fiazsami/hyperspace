@@ -31,6 +31,7 @@ parity/at-ref.sh "$sha" "$WT" || exit 2
 usage=$("$WT/.parity-build/parity" 2>&1)
 [[ $usage == *look=saver* ]] || { echo "$ref's parity has no look=saver and time (ss-z8x.1)" >&2; exit 2; }
 out=.parity-build/basemac/$mode-${sha:0:12}.txt
+rm -f "$out"   # written only when every run succeeds, so a file is a whole result
 {
     echo "basemac $mode ref=$ref sha=$sha date=$(date -u +%FT%TZ)"
     echo "machine $(sysctl -n hw.model) $(sysctl -n machdep.cpu.brand_string) macOS $(sw_vers -productVersion)"
@@ -40,6 +41,7 @@ out=.parity-build/basemac/$mode-${sha:0:12}.txt
                 shots=1 w=3440 h=1440 | grep '^TIME' || { echo "ERROR $pass run failed"; exit 2; }
         done
     done
-} | tee "$out"
-[ "${PIPESTATUS[0]}" -eq 0 ] || exit 2
+} | tee "$out.partial"
+[ "${PIPESTATUS[0]}" -eq 0 ] || { echo "a run failed: no result file written ($out.partial kept)" >&2; exit 2; }
+mv "$out.partial" "$out"
 echo "wrote $out -- send this file back"

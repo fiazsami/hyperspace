@@ -494,7 +494,8 @@ harness have no `look=saver` and are refused rather than approximated.
 **Cost** is `parity ... time` at 3440x1440 over each pass's own frames -- the
 footage its look shots come from, so the tunnel pass's cost includes the inside
 of a tunnel -- the sides alternated (ref new ref new): the GPU's milliseconds a frame (each command
-buffer's `GPUEndTime - GPUStartTime`, summed, median) and the process's CPU
+buffer's GPU span, as their union -- the time the GPU was busy with the frame
+at all; median) and the process's CPU
 milliseconds a frame (`getrusage`, user and system, mean, less what reading
 back and writing shots costs, which the saver never does). The process figure,
 not the drawing thread's, is the one that counts: Metal's driver threads and

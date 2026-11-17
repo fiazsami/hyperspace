@@ -62,17 +62,22 @@ def gpu(path, seconds):
         proc = next((e for e in cells if e.tag == 'process'), None)
         if start is None or dur is None or proc is None:
             continue
-        name = proc.attrib.get('fmt', '').split(' (')[0]
+        # Name and pid: a second legacyScreenSaver (a preview, another
+        # display) is another row, not added to the saver's.
+        name = proc.attrib.get('fmt', '')
         s = int(start.text)
         spans[name].append((s, s + int(dur.text)))
-    for name in sorted(spans, key=lambda n: -len(spans[n])):
-        busy, end = 0, -1
-        for s, e in sorted(spans[name]):
+    busy = {}
+    for name, intervals in spans.items():
+        total, end = 0, -1
+        for s, e in sorted(intervals):
             if e <= end:
                 continue
-            busy += e - max(s, end)
+            total += e - max(s, end)
             end = e
-        print(f'  {name:24s} GPU busy {busy / 1e6 / seconds:7.2f} ms a second')
+        busy[name] = total
+    for name in sorted(busy, key=lambda n: -busy[n]):
+        print(f'  {name:36s} GPU busy {busy[name] / 1e6 / seconds:7.2f} ms a second')
 
 
 if __name__ == '__main__':

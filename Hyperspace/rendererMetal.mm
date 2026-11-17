@@ -207,6 +207,11 @@ struct HSRendererMetalState {
 	NSUInteger samples, pipelineSamples;   // setSampleCount's; those the pipelines were built for
 	int tunnelDetail;                      // setTunnelDetail's
 	double lastGPUms;                      // lastFrameGPUMilliseconds's
+	// Every command buffer this frame made (frameCommands), whose GPU spans
+	// lastGPUms is the union of; and room for those spans. Cleared, not
+	// freed, each frame.
+	std::vector<id<MTLCommandBuffer>> frameBuffers;
+	std::vector<std::pair<double, double>> frameSpans;
 	id<MTLTexture> multisample;            // the frame's samples, memoryless, when samples > 1
 	id<MTLTexture> target;
 	id<CAMetalDrawable> drawable;   // set for one frame by setDrawable, presented by endFrame
@@ -515,10 +520,20 @@ void *HSRendererMetal::texture(unsigned int name) const{
 	return t == st->textures.end() ? NULL : (__bridge void *)t->second.texture;
 }
 
+// A command buffer for this frame's work. Every per-frame buffer comes from
+// here, so the frame's GPU time (lastFrameGPUMilliseconds) covers it without
+// anyone remembering to add it.
+static id<MTLCommandBuffer> frameCommands(HSRendererMetalState *st){
+	id<MTLCommandBuffer> cb = [st->queue commandBuffer];
+	st->frameBuffers.push_back(cb);
+	return cb;
+}
+
 void HSRendererMetal::beginFrame(const HSFrame &frame){
 	if(!st->target)
 		fail("beginFrame", "no target: call setTarget first");
 	st->lastGPUms = 0.0;   // set again by endFrame for a target's frame only
+	st->frameBuffers.clear();
 	if(st->encoder)
 		fail("beginFrame", "the last frame was not ended");
 	st->projection = fromGL(frame.projection);
@@ -565,7 +580,7 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 		rp.colorAttachments[0].texture = st->target;
 		rp.colorAttachments[0].storeAction = MTLStoreActionStore;
 	}
-	st->commands = [st->queue commandBuffer];
+	st->commands = frameCommands(st);
 	st->encoder = [st->commands renderCommandEncoderWithDescriptor:rp];
 	// GL's viewport origin is the bottom left, Metal's the top left. Signed:
 	// a viewport taller than the target hangs off its top, as it would in GL.
@@ -624,13 +639,14 @@ void HSRendererMetal::endFrame(){
 		// busy with the frame at all, as parity/saverprofile.py measures the
 		// saver. A sum would count twice whatever overlaps, or one waiting on
 		// another, and so move with scheduling rather than with the work.
-		std::vector<std::pair<double, double>> spans{{st->commands.GPUStartTime, st->commands.GPUEndTime}};
-		if(st->softCommands)
-			spans.push_back({st->softCommands.GPUStartTime, st->softCommands.GPUEndTime});
-		if(st->gooBuildCommands)
-			spans.push_back({st->gooBuildCommands.GPUStartTime, st->gooBuildCommands.GPUEndTime});
+		auto &spans = st->frameSpans;
+		spans.clear();
+		for(id<MTLCommandBuffer> cb : st->frameBuffers){
+			[cb waitUntilCompleted];   // all are, today; a buffer added later may not be
+			spans.push_back({cb.GPUStartTime, cb.GPUEndTime});
+		}
 		std::sort(spans.begin(), spans.end());
-		double seconds = 0.0, reached = spans[0].first;
+		double seconds = 0.0, reached = spans.empty() ? 0.0 : spans[0].first;
 		for(const auto &span : spans){
 			double from = std::max(span.first, reached);
 			if(span.second > from)
@@ -1065,7 +1081,7 @@ void HSRendererMetal::drawGooField(const HSGooField &field){
 	// newBuffer, as these are. Moving them onto a heap, or making them
 	// untracked, needs an MTLEvent in its place. Building inside the frame's
 	// buffer would mean ending its render pass and reloading the target.
-	id<MTLCommandBuffer> build = [st->queue commandBuffer];
+	id<MTLCommandBuffer> build = frameCommands(st);
 	id<MTLBlitCommandEncoder> blit = [build blitCommandEncoder];
 	[blit fillBuffer:st->gooCounter range:NSMakeRange(0, sizeof(uint32_t)) value:0];
 	[blit endEncoding];
@@ -1127,7 +1143,7 @@ void HSRendererMetal::drawGooField(const HSGooField &field){
 	rp.colorAttachments[0].loadAction = MTLLoadActionClear;
 	rp.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 0);
 	rp.colorAttachments[0].storeAction = MTLStoreActionStore;
-	id<MTLCommandBuffer> soft = [st->queue commandBuffer];
+	id<MTLCommandBuffer> soft = frameCommands(st);
 	id<MTLRenderCommandEncoder> se = [soft renderCommandEncoderWithDescriptor:rp];
 	// The frame's viewport, scaled as the target is.
 	const double sx = double(w) / double(st->target.width), sy = double(h) / double(st->target.height);
