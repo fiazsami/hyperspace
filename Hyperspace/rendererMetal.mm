@@ -201,7 +201,10 @@ struct HSRendererMetalState {
 	unsigned int quadTexture;
 	bool quadFog;
 	id<MTLRenderPipelineState> gooPipeline, tunnelPipeline;
+	id<MTLRenderPipelineState> gooTargetPipeline;   // the goo into gooTarget, one sample
 	MTLPixelFormat pipelineFormat;
+	NSUInteger samples, pipelineSamples;   // setSampleCount's; those the pipelines were built for
+	id<MTLTexture> multisample;            // the frame's samples, memoryless, when samples > 1
 	id<MTLTexture> target;
 	id<CAMetalDrawable> drawable;   // set for one frame by setDrawable, presented by endFrame
 	id<MTLCommandBuffer> commands;
@@ -271,9 +274,8 @@ static NSString *readSource(const char *dir, const char *file){
 
 
 // Each pass file is compiled with the interface prepended, as parity does.
-// safeMath compiles without fast math, for a pass whose arithmetic must round
-// as the CPU's does: Tunnel.metal's rsCosf takes its table index from the bits
-// of value * K + 1.5 * 2^23, which a reassociated expression would change.
+// safeMath compiles without fast math: Tunnel.metal's colour waves take cos of
+// arguments in the hundreds and more, where fast math's cos loses accuracy.
 static id<MTLLibrary> compilePass(id<MTLDevice> device, const char *dir, const char *file, bool safeMath = false){
 	NSString *src = [readSource(dir, "Interface.metal") stringByAppendingString:readSource(dir, file)];
 	NSError *err = nil;
@@ -290,8 +292,9 @@ static id<MTLLibrary> compilePass(id<MTLDevice> device, const char *dir, const c
 
 // Everything Hyperspace draws is blended (SRC_ALPHA, ONE).
 static id<MTLRenderPipelineState> additivePipeline(id<MTLDevice> device, id<MTLLibrary> lib,
-	NSString *vfn, NSString *ffn, MTLPixelFormat format){
+	NSString *vfn, NSString *ffn, MTLPixelFormat format, NSUInteger samples = 1){
 	MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
+	pd.rasterSampleCount = samples;
 	pd.vertexFunction = [lib newFunctionWithName:vfn];
 	pd.fragmentFunction = [lib newFunctionWithName:ffn];
 	if(!pd.vertexFunction || !pd.fragmentFunction)
@@ -387,6 +390,12 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->gooVertices = nil;
 	st->gooCapacity = 0;
 	st->softGoo = true;
+	st->samples = 4;
+	if(![st->device supportsTextureSampleCount:st->samples])
+		st->samples = 1;
+	st->pipelineSamples = 0;
+	st->multisample = nil;
+	st->gooTargetPipeline = nil;
 	st->softenLibrary = compilePass(st->device, metalDir, "Soften.metal");
 	st->softenPipeline = nil;
 	st->gooTarget = nil;
@@ -404,8 +413,10 @@ HSRendererMetal::~HSRendererMetal(){
 
 // The soften pass adds the goo target over the frame: (ONE, ONE), since the
 // target already holds the goo's own (SRC_ALPHA, ONE) blending.
-static id<MTLRenderPipelineState> softenPipeline(id<MTLDevice> device, id<MTLLibrary> lib, MTLPixelFormat format){
+static id<MTLRenderPipelineState> softenPipeline(id<MTLDevice> device, id<MTLLibrary> lib, MTLPixelFormat format,
+	NSUInteger samples){
 	MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
+	pd.rasterSampleCount = samples;
 	pd.vertexFunction = [lib newFunctionWithName:@"soften_vertex"];
 	pd.fragmentFunction = [lib newFunctionWithName:@"soften_fragment"];
 	if(!pd.vertexFunction || !pd.fragmentFunction)
@@ -421,17 +432,22 @@ static id<MTLRenderPipelineState> softenPipeline(id<MTLDevice> device, id<MTLLib
 	return ps;
 }
 
-// Pipelines are built for the target's pixel format, so a new format rebuilds them.
+// Pipelines are built for the target's pixel format and the frame's samples,
+// so a new format or sample count rebuilds them.
 static void useTarget(HSRendererMetalState *st, id<MTLTexture> target){
 	st->target = target;
-	if(st->target.pixelFormat == st->pipelineFormat)
+	if(st->target.pixelFormat == st->pipelineFormat && st->samples == st->pipelineSamples)
 		return;
-	st->quadPipeline = additivePipeline(st->device, st->ffLibrary, @"ff_quad_vertex", @"ff_fragment", st->target.pixelFormat);
-	st->starPipeline = additivePipeline(st->device, st->ffLibrary, @"star_vertex", @"ff_fragment", st->target.pixelFormat);
-	st->gooPipeline = additivePipeline(st->device, st->gooLibrary, @"goo_vertex", @"goo_fragment", st->target.pixelFormat);
-	st->tunnelPipeline = additivePipeline(st->device, st->tunnelLibrary, @"tunnel_build_vertex", @"tunnel_fragment", st->target.pixelFormat);
-	st->softenPipeline = softenPipeline(st->device, st->softenLibrary, st->target.pixelFormat);
-	st->pipelineFormat = st->target.pixelFormat;
+	const MTLPixelFormat f = st->target.pixelFormat;
+	const NSUInteger n = st->samples;
+	st->quadPipeline = additivePipeline(st->device, st->ffLibrary, @"ff_quad_vertex", @"ff_fragment", f, n);
+	st->starPipeline = additivePipeline(st->device, st->ffLibrary, @"star_vertex", @"ff_fragment", f, n);
+	st->gooPipeline = additivePipeline(st->device, st->gooLibrary, @"goo_vertex", @"goo_fragment", f, n);
+	st->gooTargetPipeline = additivePipeline(st->device, st->gooLibrary, @"goo_vertex", @"goo_fragment", f);
+	st->tunnelPipeline = additivePipeline(st->device, st->tunnelLibrary, @"tunnel_build_vertex", @"tunnel_fragment", f, n);
+	st->softenPipeline = softenPipeline(st->device, st->softenLibrary, f, n);
+	st->pipelineFormat = f;
+	st->pipelineSamples = n;
 }
 
 static void flushQuads(HSRendererMetalState *st);
@@ -469,6 +485,14 @@ void HSRendererMetal::setSoftGoo(bool soft){
 	st->softGoo = soft;
 }
 
+void HSRendererMetal::setSampleCount(int samples){
+	if(st->encoder)
+		fail("setSampleCount", "called inside a frame");
+	st->samples = samples > 1 && [st->device supportsTextureSampleCount:NSUInteger(samples)] ? NSUInteger(samples) : 1;
+	if(st->target)
+		useTarget(st, st->target);
+}
+
 void *HSRendererMetal::texture(unsigned int name) const{
 	std::map<unsigned int, Texture>::const_iterator t = st->textures.find(name);
 	return t == st->textures.end() ? NULL : (__bridge void *)t->second.texture;
@@ -490,11 +514,35 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 	st->gooBuildCommands = nil;
 	st->softCommands = nil;
 
+	if(st->samples != st->pipelineSamples)
+		useTarget(st, st->target);
 	MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
-	rp.colorAttachments[0].texture = st->target;
 	rp.colorAttachments[0].loadAction = MTLLoadActionClear;
 	rp.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
-	rp.colorAttachments[0].storeAction = MTLStoreActionStore;
+	if(st->samples > 1){
+		// Memoryless: the samples never leave tile memory, so the frame costs
+		// no more memory or bandwidth than an aliased one, only the resolve.
+		id<MTLTexture> ms = st->multisample;
+		if(!ms || ms.width != st->target.width || ms.height != st->target.height ||
+			ms.pixelFormat != st->target.pixelFormat || ms.sampleCount != st->samples){
+			MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:st->target.pixelFormat
+				width:st->target.width height:st->target.height mipmapped:NO];
+			td.textureType = MTLTextureType2DMultisample;
+			td.sampleCount = st->samples;
+			td.usage = MTLTextureUsageRenderTarget;
+			td.storageMode = MTLStorageModeMemoryless;
+			st->multisample = [st->device newTextureWithDescriptor:td];
+			if(!st->multisample)
+				fail("multisample target", "no memoryless multisample texture on this device");
+		}
+		rp.colorAttachments[0].texture = st->multisample;
+		rp.colorAttachments[0].resolveTexture = st->target;
+		rp.colorAttachments[0].storeAction = MTLStoreActionMultisampleResolve;
+	}
+	else{
+		rp.colorAttachments[0].texture = st->target;
+		rp.colorAttachments[0].storeAction = MTLStoreActionStore;
+	}
 	st->commands = [st->queue commandBuffer];
 	st->encoder = [st->commands renderCommandEncoderWithDescriptor:rp];
 	// GL's viewport origin is the bottom left, Metal's the top left. Signed:
@@ -1047,7 +1095,7 @@ void HSRendererMetal::drawGooField(const HSGooField &field){
 		st->viewport.width * sx, st->viewport.height * sy, 0.0, 1.0};
 	[se setViewport:vp];
 	[se setCullMode:MTLCullModeNone];
-	[se setRenderPipelineState:st->gooPipeline];
+	[se setRenderPipelineState:st->gooTargetPipeline];
 	bindGooTextures(st, se);
 	bindGoo(st, se, model, st->gooVertices);
 	[se drawPrimitives:MTLPrimitiveTypeTriangle indirectBuffer:st->gooArgs indirectBufferOffset:0];

@@ -298,11 +298,11 @@ changes nothing -- so under `stars` that fixture passes. When a shader in
 `metal/` changes, regenerate the fixtures from the new text, with the new
 `base=`, rather than editing the rule. These fixtures were written for the
 replay and now run here; all 30 are killed. Five more judge the tunnel as
-the saver builds it, on the GPU from the path (ss-okd): `tunnel_truecos`
-puts true cos and sin in place of rsCosf and rsSinf, the defect this pass
-caught while the build was written; `ringorder`, `section`, `satmax` and
-`notexshift` misplace a ring, a section, the saturation limit and the
-texture's spin. A backend fixture that dropped the last section was tried and
+the saver builds it, on the GPU from the path (ss-okd): `ringorder`,
+`section`, `satmax` and `notexshift` misplace a ring, a section, the
+saturation limit and the texture's spin. A fifth, `tunnel_truecos`, put true
+cos and sin in place of rsCosf and rsSinf; ss-ss8.2 made that the design, and
+it was retired. A backend fixture that dropped the last section was tried and
 survives, rightly: that section is past the fog's end and draws nothing.
 
 One replay fixture was retired. `stars_radialfog` fogged on radial distance in
@@ -322,18 +322,21 @@ began (`drawStarField`, `star_vertex`), so `drawQuad` no longer stands between
 the two runs for them. Six shader fixtures judge `star_vertex`: `nowrap`
 never wraps a star round the eye, `nostretch` and `noroll` drop the stretch and
 the roll, `coreaura` colours the core like the aura, `lastcamera` measures the
-motion through this frame's camera twice, and `jumpless` measures it for the
-same world point both frames. `jumpless` is the defect the pass caught while
-the stars were written: on the CPU a star that wraps is stretched for a frame
-along its jump, from where it was before the wrap to where it is after, and the
-pass fails without that (0.658% / 0.408% against 1% / 0.1%). Two backend
+motion through this frame's camera twice. On the CPU a star that wraps is
+stretched for a frame along its jump, from where it was before the wrap to
+where it is after; the backend reproduced that until ss-ss8.2 gave it up, and
+`jumpless`, which measured the motion for the same world point both frames,
+was retired with it. `jumpstreak`, its inverse, puts GL's streak back. Two backend
 fixtures that judged `drawQuad` through the stars were retired, since no pass
 can see them now: `depthcolumn` (the quad's fog depth from the wrong row of its
 modelview) leaves the starburst's quads, all well inside the fog's start,
 unchanged, and `fogkey` (a batch not ended by a change of fog) needs a fogged
 quad batched with the unfogged sun, which the stars were. `onerun` and the
 quad path's `fogstart0` move to `burst`, whose quads still fill several runs
-and are fogged; the stars have a `fogstart0` of their own.
+and are fogged; the stars have a `fogstart0` of their own. `modelfirst` (the
+quad's model matrix on the wrong side of the camera) followed in ss-ss8.3: it
+had been killed through the stars pass's flares, which no golden shot shows,
+and `burst` kills it at 20%.
 
 Of the shader fixtures, the
 narrowest by lit>2 are `tunnel_fog110` (3.72% against 3%) and
@@ -414,7 +417,8 @@ the Metal saver against approved images of itself from then on, rather than
 keeping every improvement behind a switch for the GL comparison.
 
 `parity/golden/<pass>/` holds six shots of each pass (stars, goo, tunnel,
-burst, sun, goosoft) drawn through the backend at 480x270, 2.7 MB in all.
+burst, sun, goosoft) drawn through the backend at 480x270 with the saver's 4
+samples a pixel (`samples=4`), about 3 MB in all.
 `parity/goldencheck.sh` draws them again (`parity ... shots=6`, so it needs
 no pass's length) and compares with `parity --compare-golden`, under
 `--compare`'s rule (0.1% / 0.01% / bias 0.06). That rule fits because the
@@ -426,22 +430,39 @@ PNGs are read as their stored bytes, not drawn into a context, so a colour
 profile that differs on another Mac does not shift every pixel.
 
 It proves it can fail, every run: `tunnel_fog110`, `stars_fog110` and
-`stars_jumpless` are drawn against the goldens and must come out DIFFERENT
-(narrowest: `tunnel_fog110`, 0.157% against 0.1%). A fixture made from an
-older shader is STALE, as in the backend check.
+`stars_jumpstreak` are drawn against the goldens and must come out DIFFERENT
+(narrowest: `tunnel_fog110`, 0.110% against 0.1%; the goldens are
+deterministic for the tunnel, so that margin is stable). A fixture made from
+an older shader is STALE, as in the backend check.
 
-The first goldens (hyperspace 460ddbb) are the backend as parity proved it
-equal to GL, so until a change is meant to alter the picture, both checks
-agree. A change that is meant to alter it, in one pull request:
+**Passes retired from GL.** A pass listed in `parity/gl-retired` draws
+differently from GL on purpose, and `backendcheck.sh` judges it, and every
+one of its fixtures, against its goldens as `goldencheck.sh` draws them,
+instead of against GL. The other passes are still judged against GL, drawn at
+1 sample (`parity`'s default), since GL draws aliased. Retired so far, at
+hyperspace ss-ss8.3:
+
+| pass | why | |
+|---|---|---|
+| `stars` | no streak along a wrap (ss-ss8.2), 4x MSAA (ss-ss8.3) | judged by goldens |
+| `tunnel` | true cos and sin (ss-ss8.2), 4x MSAA | judged by goldens |
+| `sun` | the stars pass with the sun in view | judged by goldens |
+| `goo`, `burst`, `goosoft`, `textures`, `caustics` | unchanged at 1 sample | still judged against GL |
+
+With that, `backendcheck.sh` kills 78 fixtures. The narrowest against
+goldens are `tunnel_fog110` (0.110%) and `tunnel_radialfog` (0.118%).
+
+The first goldens (hyperspace 460ddbb) were the backend as parity proved it
+equal to GL; ss-ss8.2 and ss-ss8.3 replaced them with the approved look. A
+change that is meant to alter the picture, in one pull request:
 
 1. runs `parity/goldencheck.sh --update <passes>` once the new look is
    approved from full-size images (480x270 keeps the goldens small, about
    3 MB a full update, and is not where the look is judged);
-2. adds each pass whose look departs from GL to `parity/gl-retired`, with
-   why, so the default `backendcheck.sh` leaves it out and says so rather
-   than failing on every run;
-3. re-points `goldencheck.sh`'s fixtures if the shader they were made from
-   changed.
+2. adds each pass whose look departs from GL at 1 sample to
+   `parity/gl-retired`, with why;
+3. regenerates the fixtures of any shader it changed, and retires those that
+   the change made the design.
 
 ## Limits
 

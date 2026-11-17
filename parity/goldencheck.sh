@@ -28,7 +28,7 @@ ALL=(stars goo tunnel burst sun goosoft)
 SHOTS=6
 # fixture:shader file:pass. The narrowest of the three is tunnel_fog110, a 10%
 # fog change: 0.157% of lit pixels against --compare's 0.1%.
-KILL=(tunnel_fog110:Tunnel.metal:tunnel stars_fog110:FixedFunction.metal:stars stars_jumpless:FixedFunction.metal:stars)
+KILL=(tunnel_fog110:Tunnel.metal:tunnel stars_fog110:FixedFunction.metal:stars stars_jumpstreak:FixedFunction.metal:stars)
 
 update=0; passes=()
 for arg in "$@"; do
@@ -43,7 +43,7 @@ rm -rf "$OUT"; mkdir -p "$OUT"
 parity/build.sh >/dev/null || exit 2
 
 run(){  # pass metal-dir outdir
-    .parity-build/parity "$1" "$2" "$3" renderer=metal shots=$SHOTS w=480 h=270 > "$3.log" ||
+    .parity-build/parity "$1" "$2" "$3" renderer=metal shots=$SHOTS w=480 h=270 samples=4 > "$3.log" ||
         { echo "$1 run failed: $(tail -1 "$3.log")" >&2; exit 2; }
 }
 compare(){  # pass dir -> sets code

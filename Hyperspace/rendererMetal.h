@@ -55,6 +55,12 @@ public:
 	// frames only, like setTarget. A frame whose soft target cannot be
 	// allocated draws the goo sharp.
 	void setSoftGoo(bool soft);
+	// Samples per pixel of the frame (ss-ss8.3): 4 from creation, which is
+	// the saver's look; parity sets 1 to judge the backend against GL, which
+	// draws aliased. The samples live in tile memory only (memoryless) and are
+	// resolved into the target as the frame ends. A count the device cannot
+	// draw at is taken as 1. Between frames only, like setTarget.
+	void setSampleCount(int samples);
 	// The id<MTLTexture> a create* call returned name for, or NULL.
 	void *texture(unsigned int name) const;
 

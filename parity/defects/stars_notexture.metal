@@ -1,4 +1,4 @@
-// Kill-check fixture: stars shader with one deliberate defect (notexture). parity/backendcheck.sh requires it to FAIL. base=cb2c01ad9656e3db77ba286e7229fc47addfa56b
+// Kill-check fixture: stars shader with one deliberate defect (notexture). parity/backendcheck.sh requires it to FAIL. base=c4e3cffd627e1a09c84d7da59cbc31e2ff709da8
 // The GL fixed-function path Hyperspace uses for stars, sun and lens flare:
 // vertex color MODULATE texture, then linear fog on eye-plane depth (Apple's GL
 // fogs on |z_eye|, not radial distance -- measured, see parity/README.md).
@@ -64,11 +64,12 @@ static float3 wrapStar(float3 rel, float depth)
 // 2s + 1 its white core, the order stretchedParticle::draw draws them in;
 // vertex v is the corner (v & 1, v >> 1), as ff_quad_vertex's. Each star is
 // wrapped round the eye, then billboarded, stretched and rolled as
-// stretchedParticle::draw does. Its motion on screen is its position this
-// frame less last frame's, each wrapped round its own frame's eye: so a star
-// that wrapped since is stretched along its jump for a frame, as on the CPU,
-// where its last screen position is from before the jump. A star that did
-// not project in either frame is not stretched.
+// stretchedParticle::draw does. Its motion on screen is that of the point it
+// is drawn at, this frame against last (ss-ss8.2). On the CPU a star that
+// wraps is stretched along its jump for a frame, its last screen position
+// being from before the jump: a streak across the screen that is no motion
+// at all. Here it is not; parity/gl-retired. A star that did not project in
+// either frame is not stretched.
 vertex FFOut star_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                          const device float *stars [[buffer(0)]],
                          constant StarUniforms &u [[buffer(1)]])
@@ -80,7 +81,7 @@ vertex FFOut star_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
 
     float2 win, lastWin, motion = float2(0.0);
     if (u.lastEye.w > 0.0 && project(u.projView, rel, u.viewport, win)
-        && project(u.lastProjView, wrapStar(fromEye + u.lastEye.xyz, u.eye.w), u.lastViewport, lastWin))
+        && project(u.lastProjView, rel + u.lastEye.xyz, u.lastViewport, lastWin))
         motion = win - lastWin;
 
     // The billboard: z toward the eye, x = (0,1,0) x z, y = z x x.
