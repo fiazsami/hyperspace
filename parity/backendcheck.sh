@@ -26,14 +26,26 @@
 # eight passes, 63 fixtures, the goo at resolution 20; since then two more
 # goosoft fixtures and three backend stars fixtures).
 #
-#   parity/backendcheck.sh [stars|goo|tunnel|burst|sun|goosoft|textures|caustics ...]    default: all eight
+# A pass named in parity/gl-retired is one the Metal saver no longer draws as GL
+# does, on purpose (ss-ss8): it is judged by parity/goldencheck.sh instead, and
+# the default run leaves it out, saying so. Named on the command line, it runs.
+#
+#   parity/backendcheck.sh [stars|goo|tunnel|burst|sun|goosoft|textures|caustics ...]    default: all eight not retired
 #
 # Exit 0 = the backend passes and every fixture is killed, 1 = otherwise,
 # 2 = a run or build failed.
 set -uo pipefail
 shopt -s nullglob
 cd "$(dirname "$0")/.."
-passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo tunnel burst sun goosoft textures caustics)
+passes=("$@")
+if [ ${#passes[@]} -eq 0 ]; then
+    retired=$(grep -v '^#' parity/gl-retired 2>/dev/null | awk 'NF {print $1}')
+    for pass in stars goo tunnel burst sun goosoft textures caustics; do
+        if grep -qx "$pass" <<< "$retired"; then
+            printf '%-10s %-25s %s\n' retired "backend ($pass)" "$(grep "^$pass " parity/gl-retired)"
+        else passes+=("$pass"); fi
+    done
+fi
 
 OUT=.parity-build/backend
 rm -rf "$OUT"; mkdir -p "$OUT/variants"

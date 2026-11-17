@@ -415,20 +415,33 @@ keeping every improvement behind a switch for the GL comparison.
 
 `parity/golden/<pass>/` holds six shots of each pass (stars, goo, tunnel,
 burst, sun, goosoft) drawn through the backend at 480x270, 2.7 MB in all.
-`parity/goldencheck.sh` draws them again and compares with `parity
---compare-golden`, under `--compare`'s rule (0.1% / 0.01% / bias 0.06). That
-rule is right because the backend is deterministic here: two runs of every
-pass gave byte-identical PNGs, and the first check after capture was worst
-max 0. Killed, against the goldens taken at hyperspace 460ddbb: `tunnel_fog110`
-(0.157%, the narrowest), `stars_jumpless` (0.563%) and `stars_fog110` (15.7%).
+`parity/goldencheck.sh` draws them again (`parity ... shots=6`, so it needs
+no pass's length) and compares with `parity --compare-golden`, under
+`--compare`'s rule (0.1% / 0.01% / bias 0.06). That rule fits because the
+backend is near enough deterministic here: of three runs, every pass but goo
+drew the same bytes each time, and goo's worst pixel moved by one level. So
+the rule is not exact equality, and should not be made so.
 
-The first goldens are the backend as parity proved it equal to GL, so until
-a change is meant to alter the picture, both checks agree. A change that is
-meant to alter it runs `parity/goldencheck.sh --update` in the same pull
-request, after the new look is approved from its images, and says so; the
-backend check's passes it touches are then expected to fail, and stop being
-run for it. 480x270 keeps the images small enough for git (each update adds
-about 3 MB); judging the look itself is done from full-size images, not these.
+PNGs are read as their stored bytes, not drawn into a context, so a colour
+profile that differs on another Mac does not shift every pixel.
+
+It proves it can fail, every run: `tunnel_fog110`, `stars_fog110` and
+`stars_jumpless` are drawn against the goldens and must come out DIFFERENT
+(narrowest: `tunnel_fog110`, 0.157% against 0.1%). A fixture made from an
+older shader is STALE, as in the backend check.
+
+The first goldens (hyperspace 460ddbb) are the backend as parity proved it
+equal to GL, so until a change is meant to alter the picture, both checks
+agree. A change that is meant to alter it, in one pull request:
+
+1. runs `parity/goldencheck.sh --update <passes>` once the new look is
+   approved from full-size images (480x270 keeps the goldens small, about
+   3 MB a full update, and is not where the look is judged);
+2. adds each pass whose look departs from GL to `parity/gl-retired`, with
+   why, so the default `backendcheck.sh` leaves it out and says so rather
+   than failing on every run;
+3. re-points `goldencheck.sh`'s fixtures if the shader they were made from
+   changed.
 
 ## Limits
 

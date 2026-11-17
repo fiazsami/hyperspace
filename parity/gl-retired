@@ -1,0 +1,4 @@
+# Passes backendcheck.sh leaves out by default: the Metal saver draws them
+# differently from GL on purpose (ss-ss8), and parity/goldencheck.sh judges them
+# against approved images instead. One per line: the pass, then why and where.
+# A pass goes in here in the pull request that changes its look.

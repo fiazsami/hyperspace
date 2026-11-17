@@ -9,7 +9,10 @@
 //   burst   goo on, with a starburst set off at 1 s
 //   sun     the stars pass with the sun held in view
 //
-//   parity <pass> <metal-dir> <outdir> [renderer=metal] [frames=N] [every=N] [w=N] [h=N]
+//   parity <pass> <metal-dir> <outdir> [renderer=metal] [frames=N] [every=N|shots=N] [w=N] [h=N]
+//
+// shots=N shoots every frames/N frames, so a caller that wants N shots of a
+// pass need not know its length (parity/goldencheck.sh).
 //
 // Plain, it draws through HSRendererGL and writes <outdir>/NNNNN_gl.png.
 // renderer=metal draws through HSRendererMetal, compiled from <metal-dir>, and
@@ -146,13 +149,27 @@ static std::vector<uint8_t> readPNG(NSString *path, int &w, int &h)
     std::vector<uint8_t> px;
     CGImageSourceRef src = CGImageSourceCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:path], NULL);
     CGImageRef img = src ? CGImageSourceCreateImageAtIndex(src, 0, NULL) : NULL;
+    // The decoded bytes as stored, not drawn into a context: drawing converts
+    // from the file's colour profile, and goldens (--compare-golden) are read
+    // on machines other than the one that wrote them. writePNG writes 8-bit
+    // RGB or RGBX; anything else is refused rather than guessed at.
     if (img) {
         w = (int)CGImageGetWidth(img); h = (int)CGImageGetHeight(img);
-        px.resize((size_t)w * h * 4);
-        CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-        CGContextRef bc = CGBitmapContextCreate(px.data(), w, h, 8, (size_t)w * 4, cs, (CGBitmapInfo)kCGImageAlphaNoneSkipLast);
-        CGContextDrawImage(bc, CGRectMake(0, 0, w, h), img);
-        CGContextRelease(bc); CGColorSpaceRelease(cs); CGImageRelease(img);
+        size_t bpp = CGImageGetBitsPerPixel(img), bpr = CGImageGetBytesPerRow(img);
+        CFDataRef data = (CGImageGetBitsPerComponent(img) == 8 && (bpp == 24 || bpp == 32))
+            ? CGDataProviderCopyData(CGImageGetDataProvider(img)) : NULL;
+        if (data && (size_t)CFDataGetLength(data) >= bpr * h) {
+            const uint8_t *in = CFDataGetBytePtr(data);
+            px.resize((size_t)w * h * 4);
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++) {
+                    const uint8_t *s = in + y * bpr + x * (bpp / 8);
+                    uint8_t *d = &px[((size_t)y * w + x) * 4];
+                    d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = 255;
+                }
+        }
+        if (data) CFRelease(data);
+        CGImageRelease(img);
     }
     if (src) CFRelease(src);
     return px;
@@ -189,9 +206,9 @@ static std::vector<uint8_t> blockMean(const std::vector<uint8_t> &img, int &w, i
 // <new-dir>/NNNNN_diffx8.png: the per-pixel difference, times 8. A pass with
 // block > 1 compares block means, and its diff is of those: NNNNN_diffx8_blockN.png,
 // one pixel a block.
-static int compareRuns(NSString *refDir, NSString *newDir, NSString *newSuffix,
+static int compareRuns(NSString *refDir, NSString *refSuffix, NSString *newDir, NSString *newSuffix,
                        double max2, double max8, double maxBias, const char *same, const char *different,
-                       int block = 1, NSString *refSuffix = @"_gl.png")
+                       int block = 1)
 {
     auto shots = [](NSString *dir, NSString *suffix) -> NSArray<NSString *> * {
         NSArray<NSString *> *all = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:nil];
@@ -377,18 +394,18 @@ static int compareBackendCaustics(NSString *metalDir)
 int main(int argc, const char *argv[])
 {
     @autoreleasepool {
-        if (argc == 4 && !strcmp(argv[1], "--compare")) return compareRuns(@(argv[2]), @(argv[3]), @"_gl.png", 0.1, 0.01, 0.06, "SAME", "DIFFERENT");
+        if (argc == 4 && !strcmp(argv[1], "--compare")) return compareRuns(@(argv[2]), @"_gl.png", @(argv[3]), @"_gl.png", 0.1, 0.01, 0.06, "SAME", "DIFFERENT");
         if (argc == 4 && !strcmp(argv[1], "--compare-golden"))
-            return compareRuns(@(argv[2]), @(argv[3]), @"_backend.png", 0.1, 0.01, 0.06, "SAME", "DIFFERENT", 1, @"_backend.png");
+            return compareRuns(@(argv[2]), @"_backend.png", @(argv[3]), @"_backend.png", 0.1, 0.01, 0.06, "SAME", "DIFFERENT");
         if (argc == 3 && !strcmp(argv[1], "--backend-textures")) return compareBackendTextures(@(argv[2]));
         if (argc == 3 && !strcmp(argv[1], "--backend-caustics")) return compareBackendCaustics(@(argv[2]));
         if (argc == 5 && !strcmp(argv[1], "--compare-backend")) {
             for (const Pass &p : kPasses)
-                if (!strcmp(argv[2], p.name)) return compareRuns(@(argv[3]), @(argv[4]), @"_backend.png", p.max2, p.max8, p.maxBias, "PASS", "FAIL", p.block);
+                if (!strcmp(argv[2], p.name)) return compareRuns(@(argv[3]), @"_gl.png", @(argv[4]), @"_backend.png", p.max2, p.max8, p.maxBias, "PASS", "FAIL", p.block);
             fprintf(stderr, "unknown pass %s\n", argv[2]); return 2;
         }
         if (argc < 4) {
-            fprintf(stderr, "usage: parity <stars|goo|tunnel|burst|sun|goosoft> <metal-dir> <outdir> [renderer=metal] [frames=N] [every=N] [w=N] [h=N]\n"
+            fprintf(stderr, "usage: parity <stars|goo|tunnel|burst|sun|goosoft> <metal-dir> <outdir> [renderer=metal] [frames=N] [every=N|shots=N] [w=N] [h=N]\n"
                             "       parity --compare <ref-dir> <new-dir>\n"
                             "       parity --compare-backend <pass> <gl-dir> <backend-dir>\n"
                             "       parity --compare-golden <golden-dir> <backend-dir>\n"
@@ -400,7 +417,7 @@ int main(int argc, const char *argv[])
         for (const Pass &p : kPasses) if (!strcmp(argv[1], p.name)) pass = &p;
         if (!pass) { fprintf(stderr, "unknown pass %s\n", argv[1]); return 2; }
         NSString *metalDir = @(argv[2]), *outdir = @(argv[3]);
-        int frames = pass->frames, every = pass->every, w = 1280, h = 720;
+        int frames = pass->frames, every = pass->every, wantShots = 0, w = 1280, h = 720;
         bool backend = false;
         auto intOpt = [](const char *arg, const char *key, int &out) {
             size_t n = strlen(key);
@@ -411,10 +428,11 @@ int main(int argc, const char *argv[])
         };
         for (int i = 4; i < argc; i++) {
             if (!strcmp(argv[i], "renderer=metal")) backend = true;
-            else if (intOpt(argv[i], "frames=", frames) || intOpt(argv[i], "every=", every) ||
+            else if (intOpt(argv[i], "frames=", frames) || intOpt(argv[i], "every=", every) || intOpt(argv[i], "shots=", wantShots) ||
                      intOpt(argv[i], "w=", w) || intOpt(argv[i], "h=", h)) {}
             else { fprintf(stderr, "bad option %s\n", argv[i]); return 2; }
         }
+        if (wantShots) every = MAX(1, frames / wantShots);
         const float dt = 1.0f / 60.0f;
         [[NSFileManager defaultManager] createDirectoryAtPath:outdir withIntermediateDirectories:YES attributes:nil error:nil];
 
