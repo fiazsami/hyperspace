@@ -9,10 +9,12 @@
 //   burst   goo on, with a starburst set off at 1 s
 //   sun     the stars pass with the sun held in view
 //
-//   parity <pass> <metal-dir> <outdir> [renderer=metal] [frames=N] [every=N|shots=N] [w=N] [h=N]
+//   parity <pass> <metal-dir> <outdir> [renderer=metal] [frames=N] [every=N|shots=N] [w=N] [h=N] [samples=N]
 //
 // shots=N shoots every frames/N frames, so a caller that wants N shots of a
-// pass need not know its length (parity/goldencheck.sh).
+// pass need not know its length (parity/goldencheck.sh). samples=N is the
+// backend's samples per pixel, 1 unless given: GL draws aliased, so the
+// backend is judged against it at 1, and against its goldens at the saver's 4.
 //
 // Plain, it draws through HSRendererGL and writes <outdir>/NNNNN_gl.png.
 // renderer=metal draws through HSRendererMetal, compiled from <metal-dir>, and
@@ -412,7 +414,7 @@ int main(int argc, const char *argv[])
             fprintf(stderr, "unknown pass %s\n", argv[2]); return 2;
         }
         if (argc < 4) {
-            fprintf(stderr, "usage: parity <stars|goo|tunnel|burst|sun|goosoft> <metal-dir> <outdir> [renderer=metal] [frames=N] [every=N|shots=N] [w=N] [h=N]\n"
+            fprintf(stderr, "usage: parity <stars|goo|tunnel|burst|sun|goosoft> <metal-dir> <outdir> [renderer=metal] [frames=N] [every=N|shots=N] [w=N] [h=N] [samples=N]\n"
                             "       parity --compare <ref-dir> <new-dir>\n"
                             "       parity --compare-backend <pass> <gl-dir> <backend-dir>\n"
                             "       parity --compare-golden <golden-dir> <backend-dir>\n"
@@ -424,7 +426,7 @@ int main(int argc, const char *argv[])
         for (const Pass &p : kPasses) if (!strcmp(argv[1], p.name)) pass = &p;
         if (!pass) { fprintf(stderr, "unknown pass %s\n", argv[1]); return 2; }
         NSString *metalDir = @(argv[2]), *outdir = @(argv[3]);
-        int frames = pass->frames, every = pass->every, wantShots = 0, w = 1280, h = 720;
+        int frames = pass->frames, every = pass->every, wantShots = 0, samples = 1, w = 1280, h = 720;
         bool backend = false;
         auto intOpt = [](const char *arg, const char *key, int &out) {
             size_t n = strlen(key);
@@ -436,7 +438,7 @@ int main(int argc, const char *argv[])
         for (int i = 4; i < argc; i++) {
             if (!strcmp(argv[i], "renderer=metal")) backend = true;
             else if (intOpt(argv[i], "frames=", frames) || intOpt(argv[i], "every=", every) || intOpt(argv[i], "shots=", wantShots) ||
-                     intOpt(argv[i], "w=", w) || intOpt(argv[i], "h=", h)) {}
+                     intOpt(argv[i], "w=", w) || intOpt(argv[i], "h=", h) || intOpt(argv[i], "samples=", samples)) {}
             else { fprintf(stderr, "bad option %s\n", argv[i]); return 2; }
         }
         if (wantShots) every = MAX(1, frames / wantShots);
@@ -479,6 +481,7 @@ int main(int argc, const char *argv[])
             bd.usage = MTLTextureUsageRenderTarget; bd.storageMode = MTLStorageModeShared;
             backendTarget = [dev newTextureWithDescriptor:bd];
             metalRenderer = new HSRendererMetal((__bridge void *)dev, metalDir.fileSystemRepresentation);
+            metalRenderer->setSampleCount(samples);   // before the target, so the pipelines are built once
             metalRenderer->setTarget((__bridge void *)backendTarget);
             metalRenderer->setSoftGoo(pass->softGoo);
         }

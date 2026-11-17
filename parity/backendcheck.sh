@@ -27,26 +27,21 @@
 # goosoft fixtures and three backend stars fixtures).
 #
 # A pass named in parity/gl-retired is one the Metal saver no longer draws as GL
-# does, on purpose (ss-ss8): it is judged by parity/goldencheck.sh instead, and
-# the default run leaves it out, saying so. Named on the command line, it runs.
+# does, on purpose (ss-ss8). Its reference is then its goldens, not GL: the
+# backend and every one of its fixtures are drawn as parity/goldencheck.sh
+# draws them (six shots, 480x270, the saver's 4 samples) and judged by
+# `parity --compare-golden`. Every other pass is drawn at 1 sample, as GL draws.
 #
-#   parity/backendcheck.sh [stars|goo|tunnel|burst|sun|goosoft|textures|caustics ...]    default: all eight not retired
+#   parity/backendcheck.sh [stars|goo|tunnel|burst|sun|goosoft|textures|caustics ...]    default: all eight
 #
 # Exit 0 = the backend passes and every fixture is killed, 1 = otherwise,
 # 2 = a run or build failed.
 set -uo pipefail
 shopt -s nullglob
 cd "$(dirname "$0")/.."
-passes=("$@")
-if [ ${#passes[@]} -eq 0 ]; then
-    retired=$(grep -v '^#' parity/gl-retired 2>/dev/null | awk 'NF {print $1}')
-    for pass in stars goo tunnel burst sun goosoft textures caustics; do
-        if grep -qx "$pass" <<< "$retired"; then
-            printf '%-10s %-25s %s\n' retired "backend ($pass)" "$(grep "^$pass " parity/gl-retired)"
-        else passes+=("$pass"); fi
-    done
-    [ ${#passes[@]} -gt 0 ] || { echo "every pass is in parity/gl-retired: nothing to run" >&2; exit 2; }
-fi
+passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo tunnel burst sun goosoft textures caustics)
+retired=$(grep -v '^#' parity/gl-retired | awk 'NF {print $1}')
+GOLDEN_RUN=(shots=6 w=480 h=270 samples=4)   # as parity/goldencheck.sh draws
 
 OUT=.parity-build/backend
 rm -rf "$OUT"; mkdir -p "$OUT/variants"
@@ -54,19 +49,29 @@ parity/build.sh >/dev/null || exit 2
 
 bad=0
 for pass in "${passes[@]}"; do
+    against=GL
     if [ "$pass" = textures ] || [ "$pass" = caustics ]; then
         .parity-build/parity --backend-$pass metal > "$OUT/$pass.compare"; code=$?
         [ $code -le 1 ] || { echo "$pass failed: $(tail -1 "$OUT/$pass.compare")" >&2; exit 2; }
+    elif grep -qx "$pass" <<< "$retired"; then
+        [ -d "parity/golden/$pass" ] || { echo "$pass is in parity/gl-retired but has no goldens" >&2; exit 2; }
+        run=("${GOLDEN_RUN[@]}"); against=goldens
+        compare(){ .parity-build/parity --compare-golden "parity/golden/$pass" "$1"; }
     else
+        run=(); against=GL
+        compare(){ .parity-build/parity --compare-backend "$pass" "$OUT/$pass/gl" "$1"; }
         .parity-build/parity "$pass" metal "$OUT/$pass/gl" > "$OUT/$pass-gl.log" ||
             { echo "GL $pass run failed: $(tail -1 "$OUT/$pass-gl.log")" >&2; exit 2; }
-        .parity-build/parity "$pass" metal "$OUT/$pass/backend" renderer=metal > "$OUT/$pass-backend.log" ||
+    fi
+    if [ "$pass" != textures ] && [ "$pass" != caustics ]; then
+        .parity-build/parity "$pass" metal "$OUT/$pass/backend" renderer=metal ${run[@]+"${run[@]}"} > "$OUT/$pass-backend.log" ||
             { echo "backend $pass run failed: $(tail -1 "$OUT/$pass-backend.log")" >&2; exit 2; }
-        .parity-build/parity --compare-backend "$pass" "$OUT/$pass/gl" "$OUT/$pass/backend" > "$OUT/$pass.compare"; code=$?
+        compare "$OUT/$pass/backend" > "$OUT/$pass.compare"; code=$?
         [ $code -le 1 ] || { echo "compare $pass failed: $(tail -1 "$OUT/$pass.compare")" >&2; exit 2; }
     fi
     verdict=pass; [ $code -eq 0 ] || { verdict=FAIL; bad=1; }
-    printf '%-10s %-25s %s\n' "$verdict" "backend ($pass)" "$(tail -1 "$OUT/$pass.compare")"
+    label="backend ($pass)"; [ "${against:-}" = goldens ] && label="backend ($pass, goldens)"
+    printf '%-10s %-25s %s\n' "$verdict" "$label" "$(tail -1 "$OUT/$pass.compare")"
 
     fixtures=(parity/defects/backend_"$pass"_*.sed parity/defects/"$pass"_*.metal)
     [ "$pass" = goo ] && fixtures+=(parity/defects/goobuild_*.metal)
@@ -106,10 +111,10 @@ for pass in "${passes[@]}"; do
             "$bin" --backend-$pass "$metal" > "$OUT/variants/$name.log"; code=$?
             line=$(tail -1 "$OUT/variants/$name.log")
         else
-            "$bin" "$pass" "$metal" "$OUT/$pass/$name" renderer=metal > "$OUT/variants/$name.log"; code=$?
+            "$bin" "$pass" "$metal" "$OUT/$pass/$name" renderer=metal ${run[@]+"${run[@]}"} > "$OUT/variants/$name.log"; code=$?
             line=$(tail -1 "$OUT/variants/$name.log")
             if [ $code -eq 0 ]; then
-                .parity-build/parity --compare-backend "$pass" "$OUT/$pass/gl" "$OUT/$pass/$name" > "$OUT/variants/$name.compare"; code=$?
+                compare "$OUT/$pass/$name" > "$OUT/variants/$name.compare"; code=$?
                 line=$(tail -1 "$OUT/variants/$name.compare")
             fi
         fi
