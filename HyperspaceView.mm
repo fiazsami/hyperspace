@@ -133,7 +133,6 @@ static const double kMinFramesPerSecond = 60.0;
 	if (refresh <= 0)
 		refresh = kFallbackInterval;
 	lFrameInterval = hsFrameInterval(refresh, kMinFramesPerSecond);
-	lRefresh = refresh;
 	lSlack = 0.5 * refresh;
 	self.animationTimeInterval = refresh;
 }
@@ -302,13 +301,17 @@ static const double kProbeInterval = 0.25;
 				{
 					CFTimeInterval asked = CACurrentMediaTime();
 					// Not yet due (matchRefresh); half a refresh early still draws.
-					// A window with no screen draws every refresh: capped, the
-					// second display's window (screen nil) presented 44.5 of its
-					// 72 frames a second, held up to 13 refreshes, and looked
-					// painfully slow; uncapped it presented 98-105 and dropped
-					// none. Asked each frame, as the screen can change.
-					const CFTimeInterval interval = self.window.screen ? lFrameInterval : lRefresh;
-					if (!hsFrameDue(asked, &lNextDue, interval, lSlack))
+					// A window with no screen is not capped at all: it draws on
+					// every call, as before the cap. Capped, the second display's
+					// window (screen nil) presented 44.5 of its 72 frames a
+					// second, held up to 13 refreshes, and looked painfully slow;
+					// uncapped it presented 98-110 and dropped none. Its refresh
+					// is unknown -- matchRefresh's is the main screen's -- so no
+					// interval would be its own. Asked each frame, as the screen
+					// can change; the schedule starts afresh if it gains one.
+					if (self.window.screen == nil)
+						lNextDue = 0;
+					else if (!hsFrameDue(asked, &lNextDue, lFrameInterval, lSlack))
 						return;
 					// Frames are not reaching the screen: probe only (kUnseenLimit).
 					if (!self.isPreview && !hsShouldDraw(&lVisibility, asked, kUnseenLimit, kProbeInterval))

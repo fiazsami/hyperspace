@@ -72,8 +72,9 @@ __private_extern__ void cleanUp(HyperspaceSaverSettings *inSettings);
 __private_extern__ void setDefaults(HyperspaceSaverSettings *inSettings);
 // The interval to draw frames at on a display that refreshes every
 // refreshInterval seconds: every n-th refresh, the largest n that draws at
-// least minPerSecond frames a second less 0.5%, so every frame stays on screen
-// the same number of refreshes. 144 Hz at 60 gives 1/72; 120 Hz 1/60; a
+// least minPerSecond frames a second less 0.5%. A whole n is what lets frames
+// be held evenly, where calls come on the refreshes (hsFrameDue says when
+// they do not). 144 Hz at 60 gives 1/72; 120 Hz 1/60; a
 // display at or under minPerSecond, every refresh. The 0.5% is for rates
 // reported a hair under a whole one: 119.88 Hz draws 59.94, not 119.88.
 // refreshInterval and minPerSecond must be > 0.
