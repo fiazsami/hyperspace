@@ -76,7 +76,8 @@ __private_extern__ void setDefaults(HyperspaceSaverSettings *inSettings);
 // of whose frames are shown keeps drawing. Zero-initialised is a view drawing
 // normally.
 struct HSVisibility { double unseenSince; double probeAt; };
-// A frame's fate, as its drawable's presented handler reports it, at time now.
+// A frame's fate, as its drawable's presented handler reports it, at time now
+// (> 0: a zero unseenSince is the drawing state).
 __private_extern__ void hsFramePresented(HSVisibility *v, bool shown, double now);
 // Whether to draw a frame at time now.
 __private_extern__ bool hsShouldDraw(HSVisibility *v, double now, double unseenLimit, double probeInterval);
