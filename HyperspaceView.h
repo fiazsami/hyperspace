@@ -42,6 +42,9 @@ class HSRendererMetal;
 	HSVisibility lVisibility;   // whether this view's frames reach the screen (main thread only)
 	unsigned lVisibilityEpoch;  // bumped on each reset, so reports from frames before it are dropped
 	CFTimeInterval lLastFrame;   // CACurrentMediaTime the next frame's step is measured from; 0 = no step
+	CFTimeInterval lFrameInterval;   // a whole number of refreshes: the interval frames are drawn at (matchRefresh)
+	CFTimeInterval lSlack;           // half a refresh: how early a call may be and still draw
+	CFTimeInterval lNextDue;         // CACurrentMediaTime the next frame is due; 0 = draw the next call
 	
 	IBOutlet NSWindow *ibConfigureSheet;
 	IBOutlet NSTextField *ibVersionTxt;

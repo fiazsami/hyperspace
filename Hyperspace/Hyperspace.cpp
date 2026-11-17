@@ -320,6 +320,22 @@ void draw(HyperspaceSaverSettings *inSettings){
 }*/
 
 
+double hsFrameInterval(double refreshInterval, double minPerSecond){
+	// 0.5% of tolerance, relative: 119.88 / 60 is 1.998 and must count as 2,
+	// while 119.4 / 60, 1.99, must not -- it would draw 59.7 a second.
+	const double perFrame = floor(1.005 / (refreshInterval * minPerSecond));
+	return refreshInterval * (perFrame > 1.0 ? perFrame : 1.0);
+}
+
+
+bool hsFrameDue(double now, double *nextDue, double interval, double slack){
+	if(*nextDue > 0.0 && now < *nextDue - slack)
+		return false;
+	*nextDue = (*nextDue > 0.0 && now - *nextDue < interval) ? *nextDue + interval : now + interval;
+	return true;
+}
+
+
 void hsFramePresented(HSVisibility *v, bool shown, double now){
 	if(shown)
 		v->unseenSince = 0.0;

@@ -34,6 +34,10 @@
 static const CFTimeInterval kMaxFrameTime = 0.1;
 // The frame interval when no screen answers with its refresh.
 static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
+// The rate the saver may drop to on a faster display: it draws every n-th
+// refresh, keeping at least this many frames a second (matchRefresh). A
+// display slower than this draws every refresh.
+static const double kMinFramesPerSecond = 60.0;
 
 @interface HyperspaceView (Private)
 - (void)readDefaults:(ScreenSaverDefaults *)inDefaults;
@@ -102,19 +106,35 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 }
 
 
-// Paces frames to the fastest refresh of the screen the view is on.
+// Paces frames to the refresh of the screen the view is on, drawing every
+// n-th refresh (hsFrameInterval): 144 Hz draws 72, 120 Hz 60, 165 Hz 82.5,
+// 60 Hz every refresh. Measured on two 144 Hz displays, 72 a second looked no
+// different and the saver's CPU fell from 45% to 38% of a core (ss-50r).
 // minimumRefreshInterval is the shortest interval; maximumRefreshInterval is
 // the longest, the slowest rate a variable-refresh display drops to. The
 // window's screen is nil for most windows inside legacyScreenSaver (hills
 // measured 25 in 32), and a nil screen answers 0 -- a timer that runs flat
 // out -- so the main screen is used instead, then kFallbackInterval.
+// The macOS 26 host calls animateOneFrame at its own rate whatever
+// animationTimeInterval says (measured: an interval of 1/72 still drew about
+// 105 frames a second), so animateOneFrame keeps its own schedule
+// (hsFrameDue): a frame is due one interval after the last one was due,
+// whatever the host's cadence. That holds the rate; frames are evenly spaced
+// only where the host calls on the refreshes (ss-83i would take the cadence
+// from the display instead). The host is asked for one refresh, the finest
+// any schedule needs. Frames present when done: each frame's step is the time
+// since the last, so the scene moves at the speed the frames are shown.
 - (void)matchRefresh
 {
 	if (lView == nil)
 		return;	// nothing draws here: main screen only, or Metal failed
 	NSScreen *screen = self.window.screen ?: [NSScreen mainScreen];
 	NSTimeInterval refresh = screen.minimumRefreshInterval;
-	self.animationTimeInterval = refresh > 0 ? refresh : kFallbackInterval;
+	if (refresh <= 0)
+		refresh = kFallbackInterval;
+	lFrameInterval = hsFrameInterval(refresh, kMinFramesPerSecond);
+	lSlack = 0.5 * refresh;
+	self.animationTimeInterval = refresh;
 }
 
 
@@ -176,6 +196,7 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 	// and so the screen, may have changed since the view moved to it.
 	[self matchRefresh];
 	lLastFrame = 0;	// the first frame after a start takes no step
+	lNextDue = 0;	// and is drawn on the first call
 	[self resetVisibility];
     [super startAnimation];
 	
@@ -278,10 +299,20 @@ static const double kProbeInterval = 0.25;
 			{
 				@autoreleasepool	// so each frame's drawable goes back to the layer promptly
 				{
-					// Waits while every drawable is in flight, which is what paces
-					// the saver to the display; nil only after the layer's
-					// one-second timeout, as when the display sleeps.
 					CFTimeInterval asked = CACurrentMediaTime();
+					// Not yet due (matchRefresh); half a refresh early still draws.
+					// A window with no screen is not capped at all: it draws on
+					// every call, as before the cap. Capped, the second display's
+					// window (screen nil) presented 44.5 of its 72 frames a
+					// second, held up to 13 refreshes, and looked painfully slow;
+					// uncapped it presented 98-110 and dropped none. Its refresh
+					// is unknown -- matchRefresh's is the main screen's -- so no
+					// interval would be its own. Asked each frame, as the screen
+					// can change; the schedule starts afresh if it gains one.
+					if (self.window.screen == nil)
+						lNextDue = 0;
+					else if (!hsFrameDue(asked, &lNextDue, lFrameInterval, lSlack))
+						return;
 					// Frames are not reaching the screen: probe only (kUnseenLimit).
 					if (!self.isPreview && !hsShouldDraw(&lVisibility, asked, kUnseenLimit, kProbeInterval))
 					{
@@ -291,6 +322,8 @@ static const double kProbeInterval = 0.25;
 						lLastFrame = 0;
 						return;
 					}
+					// Waits only while every drawable is in flight; nil only after
+					// the layer's one-second timeout, as when the display sleeps.
 					id<CAMetalDrawable> drawable = [lLayer nextDrawable];
 					CFTimeInterval now = CACurrentMediaTime();
 					// A long wait for a drawable is a stall, and it is dropped,
