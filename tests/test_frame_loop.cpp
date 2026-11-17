@@ -98,6 +98,28 @@ void frame(HyperspaceSaverSettings *s, float seconds)
 }
 }
 
+TEST(hsCoveredByNewer_yields_only_to_a_later_window_in_the_same_place)
+{
+    const HSWindowSlot me = {0, 0, 3440, 1440, 3600};
+    const HSWindowSlot later = {0, 0, 3440, 1440, 3611};
+    const HSWindowSlot earlier = {0, 0, 3440, 1440, 3500};
+    const HSWindowSlot elsewhere = {0, -1440, 3440, 1440, 3612};
+    const HSWindowSlot smaller = {0, 0, 1720, 1440, 3613};
+    const HSWindowSlot itself = {0, 0, 3440, 1440, 3600};
+
+    CHECK(hsCoveredByNewer(me, &later, 1));
+    CHECK(!hsCoveredByNewer(me, &earlier, 1));
+    CHECK(!hsCoveredByNewer(me, &elsewhere, 1));   // the other display
+    CHECK(!hsCoveredByNewer(me, &smaller, 1));
+    CHECK(!hsCoveredByNewer(me, &itself, 1));     // never yields to its own window
+    CHECK(!hsCoveredByNewer(me, nullptr, 0));
+    // The measured case: three windows, the first covered, the others drawn.
+    const HSWindowSlot all[] = {me, later, elsewhere};
+    CHECK(hsCoveredByNewer(all[0], all, 3));
+    CHECK(!hsCoveredByNewer(all[1], all, 3));
+    CHECK(!hsCoveredByNewer(all[2], all, 3));
+}
+
 TEST(setDefaults_picks_the_shipped_settings)
 {
     HyperspaceSaverSettings s;

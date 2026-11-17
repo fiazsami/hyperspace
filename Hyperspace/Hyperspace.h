@@ -70,5 +70,11 @@ __private_extern__ void reshape(int width, int height, HyperspaceSaverSettings *
 __private_extern__ void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer);
 __private_extern__ void cleanUp(HyperspaceSaverSettings *inSettings);
 __private_extern__ void setDefaults(HyperspaceSaverSettings *inSettings);
+// A saver window: its frame, and the window number the window server gave it.
+struct HSWindowSlot { double x, y, width, height; long number; };
+// Whether one of others has exactly me's frame and a higher window number: a
+// window opened later in the same place, which covers me. The macOS 26 host
+// was measured leaving such a window behind, drawing frames never shown.
+__private_extern__ bool hsCoveredByNewer(const HSWindowSlot &me, const HSWindowSlot *others, int count);
 
 #endif

@@ -42,6 +42,9 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 
 @implementation HyperspaceView
 
+// Every view between startAnimation and stopAnimation, held weakly.
+static NSHashTable<HyperspaceView *> *sAnimating;
+
 - (id)initWithFrame:(NSRect)frame isPreview:(BOOL)isPreview
 {
 	NSString *identifier = [[NSBundle bundleForClass:[self class]] bundleIdentifier];
@@ -168,6 +171,9 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 	[self matchRefresh];
 	lLastFrame = 0;	// the first frame after a start takes no step
     [super startAnimation];
+	if (sAnimating == nil)
+		sAnimating = [NSHashTable weakObjectsHashTable];
+	[sAnimating addObject:self];
 	
 	if (lIsConfiguring == NO && lView)
     {
@@ -200,6 +206,7 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 
 - (void)stopAnimation
 {
+	[sAnimating removeObject:self];
     [super stopAnimation];
 	
 	if (lIsConfiguring == NO && lView)
@@ -247,12 +254,41 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 }
 
 
+// The macOS 26 host was measured leaving a saver window behind under a newer
+// one in exactly the same place (window 3600 under 3611): both reported
+// themselves visible, and the covered one drew 72 frames a second of which
+// none reached the screen, a third of the saver's drawing (ss-287). Such a
+// view draws nothing until the window over it goes.
+- (BOOL)isCoveredByNewer
+{
+	NSWindow *window = self.window;
+	if (window == nil || sAnimating.count < 2)
+		return NO;
+	HSWindowSlot others[8];
+	int count = 0;
+	for (HyperspaceView *view in sAnimating)
+	{
+		NSWindow *w = view.window;
+		if (view == self || w == nil || count == 8)
+			continue;
+		others[count++] = {w.frame.origin.x, w.frame.origin.y, w.frame.size.width, w.frame.size.height, (long)w.windowNumber};
+	}
+	const HSWindowSlot me = {window.frame.origin.x, window.frame.origin.y, window.frame.size.width, window.frame.size.height, (long)window.windowNumber};
+	return hsCoveredByNewer(me, others, count);
+}
+
+
 - (void)animateOneFrame
 {
 	if (lIsConfiguring == NO && lView)
     {
         if (lMainScreen || !lMainScreenOnly)
         {
+			if ([self isCoveredByNewer])
+			{
+				lLastFrame = 0;	// so it resumes without a step for the time it was covered
+				return;
+			}
 			if (lSettings.readyToDraw && lRenderer)
 			{
 				@autoreleasepool	// so each frame's drawable goes back to the layer promptly

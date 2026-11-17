@@ -320,6 +320,16 @@ void draw(HyperspaceSaverSettings *inSettings){
 }*/
 
 
+bool hsCoveredByNewer(const HSWindowSlot &me, const HSWindowSlot *others, int count){
+	for(int i = 0; i < count; i++){
+		const HSWindowSlot &o = others[i];
+		if(o.number > me.number && o.x == me.x && o.y == me.y && o.width == me.width && o.height == me.height)
+			return true;
+	}
+	return false;
+}
+
+
 void setDefaults(HyperspaceSaverSettings *inSettings){
 	inSettings->dSpeed = 23;
 	inSettings->dStars = 2000;
