@@ -16,6 +16,9 @@
 #include "harness.h"
 #include "recorder.h"
 
+#include <utility>
+#include <vector>
+
 #include "Hyperspace/renderer.h"
 #include "Hyperspace/transform.h"
 #include "Hyperspace/splinePath.h"
@@ -98,44 +101,77 @@ void frame(HyperspaceSaverSettings *s, float seconds)
 }
 }
 
-TEST(hsShouldDraw_keeps_drawing_a_view_whose_frames_are_seen_at_all)
+namespace {
+// Frames drawn in seconds of calls every 1/72 s, each frame's fate (shown(c),
+// for a frame drawn on call c) reported `lag` calls after it was drawn, as the
+// presented handlers report several frames late.
+template <typename Shown>
+int drawnWith(Shown shown, double seconds, int lag = 3)
 {
-    // The second display under the frame cap: about one frame in three never
-    // shown, in short runs. It must never stop.
     HSVisibility v = {};
+    std::vector<std::pair<int, bool>> inFlight;   // (call it lands on, shown)
     int drawn = 0;
-    for (int i = 0; i < 720; i++)
+    for (int call = 0; call < int(seconds * 72); call++)
     {
-        drawn += hsShouldDraw(&v, i / 72.0, 72, 1.0);
-        hsFramePresented(&v, i % 3 != 0 && i % 7 != 0);
+        const double now = 1.0 + call / 72.0;
+        for (size_t i = 0; i < inFlight.size();)
+            if (inFlight[i].first <= call)
+            {
+                hsFramePresented(&v, inFlight[i].second, now);
+                inFlight.erase(inFlight.begin() + i);
+            }
+            else
+                i++;
+        if (hsShouldDraw(&v, now, 1.0, 0.25))
+        {
+            inFlight.push_back({call + lag, shown(call)});
+            drawn++;
+        }
     }
-    CHECK(drawn == 720);
+    return drawn;
+}
 }
 
-TEST(hsShouldDraw_probes_once_a_second_after_a_second_of_frames_never_shown)
+TEST(hsShouldDraw_keeps_drawing_a_view_whose_frames_are_seen_at_all)
+{
+    // The second display under the frame cap: about a third never shown, in
+    // short runs. It must never stop.
+    CHECK(drawnWith([](int k) { return k % 3 != 0 && k % 7 != 0; }, 10.0) == 720);
+    // Just under a second unseen, then one shown, over and over: never stops.
+    CHECK(drawnWith([](int k) { return k % 70 == 69; }, 10.0) == 720);
+}
+
+TEST(hsShouldDraw_probes_four_times_a_second_after_a_second_of_frames_never_shown)
 {
     // The stale window under the real one: Metal presented none of its frames.
-    HSVisibility v = {};
-    int drawn = 0;
-    for (int i = 0; i < 720; i++)   // ten seconds at 72 calls a second
-        if (hsShouldDraw(&v, i / 72.0, 72, 1.0))
-        {
-            drawn++;
-            hsFramePresented(&v, false);
-        }
-    CHECK(drawn == 72 + 9);   // the first second, then one probe a second
+    // About a second of frames (plus those in flight), then a probe each 1/4 s.
+    const int drawn = drawnWith([](int) { return false; }, 10.0);
+    CHECK(drawn >= 72 + 4 * 8);
+    CHECK(drawn <= 76 + 4 * 9 + 1);
 }
 
 TEST(hsShouldDraw_resumes_when_a_probe_is_shown)
 {
+    // Unseen for three seconds, then the window comes back: full rate again
+    // within a probe interval and the handlers' lag -- the last seven seconds
+    // drawn but for a third of a second.
+    const int drawn = drawnWith([](int c) { return c >= 216; }, 10.0);
+    CHECK(drawn >= 72 * 7 - 24 + 72);
+    CHECK(drawn < 720 - 72);   // and it did pause while unseen
+}
+
+TEST(hsShouldDraw_measures_the_unseen_time_from_the_first_frame_not_shown)
+{
     HSVisibility v = {};
-    for (int i = 0; i < 72; i++)
-        hsFramePresented(&v, false);
-    CHECK(hsShouldDraw(&v, 10.0, 72, 1.0));    // the probe
-    CHECK(!hsShouldDraw(&v, 10.5, 72, 1.0));
-    hsFramePresented(&v, true);                 // the window came back
-    CHECK(hsShouldDraw(&v, 10.51, 72, 1.0));
-    CHECK(hsShouldDraw(&v, 10.52, 72, 1.0));
+    hsFramePresented(&v, false, 5.0);
+    hsFramePresented(&v, false, 5.5);       // does not restart the clock
+    CHECK(hsShouldDraw(&v, 5.99, 1.0, 0.25));
+    CHECK(hsShouldDraw(&v, 6.0, 1.0, 0.25)); // the first probe
+    CHECK(!hsShouldDraw(&v, 6.1, 1.0, 0.25));
+    CHECK(hsShouldDraw(&v, 6.25, 1.0, 0.25));
+    hsFramePresented(&v, true, 6.3);
+    CHECK(hsShouldDraw(&v, 6.31, 1.0, 0.25));
+    CHECK(hsShouldDraw(&v, 6.32, 1.0, 0.25));
 }
 
 TEST(setDefaults_picks_the_shipped_settings)

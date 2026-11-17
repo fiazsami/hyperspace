@@ -40,6 +40,7 @@ class HSRendererMetal;
 	BOOL lIsConfiguring;
 	
 	HSVisibility lVisibility;   // whether this view's frames reach the screen (main thread only)
+	unsigned lVisibilityEpoch;  // bumped on each reset, so reports from frames before it are dropped
 	CFTimeInterval lLastFrame;   // CACurrentMediaTime the next frame's step is measured from; 0 = no step
 	
 	IBOutlet NSWindow *ibConfigureSheet;

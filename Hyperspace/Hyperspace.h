@@ -71,13 +71,14 @@ __private_extern__ void initSaver(HyperspaceSaverSettings *inSettings, HSRendere
 __private_extern__ void cleanUp(HyperspaceSaverSettings *inSettings);
 __private_extern__ void setDefaults(HyperspaceSaverSettings *inSettings);
 // Whether a view's frames are reaching the screen, from what became of them:
-// after unseenLimit frames in a row never shown, the view draws only one probe
-// frame each probeInterval seconds, until one is shown. A view whose frames
-// are seen at all keeps drawing. Zero-initialised is a view drawing normally.
-struct HSVisibility { int unseen; double probeAt; };
-// A frame's fate, as its drawable's presented handler reports it.
-__private_extern__ void hsFramePresented(HSVisibility *v, bool shown);
+// after unseenLimit seconds in which no frame was shown, the view draws only
+// one probe frame each probeInterval seconds, until one is shown. A view any
+// of whose frames are shown keeps drawing. Zero-initialised is a view drawing
+// normally.
+struct HSVisibility { double unseenSince; double probeAt; };
+// A frame's fate, as its drawable's presented handler reports it, at time now.
+__private_extern__ void hsFramePresented(HSVisibility *v, bool shown, double now);
 // Whether to draw a frame at time now.
-__private_extern__ bool hsShouldDraw(HSVisibility *v, double now, int unseenLimit, double probeInterval);
+__private_extern__ bool hsShouldDraw(HSVisibility *v, double now, double unseenLimit, double probeInterval);
 
 #endif

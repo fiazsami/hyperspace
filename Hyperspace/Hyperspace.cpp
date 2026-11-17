@@ -320,13 +320,16 @@ void draw(HyperspaceSaverSettings *inSettings){
 }*/
 
 
-void hsFramePresented(HSVisibility *v, bool shown){
-	v->unseen = shown ? 0 : v->unseen + 1;
+void hsFramePresented(HSVisibility *v, bool shown, double now){
+	if(shown)
+		v->unseenSince = 0.0;
+	else if(v->unseenSince == 0.0)
+		v->unseenSince = now;
 }
 
 
-bool hsShouldDraw(HSVisibility *v, double now, int unseenLimit, double probeInterval){
-	if(v->unseen < unseenLimit)
+bool hsShouldDraw(HSVisibility *v, double now, double unseenLimit, double probeInterval){
+	if(v->unseenSince == 0.0 || now - v->unseenSince < unseenLimit)
 		return true;
 	if(now < v->probeAt)
 		return false;

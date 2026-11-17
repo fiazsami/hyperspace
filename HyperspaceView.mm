@@ -153,9 +153,18 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 }
 
 
+// Drawing, until frames say otherwise; reports from earlier frames are dropped.
+- (void)resetVisibility
+{
+	lVisibility = HSVisibility();
+	lVisibilityEpoch++;
+}
+
+
 - (void)viewDidMoveToWindow
 {
 	[super viewDidMoveToWindow];
+	[self resetVisibility];
 	[self matchRefresh];
 	[self matchBacking];
 }
@@ -167,7 +176,7 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 	// and so the screen, may have changed since the view moved to it.
 	[self matchRefresh];
 	lLastFrame = 0;	// the first frame after a start takes no step
-	lVisibility = HSVisibility();	// drawing, until frames say otherwise
+	[self resetVisibility];
     [super startAnimation];
 	
 	if (lIsConfiguring == NO && lView)
@@ -251,12 +260,15 @@ static const NSTimeInterval kFallbackInterval = 1.0 / 60.0;
 // The macOS 26 host was measured leaving a saver window behind under a newer
 // one in the same place (window 3600 under 3611): both reported themselves
 // visible, and the covered one drew 72 frames a second of which Metal
-// presented none, a third of the saver's drawing (ss-287). So a view goes by
-// what became of its frames rather than by what its window says: after a
-// second of frames never shown, it draws one probe frame a second until one
-// is shown (hsShouldDraw). A view whose frames are shown at all never pauses.
-static const int kUnseenLimit = 72;
-static const double kProbeInterval = 1.0;
+// presented none, a third of the saver's drawing (ss-287); occlusionState was
+// the same for it as for the windows on screen. So a view goes by what became
+// of its frames rather than by what its window says: after a second in which
+// none was shown, it draws a probe frame each kProbeInterval until one is
+// (hsShouldDraw). A view any of whose frames are shown never pauses. The
+// preview never pauses: whether its frames report a presentedTime is not
+// measured, and a preview wrongly paused would look frozen.
+static const double kUnseenLimit = 1.0;
+static const double kProbeInterval = 0.25;
 
 - (void)animateOneFrame
 {
@@ -273,7 +285,7 @@ static const double kProbeInterval = 1.0;
 					// one-second timeout, as when the display sleeps.
 					CFTimeInterval asked = CACurrentMediaTime();
 					// Frames are not reaching the screen: probe only (kUnseenLimit).
-					if (!hsShouldDraw(&lVisibility, asked, kUnseenLimit, kProbeInterval))
+					if (!self.isPreview && !hsShouldDraw(&lVisibility, asked, kUnseenLimit, kProbeInterval))
 						return;
 					id<CAMetalDrawable> drawable = [lLayer nextDrawable];
 					CFTimeInterval now = CACurrentMediaTime();
@@ -289,12 +301,13 @@ static const double kProbeInterval = 1.0;
 					// is a frame Metal never presented. Handlers run off the main
 					// thread, and the count lives on it.
 					__weak HyperspaceView *weakSelf = self;
+					const unsigned epoch = lVisibilityEpoch;
 					[drawable addPresentedHandler:^(id<MTLDrawable> presented) {
 						const bool shown = presented.presentedTime > 0;
 						dispatch_async(dispatch_get_main_queue(), ^{
 							HyperspaceView *view = weakSelf;
-							if (view)
-								hsFramePresented(&view->lVisibility, shown);
+							if (view && view->lVisibilityEpoch == epoch)
+								hsFramePresented(&view->lVisibility, shown, CACurrentMediaTime());
 						});
 					}];
 					// The step is the time since the last frame, from a
