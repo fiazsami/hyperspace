@@ -92,6 +92,22 @@ static_assert(sizeof(TunnelUniforms) == 224 && offsetof(TunnelUniforms, fogColor
 	offsetof(TunnelUniforms, fogEnd) == 208 && offsetof(TunnelUniforms, fogScale) == 212,
 	"TunnelUniforms must match Interface.metal");
 
+struct StarUniforms {
+	simd_float4x4 view;
+	simd_float4x4 clipProjection;
+	simd_float4x4 projView;
+	simd_float4x4 lastProjView;
+	simd_float4 eye;
+	simd_float4 lastEye;
+	simd_float2 viewport;
+	simd_float2 lastViewport;
+	float unroll;
+	float pad[3];
+};
+static_assert(sizeof(StarUniforms) == 320 && offsetof(StarUniforms, eye) == 256 &&
+	offsetof(StarUniforms, viewport) == 288 && offsetof(StarUniforms, unroll) == 304,
+	"StarUniforms must match Interface.metal");
+
 struct TunnelShape {
 	float radius;
 	float widthOffset;
@@ -171,6 +187,15 @@ struct HSRendererMetalState {
 	// drawQuad's queue: quads in a run that shares a texture and fog, drawn
 	// instanced by flushQuads when the run ends or anything else draws.
 	id<MTLRenderPipelineState> quadPipeline;   // for pipelineFormat, rebuilt with the others
+	id<MTLRenderPipelineState> starPipeline;   // likewise
+	// drawStarField's: the stars, uploaded once a generation, and last frame's camera.
+	id<MTLBuffer> stars;
+	unsigned int starGeneration;
+	int starCount;
+	bool starsDrawn;   // a last frame to measure the stars' motion from
+	simd_float4x4 lastStarProjView;
+	simd_float3 lastStarEye;
+	simd_float2 lastStarViewport;
 	std::vector<QuadInstance> quads;
 	unsigned int quadTexture;
 	bool quadFog;
@@ -298,7 +323,11 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->ffLibrary = compilePass(st->device, metalDir, "FixedFunction.metal");
 	st->gooLibrary = compilePass(st->device, metalDir, "Goo.metal");
 	st->tunnelLibrary = compilePass(st->device, metalDir, "Tunnel.metal", true);
-	st->gooPipeline = st->tunnelPipeline = st->quadPipeline = nil;
+	st->gooPipeline = st->tunnelPipeline = st->quadPipeline = st->starPipeline = nil;
+	st->stars = nil;
+	st->starGeneration = 0;
+	st->starCount = 0;
+	st->starsDrawn = false;
 	st->quadTexture = 0;
 	st->quadFog = false;
 	st->pipelineFormat = MTLPixelFormatInvalid;
@@ -397,6 +426,7 @@ static void useTarget(HSRendererMetalState *st, id<MTLTexture> target){
 	if(st->target.pixelFormat == st->pipelineFormat)
 		return;
 	st->quadPipeline = additivePipeline(st->device, st->ffLibrary, @"ff_quad_vertex", @"ff_fragment", st->target.pixelFormat);
+	st->starPipeline = additivePipeline(st->device, st->ffLibrary, @"star_vertex", @"ff_fragment", st->target.pixelFormat);
 	st->gooPipeline = additivePipeline(st->device, st->gooLibrary, @"goo_vertex", @"goo_fragment", st->target.pixelFormat);
 	st->tunnelPipeline = additivePipeline(st->device, st->tunnelLibrary, @"tunnel_build_vertex", @"tunnel_fragment", st->target.pixelFormat);
 	st->softenPipeline = softenPipeline(st->device, st->softenLibrary, st->target.pixelFormat);
@@ -639,6 +669,69 @@ void HSRendererMetal::drawQuad(unsigned int texture, const float color[4], const
 	q.pad[0] = q.pad[1] = q.pad[2] = 0.0f;
 	st->quads.push_back(q);
 	st->draws++;
+}
+
+bool HSRendererMetal::drawsStars() const{
+	return true;
+}
+
+// One instanced draw of two quads a star (star_vertex). The stars are
+// uploaded once a generation; each frame sends only the camera, and keeps it
+// for the next frame's motion.
+void HSRendererMetal::drawStarField(const HSStarField &field){
+	if(!st->encoder)
+		fail("drawStarField", "outside a frame");
+	if(st->inGoo || st->inTunnel || st->inOverlay)
+		fail("drawStarField", "inside the goo, the tunnel or the overlay");
+	std::map<unsigned int, Texture>::const_iterator tex = st->textures.find(field.texture);
+	if(tex == st->textures.end())
+		fail("drawStarField", "unknown texture");
+	if(field.count < 1)
+		return;
+	flushQuads(st);
+	if(!st->stars || field.generation != st->starGeneration || field.count != st->starCount){
+		st->stars = [st->device newBufferWithBytes:field.stars
+			length:sizeof(float) * HS_STAR_FLOATS * size_t(field.count) options:MTLResourceStorageModeShared];
+		st->starGeneration = field.generation;
+		st->starCount = field.count;
+		st->starsDrawn = false;
+	}
+	const simd_float3 eye = simd_make_float3(field.eye[0], field.eye[1], field.eye[2]);
+	simd_float4x4 toEye = matrix_identity_float4x4;
+	toEye.columns[3] = simd_make_float4(eye, 1.0f);
+	StarUniforms u;
+	u.view = simd_mul(st->view, toEye);
+	u.clipProjection = st->clipProjection;
+	u.projView = simd_mul(st->projection, u.view);
+	u.lastProjView = st->starsDrawn ? st->lastStarProjView : u.projView;
+	u.eye = simd_make_float4(eye, field.depth);
+	u.lastEye = simd_make_float4(st->starsDrawn ? eye - st->lastStarEye : simd_make_float3(0, 0, 0),
+		st->starsDrawn ? 1.0f : 0.0f);
+	u.viewport = simd_make_float2(float(st->viewport.width), float(st->viewport.height));
+	u.lastViewport = st->starsDrawn ? st->lastStarViewport : u.viewport;
+	u.unroll = field.unroll;
+	u.pad[0] = u.pad[1] = u.pad[2] = 0.0f;
+	FFUniforms f;
+	f.modelview = f.mvp = matrix_identity_float4x4;   // per star, in star_vertex
+	f.fogColor = simd_make_float4(0, 0, 0, 1);
+	f.fogStart = st->fogStart;
+	f.fogEnd = st->fogEnd;
+	f.fogOn = st->fog;
+	f.texOn = 1;
+	[st->encoder setRenderPipelineState:st->starPipeline];
+	[st->encoder setVertexBuffer:st->stars offset:0 atIndex:0];
+	[st->encoder setVertexBytes:&u length:sizeof u atIndex:1];
+	[st->encoder setFragmentBytes:&f length:sizeof f atIndex:1];
+	[st->encoder setFragmentTexture:tex->second.texture atIndex:0];
+	[st->encoder setFragmentSamplerState:tex->second.sampler atIndex:0];
+	[st->encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4
+		instanceCount:NSUInteger(2 * field.count)];
+	// As many as the drawQuad pairs it replaces.
+	st->draws += 2 * field.count;
+	st->lastStarProjView = u.projView;
+	st->lastStarEye = eye;
+	st->lastStarViewport = u.viewport;
+	st->starsDrawn = true;
 }
 
 void HSRendererMetal::beginOverlay(float aspect){

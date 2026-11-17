@@ -304,6 +304,71 @@ TEST(initSaver_without_a_renderer_starts_nothing_and_cleanUp_frees_nothing)
     CHECK(s.renderer == NULL);
 }
 
+TEST(draw_hands_a_star_drawing_backend_the_stars_as_made_once_a_frame)
+{
+    FrameRecorder *r = new FrameRecorder;
+    r->starsOnGPU = true;
+    HyperspaceSaverSettings *s = started(r, false, false, true);
+    CHECK(s->starData != NULL);
+    for (int i = 0; i < s->dStars && s->starData; i++) {
+        const float *d = s->starData + HS_STAR_FLOATS * i;
+        const stretchedParticle *p = s->stars[i];
+        CHECK(d[0] == p->pos[0] && d[1] == p->pos[1] && d[2] == p->pos[2]);
+        CHECK(d[3] == p->radius);
+        CHECK(d[4] == p->color[0] && d[5] == p->color[1] && d[6] == p->color[2]);
+    }
+    /* Long frames, until the camera has rolled, so unroll is not 0. */
+    int frames = 0;
+    do { frame(s, 0.5f); frames++; } while (s->unroll == 0.0f && frames < 50);
+    CHECK(s->unroll != 0.0f);
+    CHECK(r->starFields.size() == size_t(frames));
+    for (const HSStarField &f : r->starFields) {
+        CHECK(f.stars == s->starData && f.count == 8);
+        CHECK(f.generation == s->starGeneration && f.generation != 0);
+        CHECK(f.texture == s->flaretex[0]);
+        CHECK(f.depth == s->depth);
+    }
+    /* The eye and roll are the frame's own. */
+    const HSStarField &last = r->starFields.back();
+    CHECK(last.eye[0] == s->camPos[0] && last.eye[1] == s->camPos[1] && last.eye[2] == s->camPos[2]);
+    CHECK(last.unroll == s->unroll);
+    /* The stars draw no quads of their own: those in flaretex[0] outside the
+     * overlay are the sun's aura and core, once a frame. */
+    int starQuads = 0;
+    for (const Strip &q : r->strips)
+        if (q.texture == s->flaretex[0] && !q.overlay) starQuads++;
+    CHECK(starQuads == 2 * frames);
+
+    /* A second start is a new generation; cleanUp frees the stars' data. */
+    FrameRecorder *r2 = new FrameRecorder;
+    HyperspaceSaverSettings *s2 = started(r2, false, false, true);
+    CHECK(s2->starGeneration != s->starGeneration);
+    cleanUp(s);
+    CHECK(s->starData == NULL);
+    cleanUp(s2);
+    delete s;
+    delete s2;
+}
+
+TEST(draw_hands_no_star_field_when_there_are_no_stars)
+{
+    FrameRecorder *r = new FrameRecorder;
+    r->starsOnGPU = true;
+    HyperspaceSaverSettings *s = new HyperspaceSaverSettings;
+    memset(s, 0, sizeof *s);
+    setDefaults(s);
+    s->dStars = 0;
+    s->dDepth = 1;
+    s->dResolution = 4;
+    s->first = 1;
+    reshape(400, 200, s);
+    initSaver(s, r);
+    frame(s, 0.1f);
+    CHECK(r->starFields.empty());
+    cleanUp(s);
+    delete s;
+}
+
 TEST(initSaver_builds_the_scene_the_settings_ask_for)
 {
     FrameRecorder *r = new FrameRecorder;

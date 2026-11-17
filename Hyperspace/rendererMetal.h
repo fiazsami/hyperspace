@@ -68,6 +68,9 @@ public:
 	void drawColorStrip(const HSColorVertex *v, int count);
 	void endOffscreen(unsigned char *rgb);
 	void drawQuad(unsigned int texture, const float color[4], const float model[16], float half);
+	// The stars are drawn here, on the GPU (metal/FixedFunction.metal).
+	bool drawsStars() const;
+	void drawStarField(const HSStarField &field);
 	void beginOverlay(float aspect);
 	void endOverlay();
 	void beginGoo(const float color[4], unsigned int nebula,

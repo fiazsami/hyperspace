@@ -40,6 +40,20 @@ struct QuadInstance {
     float    pad[3];
 };
 
+// star_vertex: the camera with the eye at the origin, this frame and last.
+struct StarUniforms {
+    float4x4 view;          // the frame's view, translated to the eye
+    float4x4 clipProjection;
+    float4x4 projView;      // GL projection * view: where hsProject puts a point
+    float4x4 lastProjView;  // the same, last frame
+    float4   eye;           // xyz; w = depth, the stars' wrap
+    float4   lastEye;       // xyz: this eye less last frame's; w = 1 if there was a last frame
+    float2   viewport;      // width, height
+    float2   lastViewport;
+    float    unroll;        // degrees
+    float    pad[3];
+};
+
 // Goo: VBO interleaved normal-first, exactly as Implicit/impSurface.cpp builds it.
 struct GooVertex { packed_float3 normal; packed_float3 position; };
 

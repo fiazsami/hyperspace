@@ -306,13 +306,31 @@ One replay fixture was retired. `stars_radialfog` fogged on radial distance in
 `ff_vertex`. Since ss-6ee the stars and flares are drawn instanced, through
 `ff_quad_vertex`, which is given only the z row of each quad's modelview, so
 radial distance cannot be written there; and `ff_vertex` now draws only
-offscreen, unfogged, where that fixture would survive. Three fixtures judge the
-quad path's fog depth instead: `stars_depth110` makes it 10% too deep (the
-vertex-side twin of `stars_fog110`, and the only subtle one),
-`stars_depthsigned` drops its abs(), and the backend's `depthcolumn` takes the
-modelview's third column for its z row. The last two amount to no fog at all.
+offscreen, unfogged, where that fixture would survive. Two fixtures judge the
+quad path's fog depth instead, in `quadCorner`, which `ff_quad_vertex` and the
+stars' `star_vertex` share: `stars_depth110` makes it 10% too deep (the
+vertex-side twin of `stars_fog110`, and the only subtle one), and
+`stars_depthsigned` drops its abs(), which amounts to no fog at all.
 The fragment-side fixtures (`fog110`, `notexture`, `nofog`, `fogalways`) judge
 the quad path unchanged.
+
+**The stars on the GPU** (ss-1f2). The backend draws the stars from where they
+began (`drawStarField`, `star_vertex`), so `drawQuad` no longer stands between
+the two runs for them. Six shader fixtures judge `star_vertex`: `nowrap`
+never wraps a star round the eye, `nostretch` and `noroll` drop the stretch and
+the roll, `coreaura` colours the core like the aura, `lastcamera` measures the
+motion through this frame's camera twice, and `jumpless` measures it for the
+same world point both frames. `jumpless` is the defect the pass caught while
+the stars were written: on the CPU a star that wraps is stretched for a frame
+along its jump, from where it was before the wrap to where it is after, and the
+pass fails without that (0.658% / 0.408% against 1% / 0.1%). Two backend
+fixtures that judged `drawQuad` through the stars were retired, since no pass
+can see them now: `depthcolumn` (the quad's fog depth from the wrong row of its
+modelview) leaves the starburst's quads, all well inside the fog's start,
+unchanged, and `fogkey` (a batch not ended by a change of fog) needs a fogged
+quad batched with the unfogged sun, which the stars were. `onerun` and the
+quad path's `fogstart0` move to `burst`, whose quads still fill several runs
+and are fogged; the stars have a `fogstart0` of their own.
 
 Of the shader fixtures, the
 narrowest by lit>2 are `tunnel_fog110` (3.72% against 3%) and
@@ -344,15 +362,14 @@ under `goosoft`.
 `rendererMetal.mm`, built into its own `parity` with `build.sh --backend` and
 required to FAIL. Killed: the model matrix before the camera, fog from the eye,
 an overlay ignoring the aspect ratio, (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) blending,
-nearest sampling, the quad's color ignored, a run of batched quads not ended
-by a change of fog (`fogkey`), the quad's fog depth from the wrong row of its
-modelview (`depthcolumn`, which amounts to no fog), only a flush's first 36-quad run drawn
-(`onerun`); under `goo`, the GPU-built surface
+nearest sampling, the quad's color ignored, the stars' fog from the eye
+(`fogstart0`); under `goo`, the GPU-built surface
 drawn at the origin, its blocks' cells starting a whole block from their
 centres, the nebula and a normal map swapped, the fog scale as 1/end, and the
 normal-map mix dropped; under `tunnel`, the caustic frames swapped, their mix
 ignored (alpha 1), front faces culled, no culling, the fog ending twice as
-far, the fog scale as 1/end, and the camera left out of its projection; under `burst`, the sphere at radius 1 and half its bands; under `sun`,
+far, the fog scale as 1/end, and the camera left out of its projection; under `burst`, the sphere at radius 1 and half its bands, the quads' fog from
+the eye (`fogstart0`), only a flush's first 36-quad run drawn (`onerun`); under `sun`,
 `setFog(false)` ignored.
 
 No pass reads a texture back, so `parity --backend-textures` checks uploads

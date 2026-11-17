@@ -1,2 +1,2 @@
-# Kill-check fixture: Metal backend defect (fogstart0): fog starts at the eye instead of the frame's fogStart.
-s/u.fogStart = st->fogStart;/u.fogStart = 0.0f;/
+# Kill-check fixture: Metal backend defect (fogstart0): the stars' fog starting at the eye instead of fogStart.
+s/f.fogStart = st->fogStart;/f.fogStart = 0.0f;/

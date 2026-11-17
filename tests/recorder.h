@@ -57,6 +57,8 @@ public:
     std::vector<GooBegin> gooBegins;
     int gooEnds = 0;
     std::vector<std::vector<HSTunnelVertex> > tunnel;
+    bool starsOnGPU = false;                 // what drawsStars answers
+    std::vector<HSStarField> starFields;     // drawStarField's, when it does
     bool tunnelOnGPU = false;                // what buildsTunnel answers
     std::vector<HSTunnelField> tunnelFields; // drawTunnelField's, when it does
 
@@ -109,6 +111,8 @@ public:
         s.overlay = inOverlay;
         strips.push_back(s);
     }
+    bool drawsStars() const override { return starsOnGPU; }
+    void drawStarField(const HSStarField &field) override { starFields.push_back(field); }
     void beginOverlay(float a) override { inOverlay = true; aspect = a; overlays++; }
     void endOverlay() override { inOverlay = false; }
     void beginGoo(const float color[4], unsigned int nebula, unsigned int normals0,
