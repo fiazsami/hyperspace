@@ -156,7 +156,13 @@ static std::vector<uint8_t> readPNG(NSString *path, int &w, int &h)
     if (img) {
         w = (int)CGImageGetWidth(img); h = (int)CGImageGetHeight(img);
         size_t bpp = CGImageGetBitsPerPixel(img), bpr = CGImageGetBytesPerRow(img);
-        CFDataRef data = (CGImageGetBitsPerComponent(img) == 8 && (bpp == 24 || bpp == 32))
+        CGImageAlphaInfo alpha = CGImageGetAlphaInfo(img);
+        CGBitmapInfo order = CGImageGetBitmapInfo(img) & kCGBitmapByteOrderMask;
+        bool rgbFirst = order == kCGBitmapByteOrderDefault || order == kCGBitmapByteOrder32Big;
+        bool rgb = bpp == 24 ? alpha == kCGImageAlphaNone
+                 : bpp == 32 && rgbFirst && (alpha == kCGImageAlphaNoneSkipLast || alpha == kCGImageAlphaLast ||
+                                             alpha == kCGImageAlphaPremultipliedLast);
+        CFDataRef data = (CGImageGetBitsPerComponent(img) == 8 && rgb)
             ? CGDataProviderCopyData(CGImageGetDataProvider(img)) : NULL;
         if (data && (size_t)CFDataGetLength(data) >= bpr * h) {
             const uint8_t *in = CFDataGetBytePtr(data);
@@ -172,6 +178,7 @@ static std::vector<uint8_t> readPNG(NSString *path, int &w, int &h)
         CGImageRelease(img);
     }
     if (src) CFRelease(src);
+    if (px.empty()) w = h = 0;   // callers read empty as missing
     return px;
 }
 

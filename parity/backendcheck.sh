@@ -45,6 +45,7 @@ if [ ${#passes[@]} -eq 0 ]; then
             printf '%-10s %-25s %s\n' retired "backend ($pass)" "$(grep "^$pass " parity/gl-retired)"
         else passes+=("$pass"); fi
     done
+    [ ${#passes[@]} -gt 0 ] || { echo "every pass is in parity/gl-retired: nothing to run" >&2; exit 2; }
 fi
 
 OUT=.parity-build/backend

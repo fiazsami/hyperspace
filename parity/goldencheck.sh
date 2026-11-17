@@ -79,6 +79,7 @@ for k in "${KILL[@]}"; do
     IFS=: read -r name file pass <<< "$k"
     [[ " ${passes[*]} " == *" $pass "* ]] || continue
     fixture=parity/defects/$name.metal
+    [ -f "$fixture" ] || { echo "no fixture $fixture" >&2; exit 2; }
     base=$(head -1 "$fixture" | sed -n 's/.* base=\([0-9a-f]\{40\}\)$/\1/p')
     if [ "$base" != "$(git hash-object "metal/$file")" ]; then
         printf '%-10s %-25s made from another metal/%s\n' STALE "$name" "$file"; bad=1; continue
