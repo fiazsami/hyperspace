@@ -43,7 +43,7 @@ rm -rf "$OUT"; mkdir -p "$OUT"
 parity/build.sh >/dev/null || exit 2
 
 run(){  # pass metal-dir outdir
-    .parity-build/parity "$1" "$2" "$3" renderer=metal shots=$SHOTS w=480 h=270 samples=4 > "$3.log" ||
+    .parity-build/parity "$1" "$2" "$3" renderer=metal shots=$SHOTS w=480 h=270 samples=4 tunneldetail=2 > "$3.log" ||
         { echo "$1 run failed: $(tail -1 "$3.log")" >&2; exit 2; }
 }
 compare(){  # pass dir -> sets code

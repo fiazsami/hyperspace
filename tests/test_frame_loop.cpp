@@ -25,6 +25,8 @@
 #include "Hyperspace/transform.h"
 #include "Hyperspace/splinePath.h"
 #include "Hyperspace/stretchedParticle.h"
+#include "Hyperspace/tunnel.h"
+#include "Hyperspace/goo.h"
 #include "Hyperspace/starBurst.h"
 #include "Hyperspace/causticTextures.h"
 #include "Hyperspace/wavyNormalCubeMaps.h"
@@ -414,6 +416,36 @@ TEST(initSaver_builds_the_scene_the_settings_ask_for)
     CHECK(r->cubes[0][0].size == 256 && r->cubes[0][0].channels == 3);
     CHECK(r->cubes[0][0].levels[0] == std::vector<unsigned char>(&nebulamap[0][0][0], &nebulamap[0][0][0] + 256 * 256 * 3));
     CHECK(s->nebulatex == r->nextName);   // the last texture made
+    cleanUp(s);
+    delete s;
+}
+
+TEST(initSaver_builds_the_tunnel_as_much_finer_as_the_backend_asks)
+{
+    /* GL's own detail: a 20 x 20 tunnel. */
+    FrameRecorder *r = new FrameRecorder;
+    r->detail = 1;
+    HyperspaceSaverSettings *s = started(r, true, true, true);
+    CHECK(s->theTunnel != NULL && s->theTunnel->resolution == 20);
+    cleanUp(s);
+    delete s;
+
+    /* Twice as fine: the tunnel doubled, and nothing else -- the goo, and
+     * the fog and the stars' box that depth sizes, are GL's. */
+    r = new FrameRecorder;
+    r->detail = 2;
+    s = started(r, true, true, true);
+    CHECK(s->theTunnel != NULL && s->theTunnel->resolution == 40);
+    CHECK(s->theGoo != NULL && s->theGoo->resolution == 5);   /* 4, raised to goo's least, 5 */
+    CHECK_NEAR(s->depth, 1 * 2.0 - 2.0 / 4, kTol);
+    cleanUp(s);
+    delete s;
+
+    /* A detail below 1 is GL's. */
+    r = new FrameRecorder;
+    r->detail = 0;
+    s = started(r, true, true, true);
+    CHECK(s->theTunnel != NULL && s->theTunnel->resolution == 20);
     cleanUp(s);
     delete s;
 }

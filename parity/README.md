@@ -417,8 +417,9 @@ the Metal saver against approved images of itself from then on, rather than
 keeping every improvement behind a switch for the GL comparison.
 
 `parity/golden/<pass>/` holds six shots of each pass (stars, goo, tunnel,
-burst, sun, goosoft) drawn through the backend at 480x270 with the saver's 4
-samples a pixel (`samples=4`), about 3 MB in all.
+burst, sun, goosoft) drawn through the backend at 480x270 as the saver draws:
+4 samples a pixel (`samples=4`) and the tunnel twice as fine as GL's
+(`tunneldetail=2`). About 3 MB in all.
 `parity/goldencheck.sh` draws them again (`parity ... shots=6`, so it needs
 no pass's length) and compares with `parity --compare-golden`, under
 `--compare`'s rule (0.1% / 0.01% / bias 0.06). That rule fits because the
@@ -431,7 +432,7 @@ profile that differs on another Mac does not shift every pixel.
 
 It proves it can fail, every run: `tunnel_fog110`, `stars_fog110` and
 `stars_jumpstreak` are drawn against the goldens and must come out DIFFERENT
-(narrowest: `tunnel_fog110`, 0.110% against 0.1%; the goldens are
+(narrowest: `tunnel_fog110`, 0.109% against 0.1%; the goldens are
 deterministic for the tunnel, so that margin is stable). A fixture made from
 an older shader is STALE, as in the backend check.
 
@@ -445,12 +446,12 @@ hyperspace ss-ss8.3:
 | pass | why | |
 |---|---|---|
 | `stars` | no streak along a wrap (ss-ss8.2), 4x MSAA (ss-ss8.3) | judged by goldens |
-| `tunnel` | true cos and sin (ss-ss8.2), 4x MSAA | judged by goldens |
+| `tunnel` | true cos and sin (ss-ss8.2), 4x MSAA, built 40 x 40 rather than 20 x 20 (ss-ss8.4) | judged by goldens |
 | `sun` | the stars pass with the sun in view | judged by goldens |
 | `goo`, `burst`, `goosoft`, `textures`, `caustics` | unchanged at 1 sample | still judged against GL |
 
 With that, `backendcheck.sh` kills 78 fixtures. The narrowest against
-goldens are `tunnel_fog110` (0.110%) and `tunnel_radialfog` (0.118%).
+goldens are `tunnel_fog110` (0.109%) and `tunnel_radialfog` (0.118%).
 
 The first goldens (hyperspace 460ddbb) were the backend as parity proved it
 equal to GL; ss-ss8.2 and ss-ss8.3 replaced them with the approved look. A

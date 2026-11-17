@@ -224,6 +224,12 @@ public:
 	// The defaults are a backend that does not: drawTunnelField is never called.
 	virtual bool buildsTunnel() const { return false; }
 	virtual void drawTunnelField(const HSTunnelField &field) { (void)field; }
+	// How many times finer than GL's the tunnel is built (ss-ss8.4): initSaver
+	// multiplies its rings, and the points round each, by it. Read once, by
+	// initSaver. The default is GL's own 20 x 20. (The goo was tried at twice
+	// its resolution too and kept as it is: smoother, but darker, since its
+	// coarse facets add light, and twice the GPU time.)
+	virtual int tunnelDetail() const { return 1; }
 	virtual void endTunnel() = 0;
 };
 

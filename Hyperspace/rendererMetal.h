@@ -61,6 +61,11 @@ public:
 	// resolved into the target as the frame ends. A count the device cannot
 	// draw at, or a memoryless texture it cannot make, is taken as 1. Between frames only, like setTarget.
 	void setSampleCount(int samples);
+	// How many times finer than GL's this backend builds the tunnel
+	// (HSRenderer::tunnelDetail, ss-ss8.4): 2 from creation, the saver's look.
+	// initSaver reads it, so set it before initSaver; at least 1.
+	void setTunnelDetail(int detail);
+	int tunnelDetail() const;
 	// The id<MTLTexture> a create* call returned name for, or NULL.
 	void *texture(unsigned int name) const;
 

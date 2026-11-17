@@ -203,7 +203,8 @@ struct HSRendererMetalState {
 	id<MTLRenderPipelineState> gooPipeline, tunnelPipeline;
 	id<MTLRenderPipelineState> gooTargetPipeline;   // the goo into gooTarget, one sample
 	MTLPixelFormat pipelineFormat;
-	NSUInteger samples, pipelineSamples;   // setSampleCount's; those the pipelines were built for
+	NSUInteger samples, pipelineSamples;
+	int tunnelDetail;   // setTunnelDetail's   // setSampleCount's; those the pipelines were built for
 	id<MTLTexture> multisample;            // the frame's samples, memoryless, when samples > 1
 	id<MTLTexture> target;
 	id<CAMetalDrawable> drawable;   // set for one frame by setDrawable, presented by endFrame
@@ -390,6 +391,7 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->gooVertices = nil;
 	st->gooCapacity = 0;
 	st->softGoo = true;
+	st->tunnelDetail = 2;
 	st->samples = 4;
 	if(![st->device supportsTextureSampleCount:st->samples])
 		st->samples = 1;
@@ -483,6 +485,14 @@ void HSRendererMetal::setSoftGoo(bool soft){
 	if(st->encoder)
 		fail("setSoftGoo", "called inside a frame");
 	st->softGoo = soft;
+}
+
+void HSRendererMetal::setTunnelDetail(int detail){
+	st->tunnelDetail = std::max(1, detail);
+}
+
+int HSRendererMetal::tunnelDetail() const{
+	return st->tunnelDetail;
 }
 
 void HSRendererMetal::setSampleCount(int samples){

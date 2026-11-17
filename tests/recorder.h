@@ -60,6 +60,7 @@ public:
     bool starsOnGPU = false;                 // what drawsStars answers
     std::vector<HSStarField> starFields;     // drawStarField's, when it does
     bool tunnelOnGPU = false;                // what buildsTunnel answers
+    int detail = 1;                          // what tunnelDetail answers
     std::vector<HSTunnelField> tunnelFields; // drawTunnelField's, when it does
 
     void beginFrame(const HSFrame &) override {}
@@ -148,6 +149,7 @@ public:
         tunnel.push_back(std::vector<HSTunnelVertex>(v, v + count));
     }
     bool buildsTunnel() const override { return tunnelOnGPU; }
+    int tunnelDetail() const override { return detail; }
     void drawTunnelField(const HSTunnelField &field) override { tunnelFields.push_back(field); }
     void endTunnel() override {}
 };
