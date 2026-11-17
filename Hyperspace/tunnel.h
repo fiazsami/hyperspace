@@ -40,6 +40,7 @@ public:
 	float**** t;  // texture coordinate data
 	float**** c;  // color data
 	std::vector<HSTunnelVertex> strip;  // draw()'s, sized once here
+	HSTunnelField field;                // draw()'s for a backend that builds the tunnel, reused
 
 	float radius;
 	// offset for tunnel width

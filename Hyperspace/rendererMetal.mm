@@ -174,7 +174,7 @@ struct HSRendererMetalState {
 	std::vector<QuadInstance> quads;
 	unsigned int quadTexture;
 	bool quadFog;
-	id<MTLRenderPipelineState> gooPipeline, tunnelPipeline, tunnelBuildPipeline;
+	id<MTLRenderPipelineState> gooPipeline, tunnelPipeline;
 	MTLPixelFormat pipelineFormat;
 	id<MTLTexture> target;
 	id<CAMetalDrawable> drawable;   // set for one frame by setDrawable, presented by endFrame
@@ -207,7 +207,6 @@ struct HSRendererMetalState {
 	id<MTLTexture> blank;   // bound where a shader declares a texture it is told not to sample
 	bool inTunnel;
 	float tunnelAlpha;   // the caustics' mix, carried in every vertex's alpha
-	std::vector<ImmediateVertex> tunnelStrip;   // reused: a tunnel draws about 200 strips a frame
 	std::vector<simd_float4> tunnelPath;        // drawTunnelField's, reused
 	// The goo built on the GPU (drawGooField). The vertices are written and
 	// drawn by the GPU alone, so one buffer serves every frame: Metal orders
@@ -246,10 +245,18 @@ static NSString *readSource(const char *dir, const char *file){
 
 
 // Each pass file is compiled with the interface prepended, as parity does.
-static id<MTLLibrary> compilePass(id<MTLDevice> device, const char *dir, const char *file){
+// safeMath compiles without fast math, for a pass whose arithmetic must round
+// as the CPU's does: Tunnel.metal's rsCosf takes its table index from the bits
+// of value * K + 1.5 * 2^23, which a reassociated expression would change.
+static id<MTLLibrary> compilePass(id<MTLDevice> device, const char *dir, const char *file, bool safeMath = false){
 	NSString *src = [readSource(dir, "Interface.metal") stringByAppendingString:readSource(dir, file)];
 	NSError *err = nil;
-	id<MTLLibrary> lib = [device newLibraryWithSource:src options:nil error:&err];
+	MTLCompileOptions *options = nil;
+	if(safeMath){
+		options = [MTLCompileOptions new];
+		options.mathMode = MTLMathModeSafe;
+	}
+	id<MTLLibrary> lib = [device newLibraryWithSource:src options:options error:&err];
 	if(!lib)
 		fail(file, err.localizedDescription.UTF8String);
 	return lib;
@@ -290,8 +297,8 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->queue = [st->device newCommandQueue];
 	st->ffLibrary = compilePass(st->device, metalDir, "FixedFunction.metal");
 	st->gooLibrary = compilePass(st->device, metalDir, "Goo.metal");
-	st->tunnelLibrary = compilePass(st->device, metalDir, "Tunnel.metal");
-	st->gooPipeline = st->tunnelPipeline = st->tunnelBuildPipeline = st->quadPipeline = nil;
+	st->tunnelLibrary = compilePass(st->device, metalDir, "Tunnel.metal", true);
+	st->gooPipeline = st->tunnelPipeline = st->quadPipeline = nil;
 	st->quadTexture = 0;
 	st->quadFog = false;
 	st->pipelineFormat = MTLPixelFormatInvalid;
@@ -391,8 +398,7 @@ static void useTarget(HSRendererMetalState *st, id<MTLTexture> target){
 		return;
 	st->quadPipeline = additivePipeline(st->device, st->ffLibrary, @"ff_quad_vertex", @"ff_fragment", st->target.pixelFormat);
 	st->gooPipeline = additivePipeline(st->device, st->gooLibrary, @"goo_vertex", @"goo_fragment", st->target.pixelFormat);
-	st->tunnelPipeline = additivePipeline(st->device, st->tunnelLibrary, @"tunnel_vertex", @"tunnel_fragment", st->target.pixelFormat);
-	st->tunnelBuildPipeline = additivePipeline(st->device, st->tunnelLibrary, @"tunnel_build_vertex", @"tunnel_fragment", st->target.pixelFormat);
+	st->tunnelPipeline = additivePipeline(st->device, st->tunnelLibrary, @"tunnel_build_vertex", @"tunnel_fragment", st->target.pixelFormat);
 	st->softenPipeline = softenPipeline(st->device, st->softenLibrary, st->target.pixelFormat);
 	st->pipelineFormat = st->target.pixelFormat;
 }
@@ -1055,33 +1061,12 @@ void HSRendererMetal::beginTunnel(unsigned int caustic0, unsigned int caustic1, 
 	[st->encoder setFragmentBytes:&u length:sizeof u atIndex:1];
 }
 
+// This backend builds the tunnel itself (buildsTunnel), so tunnel::draw never
+// hands it strips.
 void HSRendererMetal::drawTunnelStrip(const HSTunnelVertex *v, int count){
-	if(!st->inTunnel)
-		fail("drawTunnelStrip", "outside beginTunnel/endTunnel");
-	if(count < 3)
-		return;
-	std::vector<ImmediateVertex> &verts = st->tunnelStrip;
-	verts.resize(count);
-	for(int i = 0; i < count; i++){
-		ImmediateVertex &o = verts[i];
-		o.position[0] = v[i].pos[0]; o.position[1] = v[i].pos[1]; o.position[2] = v[i].pos[2];
-		o.pad0 = 0.0f;
-		o.texcoord[0] = v[i].uv[0]; o.texcoord[1] = v[i].uv[1];
-		o.pad1[0] = o.pad1[1] = 0.0f;
-		o.color[0] = v[i].color[0]; o.color[1] = v[i].color[1]; o.color[2] = v[i].color[2];
-		o.color[3] = st->tunnelAlpha;
-	}
-	// The saver's strips are 42 vertices, about 2 KB: small enough for
-	// setVertexBytes, which Metal limits to 4 KB. A longer strip gets a buffer.
-	const size_t bytes = verts.size() * sizeof(ImmediateVertex);
-	if(bytes <= 4096)
-		[st->encoder setVertexBytes:verts.data() length:bytes atIndex:0];
-	else
-		[st->encoder setVertexBuffer:[st->device newBufferWithBytes:verts.data() length:bytes
-			options:MTLResourceStorageModeShared] offset:0 atIndex:0];
-	[st->encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:NSUInteger(count)];
-	st->draws++;
-	st->tunnelDraws++;
+	(void)v;
+	(void)count;
+	fail("drawTunnelStrip", "this backend builds the tunnel itself: draw it with drawTunnelField");
 }
 
 bool HSRendererMetal::buildsTunnel() const{
@@ -1121,7 +1106,6 @@ void HSRendererMetal::drawTunnelField(const HSTunnelField &field){
 	shape.lumhi = field.lumhi;
 	shape.resolution = uint32_t(field.resolution);
 	shape.numPoints = uint32_t(numPoints);
-	[st->encoder setRenderPipelineState:st->tunnelBuildPipeline];
 	[st->encoder setVertexBytes:&shape length:sizeof shape atIndex:0];
 	// The saver's longest path, depth 10, is 26 points: 832 bytes.
 	const size_t bytes = path.size() * sizeof(simd_float4);
@@ -1133,7 +1117,6 @@ void HSRendererMetal::drawTunnelField(const HSTunnelField &field){
 	[st->encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0
 		vertexCount:NSUInteger(2 * (field.resolution + 1))
 		instanceCount:NSUInteger(field.numSections * field.resolution)];
-	[st->encoder setRenderPipelineState:st->tunnelPipeline];
 	st->draws++;
 	st->tunnelDraws++;
 }

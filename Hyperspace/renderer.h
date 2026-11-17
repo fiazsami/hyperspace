@@ -71,7 +71,7 @@ struct HSGooField{
 // colors them.
 struct HSTunnelField{
 	std::vector<float> points;      // splinePath::xyz, x y z each
-	std::vector<float> directions;  // splinePath::dir, x y z each
+	std::vector<float> directions;  // splinePath::dir, x y z each; the first and last zero, as update leaves them unset
 	int numSections;
 	int resolution;
 	float radius;

@@ -181,12 +181,15 @@ void tunnel::make(float frameTime, bool dShaders, bool vertices){
 
 void tunnel::draw(HSRenderer *renderer){
 	if(renderer->buildsTunnel()){
-		HSTunnelField field;
-		field.points.reserve(3 * path->numPoints);
-		field.directions.reserve(3 * path->numPoints);
-		for(int p=0; p<path->numPoints; p++){
-			field.points.insert(field.points.end(), path->xyz[p], path->xyz[p] + 3);
-			field.directions.insert(field.directions.end(), path->dir[p], path->dir[p] + 3);
+		// splinePath::update sets the directions of points 1 to numPoints - 2
+		// only; no section reads the other two, so they go as zeros.
+		const int n = path->numPoints;
+		field.points.resize(3 * n);
+		field.directions.assign(3 * n, 0.0f);
+		for(int p=0; p<n; p++){
+			memcpy(&field.points[3 * p], path->xyz[p], 3 * sizeof(float));
+			if(p > 0 && p < n - 1)
+				memcpy(&field.directions[3 * p], path->dir[p], 3 * sizeof(float));
 		}
 		field.numSections = numSections;
 		field.resolution = resolution;

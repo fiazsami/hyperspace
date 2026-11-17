@@ -7,7 +7,7 @@ struct TunnelVaryings {
     float4 texcoord0;    // gl_TexCoord[0]
 };
 
-// What both vertex functions output for a vertex at pos (world space).
+// What tunnel_build_vertex outputs for a vertex at pos (world space).
 static TunnelVaryings tunnelVaryings(float3 pos, float2 texcoord, float4 color, constant TunnelUniforms &u)
 {
     // gl_Vertex from glVertex3fv has w = 1; gl_MultiTexCoord0 from glTexCoord2fv has r = 0, q = 1.
@@ -20,14 +20,6 @@ static TunnelVaryings tunnelVaryings(float3 pos, float2 texcoord, float4 color, 
     // ftransform() == gl_ModelViewProjectionMatrix * gl_Vertex.
     out.position = u.mvp * glVertex;
     return out;
-}
-
-vertex TunnelVaryings tunnel_vertex(uint vid [[vertex_id]],
-                                    const device TunnelVertex *v [[buffer(0)]],
-                                    constant TunnelUniforms &u [[buffer(1)]])
-{
-    TunnelVertex vert = v[vid];
-    return tunnelVaryings(float3(vert.position), vert.texcoord, vert.color, u);
 }
 
 // rsCosf and rsSinf (rsMath/rsTrigonometry.h), table for table: the
