@@ -31,6 +31,16 @@ struct FFUniforms {
     int      texOn;
 };
 
+// One drawQuad, batched (ff_quad_vertex): the quad's matrices as drawQuad
+// computed them, and the z row of its modelview, which is all fog reads.
+struct QuadInstance {
+    float4x4 mvp;
+    float4   modelviewZ;   // (modelview * p).z == dot(modelviewZ, p)
+    float4   color;
+    float    halfSize;
+    float    pad[3];
+};
+
 // Goo: VBO interleaved normal-first, exactly as Implicit/impSurface.cpp builds it.
 struct GooVertex { packed_float3 normal; packed_float3 position; };
 

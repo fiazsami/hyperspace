@@ -15,6 +15,21 @@ vertex FFOut ff_vertex(uint vid [[vertex_id]], const device FFVertex *v [[buffer
     return o;
 }
 
+// drawQuad's quads, instanced: instance i is the i-th queued quad, and vertex
+// v its corner (v & 1, v >> 1) -- hsQuad's order, drawn as a strip of 4.
+vertex FFOut ff_quad_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
+                            const device QuadInstance *q [[buffer(0)]])
+{
+    const float u = float(vid & 1), v = float(vid >> 1);
+    const float4 p = float4((2.0 * u - 1.0) * q[iid].halfSize, (2.0 * v - 1.0) * q[iid].halfSize, 0.0, 1.0);
+    FFOut o;
+    o.position = q[iid].mvp * p;
+    o.texcoord = float2(u, v);
+    o.color = saturate(q[iid].color);   // GL_CLAMP_VERTEX_COLOR defaults to TRUE
+    o.depth = abs(dot(q[iid].modelviewZ, p));
+    return o;
+}
+
 fragment float4 ff_fragment(FFOut in [[stage_in]], constant FFUniforms &u [[buffer(1)]],
                             texture2d<float> tex [[texture(0)]], sampler s [[sampler(0)]])
 {

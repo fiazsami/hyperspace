@@ -35,6 +35,14 @@ struct FFUniforms {
 	int texOn;
 };
 
+struct QuadInstance {
+	simd_float4x4 mvp;
+	simd_float4 modelviewZ;
+	simd_float4 color;
+	float halfSize;
+	float pad[3];
+};
+
 struct GooUniforms {
 	simd_float4x4 mvp;
 	simd_float4x4 modelview;
@@ -51,6 +59,8 @@ static_assert(sizeof(ImmediateVertex) == 48 && offsetof(ImmediateVertex, texcoor
 	offsetof(ImmediateVertex, color) == 32, "ImmediateVertex must match Interface.metal");
 static_assert(sizeof(FFUniforms) == 160 && offsetof(FFUniforms, fogColor) == 128 &&
 	offsetof(FFUniforms, fogStart) == 144 && offsetof(FFUniforms, texOn) == 156, "FFUniforms must match Interface.metal");
+static_assert(sizeof(QuadInstance) == 112 && offsetof(QuadInstance, modelviewZ) == 64 &&
+	offsetof(QuadInstance, color) == 80 && offsetof(QuadInstance, halfSize) == 96, "QuadInstance must match Interface.metal");
 static_assert(sizeof(GooUniforms) == 240 && offsetof(GooUniforms, color) == 128 &&
 	offsetof(GooUniforms, fogEnd) == 160 && offsetof(GooUniforms, fogScale) == 164 &&
 	offsetof(GooUniforms, projection) == 176, "GooUniforms must match Interface.metal");
@@ -143,6 +153,12 @@ struct HSRendererMetalState {
 	id<MTLDevice> device;
 	id<MTLCommandQueue> queue;
 	id<MTLLibrary> ffLibrary, gooLibrary, tunnelLibrary;
+	// drawQuad's queue: quads in a run that shares a texture and fog, drawn
+	// instanced by flushQuads when the run ends or anything else draws.
+	id<MTLRenderPipelineState> quadPipeline;   // for pipelineFormat, rebuilt with the others
+	std::vector<QuadInstance> quads;
+	unsigned int quadTexture;
+	bool quadFog;
 	id<MTLRenderPipelineState> ffPipeline, gooPipeline, tunnelPipeline;
 	MTLPixelFormat pipelineFormat;
 	id<MTLTexture> target;
@@ -277,7 +293,9 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->ffLibrary = compilePass(st->device, metalDir, "FixedFunction.metal");
 	st->gooLibrary = compilePass(st->device, metalDir, "Goo.metal");
 	st->tunnelLibrary = compilePass(st->device, metalDir, "Tunnel.metal");
-	st->ffPipeline = st->gooPipeline = st->tunnelPipeline = nil;
+	st->ffPipeline = st->gooPipeline = st->tunnelPipeline = st->quadPipeline = nil;
+	st->quadTexture = 0;
+	st->quadFog = false;
 	st->pipelineFormat = MTLPixelFormatInvalid;
 	st->target = nil;
 	st->drawable = nil;
@@ -374,11 +392,15 @@ static void useTarget(HSRendererMetalState *st, id<MTLTexture> target){
 	if(st->target.pixelFormat == st->pipelineFormat)
 		return;
 	st->ffPipeline = additivePipeline(st->device, st->ffLibrary, @"ff_vertex", @"ff_fragment", st->target.pixelFormat);
+	st->quadPipeline = additivePipeline(st->device, st->ffLibrary, @"ff_quad_vertex", @"ff_fragment", st->target.pixelFormat);
 	st->gooPipeline = additivePipeline(st->device, st->gooLibrary, @"goo_vertex", @"goo_fragment", st->target.pixelFormat);
 	st->tunnelPipeline = additivePipeline(st->device, st->tunnelLibrary, @"tunnel_vertex", @"tunnel_fragment", st->target.pixelFormat);
 	st->softenPipeline = softenPipeline(st->device, st->softenLibrary, st->target.pixelFormat);
 	st->pipelineFormat = st->target.pixelFormat;
 }
+
+static void flushQuads(HSRendererMetalState *st);
+static void bindGooTextures(HSRendererMetalState *st, id<MTLRenderCommandEncoder> encoder);
 
 void HSRendererMetal::setTarget(void *target){
 	if(st->encoder)
@@ -432,6 +454,7 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 	st->draws = st->gooDraws = st->tunnelDraws = 0;
 	st->gooBuildCommands = nil;
 	st->softCommands = nil;
+	st->quads.clear();   // a frame that failed may have left some
 
 	MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
 	rp.colorAttachments[0].texture = st->target;
@@ -459,6 +482,7 @@ void HSRendererMetal::endFrame(){
 		fail("endFrame", "beginTunnel was not ended");
 	if(st->inOverlay)
 		fail("endFrame", "beginOverlay was not ended");
+	flushQuads(st);
 	[st->encoder endEncoding];
 	if(st->drawable){
 		// The saver's frame: present it and go on to the next while the GPU
@@ -555,45 +579,59 @@ unsigned int HSRendererMetal::createCubeTexture(const HSMipChain faces[6]){
 	return name;
 }
 
+// Draws drawQuad's queue, instanced, in runs that fit setVertexBytes' 4 KB:
+// no per-frame buffer, so nothing to keep from the GPU while it reads one.
+// Every other draw, and endFrame, flushes first, so the order of draws is
+// the order of calls.
+static void flushQuads(HSRendererMetalState *st){
+	if(st->quads.empty())
+		return;
+	const Texture &tex = st->textures.find(st->quadTexture)->second;
+	FFUniforms u;
+	u.modelview = u.mvp = matrix_identity_float4x4;   // per quad, in the instances
+	u.fogColor = simd_make_float4(0, 0, 0, 1);
+	u.fogStart = st->fogStart;
+	u.fogEnd = st->fogEnd;
+	u.fogOn = st->quadFog;
+	u.texOn = 1;
+	[st->encoder setRenderPipelineState:st->quadPipeline];
+	[st->encoder setFragmentBytes:&u length:sizeof u atIndex:1];
+	[st->encoder setFragmentTexture:tex.texture atIndex:0];
+	[st->encoder setFragmentSamplerState:tex.sampler atIndex:0];
+	const size_t run = 4096 / sizeof(QuadInstance);
+	for(size_t at = 0; at < st->quads.size(); at += run){
+		const size_t n = std::min(run, st->quads.size() - at);
+		[st->encoder setVertexBytes:&st->quads[at] length:n * sizeof(QuadInstance) atIndex:0];
+		[st->encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4 instanceCount:n];
+	}
+	[st->encoder setRenderPipelineState:st->ffPipeline];
+	st->quads.clear();
+}
+
 void HSRendererMetal::drawQuad(unsigned int texture, const float color[4], const float model[16], float half){
 	if(!st->encoder)
 		fail("drawQuad", "outside a frame");
 	// The goo's pipeline and cube textures are bound until endGoo.
 	if(st->inGoo || st->inTunnel)
 		fail("drawQuad", "inside beginGoo/endGoo or beginTunnel/endTunnel");
-	std::map<unsigned int, Texture>::const_iterator tex = st->textures.find(texture);
-	if(tex == st->textures.end())
+	if(st->textures.find(texture) == st->textures.end())
 		fail("drawQuad", "unknown texture");
 
-	float identity[16];
-	HSVertex q[4];
-	hsIdentity(identity);
-	hsQuad(identity, half, q);
-	ImmediateVertex v[4];
-	for(int i = 0; i < 4; i++){
-		v[i].position[0] = q[i].pos[0]; v[i].position[1] = q[i].pos[1]; v[i].position[2] = q[i].pos[2];
-		v[i].pad0 = 0.0f;
-		v[i].texcoord[0] = q[i].uv[0]; v[i].texcoord[1] = q[i].uv[1];
-		v[i].pad1[0] = v[i].pad1[1] = 0.0f;
-		for(int c = 0; c < 4; c++)
-			v[i].color[c] = color[c];
-	}
-
+	const bool fog = st->fog && !st->inOverlay;
+	if(!st->quads.empty() && (texture != st->quadTexture || fog != st->quadFog))
+		flushQuads(st);
+	st->quadTexture = texture;
+	st->quadFog = fog;
 	// The model matrix applies after the camera, as GL's matrix stack did.
-	FFUniforms u;
-	u.modelview = simd_mul(st->view, fromGL(model));
-	u.mvp = simd_mul(st->clipProjection, u.modelview);
-	u.fogColor = simd_make_float4(0, 0, 0, 1);
-	u.fogStart = st->fogStart;
-	u.fogEnd = st->fogEnd;
-	u.fogOn = st->fog && !st->inOverlay;
-	u.texOn = 1;
-	[st->encoder setVertexBytes:v length:sizeof v atIndex:0];
-	[st->encoder setVertexBytes:&u length:sizeof u atIndex:1];
-	[st->encoder setFragmentBytes:&u length:sizeof u atIndex:1];
-	[st->encoder setFragmentTexture:tex->second.texture atIndex:0];
-	[st->encoder setFragmentSamplerState:tex->second.sampler atIndex:0];
-	[st->encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+	const simd_float4x4 modelview = simd_mul(st->view, fromGL(model));
+	QuadInstance q;
+	q.mvp = simd_mul(st->clipProjection, modelview);
+	q.modelviewZ = simd_make_float4(modelview.columns[0].z, modelview.columns[1].z,
+		modelview.columns[2].z, modelview.columns[3].z);
+	q.color = simd_make_float4(color[0], color[1], color[2], color[3]);
+	q.halfSize = half;
+	q.pad[0] = q.pad[1] = q.pad[2] = 0.0f;
+	st->quads.push_back(q);
 	st->draws++;
 }
 
@@ -715,7 +753,6 @@ void HSRendererMetal::endOffscreen(unsigned char *rgb){
 		}
 	}
 }
-static void bindGooTextures(HSRendererMetalState *st, id<MTLRenderCommandEncoder> encoder);
 
 void HSRendererMetal::beginGoo(const float color[4], unsigned int nebula,
 	unsigned int normals0, unsigned int normals1, bool shaded){
@@ -723,6 +760,7 @@ void HSRendererMetal::beginGoo(const float color[4], unsigned int nebula,
 		fail("beginGoo", "outside a frame");
 	if(st->inGoo || st->inTunnel || st->inOverlay)
 		fail("beginGoo", "inside the goo, the tunnel or the overlay");
+	flushQuads(st);
 	// The Metal port draws the shaded look only; the shaders-off look is ss-5dl.
 	if(!shaded)
 		fail("beginGoo", "the shaders-off goo is not drawn on Metal (ss-5dl)");
@@ -985,6 +1023,7 @@ void HSRendererMetal::beginTunnel(unsigned int caustic0, unsigned int caustic1, 
 		fail("beginTunnel", "outside a frame");
 	if(st->inGoo || st->inTunnel || st->inOverlay)
 		fail("beginTunnel", "inside the goo, the tunnel or the overlay");
+	flushQuads(st);
 	// The Metal port draws the shaded look only; the shaders-off look is ss-5dl.
 	if(!shaded)
 		fail("beginTunnel", "the shaders-off tunnel is not drawn on Metal (ss-5dl)");
