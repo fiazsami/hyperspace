@@ -42,6 +42,7 @@ tunnel::tunnel(splinePath* sp, int res){
 	radius = 0.1f;
 	widthOffset = 0.0f;
 	texSpin = 0.0f;
+	shaded = true;
 
 	numSections = path->numPoints - 5;
 	section = 0;
@@ -81,7 +82,7 @@ tunnel::~tunnel(){
 }
 
 
-void tunnel::make(float frameTime, bool dShaders){
+void tunnel::make(float frameTime, bool dShaders, bool vertices){
 	int i, j, k;
 
 	widthOffset += frameTime * 1.5f;
@@ -109,6 +110,9 @@ void tunnel::make(float frameTime, bool dShaders){
 		lumlo -= RS_PIx2;
 	while(lumhi >= RS_PIx2)
 		lumhi -= RS_PIx2;
+	shaded = dShaders;
+	if(!vertices)
+		return;
 
 	float angle;
 	float pos[3], dir[3];
@@ -176,6 +180,29 @@ void tunnel::make(float frameTime, bool dShaders){
 
 
 void tunnel::draw(HSRenderer *renderer){
+	if(renderer->buildsTunnel()){
+		HSTunnelField field;
+		field.points.reserve(3 * path->numPoints);
+		field.directions.reserve(3 * path->numPoints);
+		for(int p=0; p<path->numPoints; p++){
+			field.points.insert(field.points.end(), path->xyz[p], path->xyz[p] + 3);
+			field.directions.insert(field.directions.end(), path->dir[p], path->dir[p] + 3);
+		}
+		field.numSections = numSections;
+		field.resolution = resolution;
+		field.radius = radius;
+		field.widthOffset = widthOffset;
+		field.texShift = rsCosf(texSpin);
+		field.huelo = huelo;
+		field.satlo = satlo;
+		field.sathi = sathi;
+		field.lumlo = lumlo;
+		field.lumhi = lumhi;
+		field.texcoordMult = shaded ? 1.0f : 2.0f;
+		field.maxSaturation = shaded ? 0.1f : 0.4f;
+		renderer->drawTunnelField(field);
+		return;
+	}
 	for(int k=0; k<numSections; k++){
 		for(int i=0; i<resolution; i++){
 			for(int j=0; j<=resolution; j++){

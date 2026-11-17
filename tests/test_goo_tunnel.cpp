@@ -302,6 +302,48 @@ TEST(tunnel_draws_one_strip_per_ring_pair_next_ring_first)
         }
 }
 
+TEST(tunnel_hands_a_building_backend_the_path_and_its_phases_once)
+{
+    Seeded seed;
+    splinePath p(8);
+    settle(p);
+    tunnel t(&p, 4);
+    t.v[1][2][3][0] = 12345.0f;   /* make without vertices must not build them */
+    t.huelo = 0.1f; t.satlo = 0.2f; t.sathi = 0.3f; t.lumlo = 0.4f; t.lumhi = 0.5f;
+    t.widthOffset = 0.6f; t.texSpin = 0.7f;
+    t.make(0.0f, true, false);
+    CHECK(t.v[1][2][3][0] == 12345.0f);
+    Recorder r;
+    r.tunnelOnGPU = true;
+    t.draw(&r);
+    CHECK(r.tunnel.empty());
+    CHECK(r.tunnelFields.size() == 1);
+    if (r.tunnelFields.size() != 1) return;
+    const HSTunnelField &f = r.tunnelFields[0];
+    CHECK(f.points.size() == size_t(3 * p.numPoints));
+    CHECK(f.directions.size() == size_t(3 * p.numPoints));
+    for (int i = 0; i < p.numPoints && f.points.size() == size_t(3 * p.numPoints); i++)
+        for (int c = 0; c < 3; c++) {
+            CHECK(f.points[3 * i + c] == p.xyz[i][c]);
+            CHECK(f.directions[3 * i + c] == p.dir[i][c]);
+        }
+    CHECK(f.numSections == 3 && f.resolution == 4);
+    CHECK(f.radius == t.radius && f.widthOffset == 0.6f);
+    CHECK(f.texShift == rsCosf(0.7f));
+    CHECK(f.huelo == 0.1f && f.satlo == 0.2f && f.sathi == 0.3f);
+    CHECK(f.lumlo == 0.4f && f.lumhi == 0.5f);
+    CHECK(f.texcoordMult == 1.0f && f.maxSaturation == 0.1f);
+
+    /* The phases still advance, and without shaders the field says so. */
+    t.make(1.0f, false, false);
+    CHECK_NEAR(t.widthOffset, 0.6 + 1.5, 1e-5);
+    CHECK(t.v[1][2][3][0] == 12345.0f);
+    t.draw(&r);
+    CHECK(r.tunnelFields.size() == 2 && r.tunnel.empty());
+    if (r.tunnelFields.size() == 2)
+        CHECK(r.tunnelFields[1].texcoordMult == 2.0f && r.tunnelFields[1].maxSaturation == 0.4f);
+}
+
 TEST(goo_value_is_the_wavy_layer_less_a_bubble_round_the_eye)
 {
     Seeded seed;

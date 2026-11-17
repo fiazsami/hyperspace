@@ -294,7 +294,13 @@ fog off are the lens flares, in the overlay plane at eye depth 0, where fog
 changes nothing -- so under `stars` that fixture passes. When a shader in
 `metal/` changes, regenerate the fixtures from the new text, with the new
 `base=`, rather than editing the rule. These fixtures were written for the
-replay and now run here; all 30 are killed.
+replay and now run here; all 30 are killed. Five more judge the tunnel as
+the saver builds it, on the GPU from the path (ss-okd): `tunnel_truecos`
+puts true cos and sin in place of rsCosf and rsSinf, the defect this pass
+caught while the build was written; `ringorder`, `section`, `satmax` and
+`notexshift` misplace a ring, a section, the saturation limit and the
+texture's spin. A backend fixture that dropped the last section was tried and
+survives, rightly: that section is past the fog's end and draws nothing.
 
 One replay fixture was retired. `stars_radialfog` fogged on radial distance in
 `ff_vertex`. Since ss-6ee the stars and flares are drawn instanced, through

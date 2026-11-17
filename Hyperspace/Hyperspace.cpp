@@ -281,7 +281,8 @@ void draw(HyperspaceSaverSettings *inSettings){
 
 	// draw tunnel
 	if(inSettings->dUseTunnels){
-		inSettings->theTunnel->make(inSettings->frameTime, inSettings->dShaders);
+		inSettings->theTunnel->make(inSettings->frameTime, inSettings->dShaders,
+			!inSettings->renderer->buildsTunnel());
 		inSettings->renderer->beginTunnel(
 			inSettings->theCausticTextures->caustictex[inSettings->whichTexture],
 			inSettings->theCausticTextures->caustictex[(inSettings->whichTexture + 1) % inSettings->numAnimTexFrames],

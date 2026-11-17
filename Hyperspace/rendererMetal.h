@@ -80,6 +80,9 @@ public:
 	void endGoo();
 	void beginTunnel(unsigned int caustic0, unsigned int caustic1, float lerp, bool shaded);
 	void drawTunnelStrip(const HSTunnelVertex *v, int count);
+	// The tunnel is built here, on the GPU (metal/Tunnel.metal).
+	bool buildsTunnel() const;
+	void drawTunnelField(const HSTunnelField &field);
 	void endTunnel();
 
 private:

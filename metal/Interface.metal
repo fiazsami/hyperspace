@@ -63,6 +63,21 @@ struct TunnelUniforms {
     float    fogScale;   // gl_Fog.scale = 1 / (end - start)
 };
 
+// Tunnel.metal's tunnel_build_vertex: the tunnel, as HSTunnelField carries
+// it. The path follows in buffer(2): numPoints points, then numPoints
+// directions, each a float4 with w unused.
+struct TunnelShape {
+    float radius;
+    float widthOffset;
+    float texShift;      // rsCosf(texSpin)
+    float texcoordMult;
+    float maxSaturation;
+    float alpha;         // beginTunnel's lerp, every vertex's alpha
+    float huelo, satlo, sathi, lumlo, lumhi;
+    uint  resolution;    // rings a section and vertices a ring, less one
+    uint  numPoints;
+};
+
 // GooBuild.metal: the goo's field, as HSGooField carries it.
 struct GooBuildUniforms {
     float4 c;            // the four waves' amplitudes

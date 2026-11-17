@@ -57,6 +57,8 @@ public:
     std::vector<GooBegin> gooBegins;
     int gooEnds = 0;
     std::vector<std::vector<HSTunnelVertex> > tunnel;
+    bool tunnelOnGPU = false;                // what buildsTunnel answers
+    std::vector<HSTunnelField> tunnelFields; // drawTunnelField's, when it does
 
     void beginFrame(const HSFrame &) override {}
     void endFrame() override {}
@@ -141,6 +143,8 @@ public:
     {
         tunnel.push_back(std::vector<HSTunnelVertex>(v, v + count));
     }
+    bool buildsTunnel() const override { return tunnelOnGPU; }
+    void drawTunnelField(const HSTunnelField &field) override { tunnelFields.push_back(field); }
     void endTunnel() override {}
 };
 

@@ -92,6 +92,21 @@ static_assert(sizeof(TunnelUniforms) == 224 && offsetof(TunnelUniforms, fogColor
 	offsetof(TunnelUniforms, fogEnd) == 208 && offsetof(TunnelUniforms, fogScale) == 212,
 	"TunnelUniforms must match Interface.metal");
 
+struct TunnelShape {
+	float radius;
+	float widthOffset;
+	float texShift;
+	float texcoordMult;
+	float maxSaturation;
+	float alpha;
+	float huelo, satlo, sathi, lumlo, lumhi;
+	uint32_t resolution;
+	uint32_t numPoints;
+};
+static_assert(sizeof(TunnelShape) == 52 && offsetof(TunnelShape, alpha) == 20 &&
+	offsetof(TunnelShape, lumhi) == 40 && offsetof(TunnelShape, numPoints) == 48,
+	"TunnelShape must match Interface.metal");
+
 struct Texture {
 	id<MTLTexture> texture;
 	id<MTLSamplerState> sampler;
@@ -159,7 +174,7 @@ struct HSRendererMetalState {
 	std::vector<QuadInstance> quads;
 	unsigned int quadTexture;
 	bool quadFog;
-	id<MTLRenderPipelineState> gooPipeline, tunnelPipeline;
+	id<MTLRenderPipelineState> gooPipeline, tunnelPipeline, tunnelBuildPipeline;
 	MTLPixelFormat pipelineFormat;
 	id<MTLTexture> target;
 	id<CAMetalDrawable> drawable;   // set for one frame by setDrawable, presented by endFrame
@@ -193,6 +208,7 @@ struct HSRendererMetalState {
 	bool inTunnel;
 	float tunnelAlpha;   // the caustics' mix, carried in every vertex's alpha
 	std::vector<ImmediateVertex> tunnelStrip;   // reused: a tunnel draws about 200 strips a frame
+	std::vector<simd_float4> tunnelPath;        // drawTunnelField's, reused
 	// The goo built on the GPU (drawGooField). The vertices are written and
 	// drawn by the GPU alone, so one buffer serves every frame: Metal orders
 	// the next frame's build after this frame's draw.
@@ -275,7 +291,7 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->ffLibrary = compilePass(st->device, metalDir, "FixedFunction.metal");
 	st->gooLibrary = compilePass(st->device, metalDir, "Goo.metal");
 	st->tunnelLibrary = compilePass(st->device, metalDir, "Tunnel.metal");
-	st->gooPipeline = st->tunnelPipeline = st->quadPipeline = nil;
+	st->gooPipeline = st->tunnelPipeline = st->tunnelBuildPipeline = st->quadPipeline = nil;
 	st->quadTexture = 0;
 	st->quadFog = false;
 	st->pipelineFormat = MTLPixelFormatInvalid;
@@ -376,6 +392,7 @@ static void useTarget(HSRendererMetalState *st, id<MTLTexture> target){
 	st->quadPipeline = additivePipeline(st->device, st->ffLibrary, @"ff_quad_vertex", @"ff_fragment", st->target.pixelFormat);
 	st->gooPipeline = additivePipeline(st->device, st->gooLibrary, @"goo_vertex", @"goo_fragment", st->target.pixelFormat);
 	st->tunnelPipeline = additivePipeline(st->device, st->tunnelLibrary, @"tunnel_vertex", @"tunnel_fragment", st->target.pixelFormat);
+	st->tunnelBuildPipeline = additivePipeline(st->device, st->tunnelLibrary, @"tunnel_build_vertex", @"tunnel_fragment", st->target.pixelFormat);
 	st->softenPipeline = softenPipeline(st->device, st->softenLibrary, st->target.pixelFormat);
 	st->pipelineFormat = st->target.pixelFormat;
 }
@@ -1063,6 +1080,60 @@ void HSRendererMetal::drawTunnelStrip(const HSTunnelVertex *v, int count){
 		[st->encoder setVertexBuffer:[st->device newBufferWithBytes:verts.data() length:bytes
 			options:MTLResourceStorageModeShared] offset:0 atIndex:0];
 	[st->encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:NSUInteger(count)];
+	st->draws++;
+	st->tunnelDraws++;
+}
+
+bool HSRendererMetal::buildsTunnel() const{
+	return true;
+}
+
+// One instanced draw: instance k * resolution + i is section k's strip
+// between rings i and i + 1, built by tunnel_build_vertex from the path.
+void HSRendererMetal::drawTunnelField(const HSTunnelField &field){
+	if(!st->inTunnel)
+		fail("drawTunnelField", "outside beginTunnel/endTunnel");
+	const int numPoints = int(field.points.size() / 3);
+	if(field.directions.size() != field.points.size())
+		fail("drawTunnelField", "the path has as many directions as points");
+	if(field.numSections < 1 || field.resolution < 1)
+		return;
+	if(field.numSections + 4 > numPoints)
+		fail("drawTunnelField", "a section needs the path's points k + 1 to k + 4");
+	std::vector<simd_float4> &path = st->tunnelPath;
+	path.resize(2 * size_t(numPoints));
+	for(int p = 0; p < numPoints; p++){
+		const float *x = &field.points[3 * p], *d = &field.directions[3 * p];
+		path[p] = simd_make_float4(x[0], x[1], x[2], 0.0f);
+		path[numPoints + p] = simd_make_float4(d[0], d[1], d[2], 0.0f);
+	}
+	TunnelShape shape;
+	shape.radius = field.radius;
+	shape.widthOffset = field.widthOffset;
+	shape.texShift = field.texShift;
+	shape.texcoordMult = field.texcoordMult;
+	shape.maxSaturation = field.maxSaturation;
+	shape.alpha = st->tunnelAlpha;
+	shape.huelo = field.huelo;
+	shape.satlo = field.satlo;
+	shape.sathi = field.sathi;
+	shape.lumlo = field.lumlo;
+	shape.lumhi = field.lumhi;
+	shape.resolution = uint32_t(field.resolution);
+	shape.numPoints = uint32_t(numPoints);
+	[st->encoder setRenderPipelineState:st->tunnelBuildPipeline];
+	[st->encoder setVertexBytes:&shape length:sizeof shape atIndex:0];
+	// The saver's longest path, depth 10, is 26 points: 832 bytes.
+	const size_t bytes = path.size() * sizeof(simd_float4);
+	if(bytes <= 4096)
+		[st->encoder setVertexBytes:path.data() length:bytes atIndex:2];
+	else
+		[st->encoder setVertexBuffer:[st->device newBufferWithBytes:path.data() length:bytes
+			options:MTLResourceStorageModeShared] offset:0 atIndex:2];
+	[st->encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0
+		vertexCount:NSUInteger(2 * (field.resolution + 1))
+		instanceCount:NSUInteger(field.numSections * field.resolution)];
+	[st->encoder setRenderPipelineState:st->tunnelPipeline];
 	st->draws++;
 	st->tunnelDraws++;
 }
