@@ -39,6 +39,7 @@
 #include <math.h>
 #include <time.h>
 #include <string>
+#include <algorithm>
 #include <rsMath/rsMath.h>
 #include <Hyperspace/flare.h>
 #include <Hyperspace/causticTextures.h>
@@ -480,8 +481,9 @@ void initSaver(HyperspaceSaverSettings *inSettings, HSRenderer *renderer){
 
 	inSettings->thePath = new splinePath((inSettings->dDepth * 2) + 6);
 
+	// A backend may build the tunnel finer than GL does.
 	if(inSettings->dUseTunnels)
-		inSettings->theTunnel = new tunnel(inSettings->thePath, 20);
+		inSettings->theTunnel = new tunnel(inSettings->thePath, 20 * std::max(1, renderer->tunnelDetail()));
 
 	// To avoid popping, depth, which will be used for fogging, is set to
 	// dDepth * goo grid size - size of one goo cubelet

@@ -41,7 +41,7 @@ shopt -s nullglob
 cd "$(dirname "$0")/.."
 passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo tunnel burst sun goosoft textures caustics)
 retired=$(grep -v '^#' parity/gl-retired | awk 'NF {print $1}')
-GOLDEN_RUN=(shots=6 w=480 h=270 samples=4)   # as parity/goldencheck.sh draws
+GOLDEN_RUN=(shots=6 w=480 h=270 samples=4 tunneldetail=2)   # as parity/goldencheck.sh draws
 
 OUT=.parity-build/backend
 rm -rf "$OUT"; mkdir -p "$OUT/variants"
