@@ -64,6 +64,25 @@ struct HSGooField{
 	std::vector<float> offsets;   // each block's centre, x then z
 };
 
+// The tunnel as a backend that builds it (HSRenderer::buildsTunnel) needs it:
+// the spline path and tunnel::make's state this frame. Section k's rings run
+// along the path from point k + 2 to point k + 3, resolution + 1 of them, each
+// of resolution + 1 vertices, placed and colored as tunnel::make places and
+// colors them.
+struct HSTunnelField{
+	std::vector<float> points;      // splinePath::xyz, x y z each
+	std::vector<float> directions;  // splinePath::dir, x y z each; the first and last zero, as update leaves them unset
+	int numSections;
+	int resolution;
+	float radius;
+	float widthOffset;
+	float texShift;                 // rsCosf(texSpin): every texcoord's v offset
+	float huelo, satlo, sathi;      // the color waves' phases
+	float lumlo, lumhi;
+	float texcoordMult;             // 1 shaded, 2 not
+	float maxSaturation;            // 0.1 shaded, 0.4 not
+};
+
 // What a frame is seen through: the viewport, the camera's projection and view
 // (column-major, as GL takes them), and black linear fog from fogStart to
 // fogEnd units from the eye.
@@ -166,6 +185,13 @@ public:
 	// are mixed by lerp; not shaded, caustic0 alone, and lerp is unused.
 	virtual void beginTunnel(unsigned int caustic0, unsigned int caustic1, float lerp, bool shaded) = 0;
 	virtual void drawTunnelStrip(const HSTunnelVertex *v, int count) = 0;
+	// A backend that builds the tunnel's vertices from the path answers true.
+	// Hyperspace's draw() then has tunnel::make skip building them, and
+	// tunnel::draw passes the field once, between beginTunnel and endTunnel,
+	// instead of the strips -- the tunnel's whole CPU cost.
+	// The defaults are a backend that does not: drawTunnelField is never called.
+	virtual bool buildsTunnel() const { return false; }
+	virtual void drawTunnelField(const HSTunnelField &field) { (void)field; }
 	virtual void endTunnel() = 0;
 };
 

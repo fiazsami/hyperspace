@@ -40,6 +40,7 @@ public:
 	float**** t;  // texture coordinate data
 	float**** c;  // color data
 	std::vector<HSTunnelVertex> strip;  // draw()'s, sized once here
+	HSTunnelField field;                // draw()'s for a backend that builds the tunnel, reused
 
 	float radius;
 	// offset for tunnel width
@@ -53,11 +54,17 @@ public:
 	float satlo, sathi;
 	float lumlo, lumhi;
 
+	// make's dShaders, which draw's field carries
+	bool shaded;
+
 	tunnel(splinePath* sp, int res);
 	~tunnel();
-	void make(float frameTime, bool dShaders);
-	// One strip per ring of each section, between the caller's beginTunnel
-	// and endTunnel.
+	// Advances the tunnel's phases and, when vertices is true, builds v, t and
+	// c from them -- the CPU's part of a backend that does not build the
+	// tunnel itself (HSRenderer::buildsTunnel).
+	void make(float frameTime, bool dShaders, bool vertices = true);
+	// Between the caller's beginTunnel and endTunnel: one strip per ring of
+	// each section, or the field once to a backend that builds the tunnel.
 	void draw(HSRenderer *renderer);
 };
 

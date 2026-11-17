@@ -17,7 +17,6 @@ struct ImmediateVertex {
     float4        color;
 };
 typedef ImmediateVertex FFVertex;
-typedef ImmediateVertex TunnelVertex;
 
 // GL fixed function as Hyperspace uses it: GL_MODULATE, optional texture,
 // optional linear fog on eye-plane depth.
@@ -63,6 +62,21 @@ struct TunnelUniforms {
     float    fogScale;   // gl_Fog.scale = 1 / (end - start)
 };
 
+// Tunnel.metal's tunnel_build_vertex: the tunnel, as HSTunnelField carries
+// it. The path follows in buffer(2): numPoints points, then numPoints
+// directions, each a float4 with w unused.
+struct TunnelShape {
+    float radius;
+    float widthOffset;
+    float texShift;      // rsCosf(texSpin)
+    float texcoordMult;
+    float maxSaturation;
+    float alpha;         // beginTunnel's lerp, every vertex's alpha
+    float huelo, satlo, sathi, lumlo, lumhi;
+    uint  resolution;    // rings a section and vertices a ring, less one
+    uint  numPoints;
+};
+
 // GooBuild.metal: the goo's field, as HSGooField carries it.
 struct GooBuildUniforms {
     float4 c;            // the four waves' amplitudes
@@ -81,7 +95,7 @@ struct GooBuildUniforms {
 //                        ff_quad_vertex / ff_fragment      buffer 0 = QuadInstance[], no vertex
 //                                                          uniforms; fragment buffer 1 = FFUniforms
 //   Goo.metal            goo_vertex / goo_fragment         normaltex0..1, tex: texture(0..2)
-//   Tunnel.metal         tunnel_vertex / tunnel_fragment   tex0, tex1: texture(0..1)
+//   Tunnel.metal         tunnel_build_vertex / tunnel_fragment   tex0, tex1: texture(0..1)
 //   Soften.metal         soften_vertex / soften_fragment   goo: texture(0)
 //   GooBuild.metal       goo_build, goo_build_count        compute: GooBuildUniforms, block offsets,
 //                                                          triangle table, counter, GooVertex out
