@@ -89,8 +89,13 @@ struct HSTunnelField{
 // of half-side depth round the eye in x and z, as draw() wraps it, and drawn
 // as stretchedParticle::draw draws it: an aura and a white core, billboarded,
 // stretched along its motion on screen since the last frame and rolled by
-// unroll degrees, with texture. A backend may keep stars between frames for
-// as long as generation is unchanged.
+// unroll degrees, with texture. Two frames differ from the CPU's, both by a
+// star the CPU stretches from a screen position it never had: the first, and
+// one that projects again after it did not (hsProject failed). A backend
+// draws those unstretched. view is the frame's view with the eye at the
+// origin, its rotation alone, given apart from the eye so that no backend has
+// to cancel the eye's translation in float. A backend may keep stars between
+// frames for as long as generation is unchanged.
 const int HS_STAR_FLOATS = 7;
 struct HSStarField{
 	const float *stars;
@@ -98,6 +103,7 @@ struct HSStarField{
 	unsigned int generation;
 	unsigned int texture;
 	float eye[3];
+	float view[16];     // column-major, as GL takes it
 	float unroll;
 	float depth;
 };

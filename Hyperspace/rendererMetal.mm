@@ -104,6 +104,7 @@ struct StarUniforms {
 	float unroll;
 	float pad[3];
 };
+static_assert(HS_STAR_FLOATS == 7, "star_vertex reads 7 floats a star");
 static_assert(sizeof(StarUniforms) == 320 && offsetof(StarUniforms, eye) == 256 &&
 	offsetof(StarUniforms, viewport) == 288 && offsetof(StarUniforms, unroll) == 304,
 	"StarUniforms must match Interface.metal");
@@ -697,10 +698,8 @@ void HSRendererMetal::drawStarField(const HSStarField &field){
 		st->starsDrawn = false;
 	}
 	const simd_float3 eye = simd_make_float3(field.eye[0], field.eye[1], field.eye[2]);
-	simd_float4x4 toEye = matrix_identity_float4x4;
-	toEye.columns[3] = simd_make_float4(eye, 1.0f);
 	StarUniforms u;
-	u.view = simd_mul(st->view, toEye);
+	u.view = fromGL(field.view);
 	u.clipProjection = st->clipProjection;
 	u.projView = simd_mul(st->projection, u.view);
 	u.lastProjView = st->starsDrawn ? st->lastStarProjView : u.projView;

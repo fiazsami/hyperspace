@@ -332,6 +332,16 @@ TEST(draw_hands_a_star_drawing_backend_the_stars_as_made_once_a_frame)
     const HSStarField &last = r->starFields.back();
     CHECK(last.eye[0] == s->camPos[0] && last.eye[1] == s->camPos[1] && last.eye[2] == s->camPos[2]);
     CHECK(last.unroll == s->unroll);
+    /* The view, rotation alone: with the eye's translation put back it is the
+     * frame's own view. */
+    const HSFrame &fr = r->frames.back();
+    CHECK(last.view[12] == 0.0f && last.view[13] == 0.0f && last.view[14] == 0.0f);
+    for (int row = 0; row < 3; row++) {
+        for (int c = 0; c < 3; c++) CHECK(last.view[4 * c + row] == fr.view[4 * c + row]);
+        double t = 0;
+        for (int c = 0; c < 3; c++) t -= last.view[4 * c + row] * s->camPos[c];
+        CHECK_NEAR(fr.view[12 + row], t, 1e-4);
+    }
     /* The stars draw no quads of their own: those in flaretex[0] outside the
      * overlay are the sun's aura and core, once a frame. */
     int starQuads = 0;

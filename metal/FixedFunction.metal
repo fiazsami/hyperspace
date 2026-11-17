@@ -15,9 +15,6 @@ vertex FFOut ff_vertex(uint vid [[vertex_id]], const device FFVertex *v [[buffer
     return o;
 }
 
-// drawQuad's quads, instanced: instance i is the i-th queued quad, and vertex
-// v its corner (v & 1, v >> 1) -- hsQuad's order (Hyperspace/renderer.cpp,
-// which GL and the tests draw), drawn as a strip of 4.
 // A quad's corner, drawQuad's or a star's: its clip position, its eye-space z,
 // which fog reads, and its texcoord and color.
 static FFOut quadCorner(float4 position, float eyeZ, float2 texcoord, float4 color)
@@ -30,6 +27,9 @@ static FFOut quadCorner(float4 position, float eyeZ, float2 texcoord, float4 col
     return o;
 }
 
+// drawQuad's quads, instanced: instance i is the i-th queued quad, and vertex
+// v its corner (v & 1, v >> 1) -- hsQuad's order (Hyperspace/renderer.cpp,
+// which GL and the tests draw), drawn as a strip of 4.
 vertex FFOut ff_quad_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                             const device QuadInstance *q [[buffer(0)]])
 {
@@ -72,7 +72,7 @@ vertex FFOut star_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                          const device float *stars [[buffer(0)]],
                          constant StarUniforms &u [[buffer(1)]])
 {
-    const device float *star = stars + 7 * (iid / 2);
+    const device float *star = stars + 7 * (iid / 2);   // HS_STAR_FLOATS, asserted in rendererMetal.mm
     const float radius = star[3];
     const float3 fromEye = float3(star[0], star[1], star[2]) - u.eye.xyz;
     const float3 rel = wrapStar(fromEye, u.eye.w);

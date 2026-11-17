@@ -175,6 +175,9 @@ void draw(HyperspaceSaverSettings *inSettings){
 	hsRotate(view, -camRoll[0] * RS_RAD2DEG, 0, 0, 1);
 	hsRotate(view, (-pathAngle - camHeading[0]) * RS_RAD2DEG, 0, 1, 0);
 	hsRotationInverse(inSettings->billboardMat, view);   // faces the camera: undoes the view's rotation
+	float rotation[16];   // the view with the eye at the origin, for HSStarField
+	for(int i=0; i<16; i++)
+		rotation[i] = view[i];
 	hsTranslate(view, inSettings->camPos[0]*-1, inSettings->camPos[1]*-1, inSettings->camPos[2]*-1);
 	for(int i=0; i<16; i++)
 		inSettings->modelMat[i] = view[i];
@@ -210,6 +213,8 @@ void draw(HyperspaceSaverSettings *inSettings){
 			field.texture = inSettings->flaretex[0];
 			for(int i=0; i<3; i++)
 				field.eye[i] = inSettings->camPos[i];
+			for(int i=0; i<16; i++)
+				field.view[i] = rotation[i];
 			field.unroll = inSettings->unroll;
 			field.depth = inSettings->depth;
 			inSettings->renderer->drawStarField(field);
