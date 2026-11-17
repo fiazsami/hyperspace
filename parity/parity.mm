@@ -309,10 +309,11 @@ static double cpuSeconds(const rusage &u)
 //   mid-tones  pixels whose reference luminance is 16-200 move by a mean of at
 //              most 2 levels, and 99% of them by at most 8;
 //   blacks     pixels whose reference luminance is under 16 rise by a mean of
-//              at most 2 levels, and at most 1% of them by more than 8 (a
+//              at most 2 levels, and at most 1% of them by more than 4 (a
 //              haze over the background, or light where there was none: the
-//              share catches one confined to part of a frame, which the mean,
-//              over a mostly black frame, would dilute);
+//              share catches a faint one over part of a frame, which the
+//              mean, over a mostly black frame, would dilute). Only rises
+//              count, so pixels that darkened cannot cancel a haze;
 //   brightness no shot's mean luminance falls by more than 2%.
 // It also reports the pixels clipped (any channel 255) on each side, which a
 // change meant to soften highlights should lower; whether it must is the
@@ -337,7 +338,7 @@ static int compareLook(NSString *refDir, NSString *newDir)
             lumA += la; lumB += lb;
             cr += p[0] == 255 || p[1] == 255 || p[2] == 255;
             cn += q[0] == 255 || q[1] == 255 || q[2] == 255;
-            if (la < 16) { lift += lb - la; darks++; lit += lb - la > 8; }
+            if (la < 16) { lift += MAX(0.0, lb - la); darks++; lit += lb - la > 4; }
             else if (la <= 200) { int d = (int)lround(fabs(lb - la)); hist[MIN(d, 255)]++; sumD += fabs(lb - la); mids++; }
         }
         int p99 = 0;

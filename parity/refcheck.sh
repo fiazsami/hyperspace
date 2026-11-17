@@ -38,8 +38,8 @@ passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo tunnel burst sun)
 for pass in "${passes[@]}"; do
     case $pass in stars|goo|tunnel|burst|sun) ;; *) echo "unknown pass $pass (goosoft is goo as the saver draws it)" >&2; exit 2;; esac
 done
-costList=${REFCHECK_COST:-}
-cost=(${costList//,/ }); [ ${#cost[@]} -gt 0 ] || cost=("${passes[@]}")
+cost=(); IFS=, read -ra cost <<< "${REFCHECK_COST:-}"   # read, not word splitting: no globbing
+[ ${#cost[@]} -gt 0 ] || cost=("${passes[@]}")
 for pass in "${cost[@]}"; do
     case $pass in stars|goo|tunnel|burst|sun) ;; *) echo "unknown pass $pass in REFCHECK_COST" >&2; exit 2;; esac
 done
@@ -55,6 +55,7 @@ usage=$("$REF" 2>&1)   # parity prints its usage and exits 2, so not a pipeline 
 [[ $usage == *look=saver* ]] ||
     { echo "$ref's parity has no look=saver: refcheck compares with commits from ss-z8x.1 on" >&2; exit 2; }
 
+esc(){ sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'; }
 bin_for(){ [ "$1" = ref ] && echo "$REF" || echo "$NEW"; }
 metal_for(){ [ "$1" = ref ] && echo "$WT/metal" || echo metal; }
 
@@ -105,9 +106,9 @@ done
 {
     echo '<!doctype html><meta charset="utf-8"><title>refcheck</title>'
     echo '<style>body{background:#111;color:#ddd;font:14px -apple-system,sans-serif;margin:16px}img{max-width:100%;cursor:pointer;display:block}figure{margin:0 0 20px}</style>'
-    echo "<h1>$ref (ref) against the working tree (new)</h1><p>Click an image to flip it between the two. Shots outside a rule first, then by mid-tone change.</p>"
+    echo "<h1>$(esc <<< "$ref") (ref) against the working tree (new)</h1><p>Click an image to flip it between the two. Shots outside a rule first, then by mid-tone change.</p>"
     for pass in "${passes[@]}"; do
-        echo "<h2>$pass</h2><pre>$(tail -1 "$OUT/$pass.look")</pre>"
+        echo "<h2>$pass</h2><pre>$(tail -1 "$OUT/$pass.look" | esc)</pre>"
         grep '_backend.png' "$OUT/$pass.look" | awk '{print ($NF == "CHANGED" ? 1 : 0), $4, $0}' | sort -k1,1nr -k2,2gr |
             cut -d' ' -f3- | awk '{print $1, $0}' | while read -r shot rest; do
             printf '<figure><img src="ref/%s/%s" data-a="ref/%s/%s" data-b="new/%s/%s"><figcaption>%s -- showing ref</figcaption></figure>\n' \

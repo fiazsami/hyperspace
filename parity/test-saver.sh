@@ -56,36 +56,39 @@ install)
     built="$src/sym/Release/$NAME.saver"
     [ "$(plutil -extract NSPrincipalClass raw "$built/Contents/Info.plist")" = HyperspaceMetalView ] ||
         { echo "the built bundle's class is not HyperspaceMetalView" >&2; exit 2; }
-    # What was there before the first install since the last restore -- its
-    # backup, or "none" -- is what restore goes back to, however many installs
-    # come between. Recorded once the new copy is in place.
-    # A copy is backed up only by the first install since a restore: a later
-    # one would be a test copy that restore never goes back to.
-    backup=none
-    if [ -f "$OUT/last-backup" ]; then
-        :
-    elif [ -d "$SAVERS/$NAME.saver" ]; then
-        backup=$OUT/backup-$(date +%Y%m%d-%H%M%S).saver
-        cp -R "$SAVERS/$NAME.saver" "$backup" || exit 2
-        echo "backed up the installed copy to $backup"
+    # restore goes back to what was there before the first install since the
+    # last restore: that install backs it up (or records "none") before
+    # touching it, and later installs leave the record alone.
+    if [ ! -f "$OUT/last-backup" ]; then
+        backup=none
+        if [ -d "$SAVERS/$NAME.saver" ]; then
+            backup=$OUT/backup-$(date +%Y%m%d-%H%M%S).saver
+            cp -R "$SAVERS/$NAME.saver" "$backup" || exit 2
+            echo "backed up the installed copy to $backup"
+        fi
+        echo "$backup" > "$OUT/last-backup" || exit 2
     fi
-    mkdir -p "$SAVERS" && rm -rf "$SAVERS/$NAME.saver" && cp -R "$built" "$SAVERS/" || exit 2
-    [ -f "$OUT/last-backup" ] || echo "$backup" > "$OUT/last-backup"
+    mkdir -p "$SAVERS" && rm -rf "$SAVERS/$NAME.saver" && cp -R "$built" "$SAVERS/" ||
+        { echo "copying into $SAVERS failed: parity/test-saver.sh restore undoes it" >&2; exit 2; }
     pkill -x legacyScreenSaver
     echo "installed $NAME at ${sha:0:12}"
     ;;
 restore)
     [ -f "$OUT/last-backup" ] || { echo "nothing installed by this script to undo" >&2; exit 2; }
     backup=$(cat "$OUT/last-backup")
+    # The record goes only once the restore has worked, so a failed one can
+    # be run again.
     if [ "$backup" = none ]; then
-        rm -rf "$SAVERS/$NAME.saver" && pkill -x legacyScreenSaver
-        echo "removed $NAME: there was none before the last install"
+        rm -rf "$SAVERS/$NAME.saver" || { echo "removing $NAME failed" >&2; exit 2; }
+        echo "removed $NAME: there was none before the first install"
     else
-        [ -d "$backup" ] || { echo "the last install's backup $backup is gone" >&2; exit 2; }
-        rm -rf "$SAVERS/$NAME.saver" && cp -R "$backup" "$SAVERS/$NAME.saver" && pkill -x legacyScreenSaver
+        [ -d "$backup" ] || { echo "the backup $backup is gone" >&2; exit 2; }
+        rm -rf "$SAVERS/$NAME.saver" && cp -R "$backup" "$SAVERS/$NAME.saver" ||
+            { echo "restoring $backup failed; run restore again" >&2; exit 2; }
         echo "restored $backup"
     fi
     rm -f "$OUT/last-backup"
+    pkill -x legacyScreenSaver
     ;;
 profile)
     secs=${2:-5}
@@ -95,14 +98,17 @@ profile)
     for _ in $(seq 1 7200); do
         # Which process has the bundle loaded tells it is the test copy; a
         # little CPU tells it is drawing. The bar is low (1%) so a quiet saver
-        # still clears it; a System Settings preview may too, so close those.
-        cand=$(LC_ALL=C ps -Ao pid=,pcpu=,comm= | awk '/legacyScreenSaver/ && $2 + 0 > 1 {print $1}' | while read -r p; do
-            lsof -p "$p" 2>/dev/null | grep -q "$NAME.saver/" && echo "$p"; done | head -1)
+        # still clears it. A System Settings preview loads the bundle too, so
+        # of several the busiest is taken: full-screen out-draws a thumbnail.
+        found=$(LC_ALL=C ps -Ao pid=,pcpu=,comm= | awk '/legacyScreenSaver/ && $2 + 0 > 1 {print $2, $1}' | sort -rn |
+            while read -r _ p; do lsof -p "$p" 2>/dev/null | grep -q "$NAME.saver/" && echo "$p"; done)
+        cand=$(echo "$found" | head -1); count=$(echo "$found" | grep -c .)
         if [ -n "$cand" ]; then pid=$cand; hits=$((hits + 1)); else hits=0; fi
         [ $hits -ge 3 ] && break
         sleep 1
     done
     [ $hits -ge 3 ] || { echo "$NAME never ran" >&2; exit 1; }
+    [ "$count" -le 1 ] || echo "note: $count processes have $NAME loaded (a preview?); profiling the busiest, $pid" >&2
     sleep 5
     ws=$(pgrep -x WindowServer | head -1)
     # Each xctrace step logs to the profile directory and stops the run when it fails.
