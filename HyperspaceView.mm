@@ -119,7 +119,9 @@ static const double kMinFramesPerSecond = 60.0;
 // animationTimeInterval says (measured: an interval of 1/72 still drew about
 // 105 frames a second), so animateOneFrame keeps its own schedule
 // (hsFrameDue): a frame is due one interval after the last one was due,
-// whatever the host's cadence. The host is asked for one refresh, the finest
+// whatever the host's cadence. That holds the rate; frames are evenly spaced
+// only where the host calls on the refreshes (ss-83i would take the cadence
+// from the display instead). The host is asked for one refresh, the finest
 // any schedule needs. Frames present when done: each frame's step is the time
 // since the last, so the scene moves at the speed the frames are shown.
 - (void)matchRefresh

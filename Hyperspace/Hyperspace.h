@@ -81,8 +81,11 @@ __private_extern__ double hsFrameInterval(double refreshInterval, double minPerS
 // Whether a call at time now draws a frame, on a schedule of one frame each
 // interval: true when now is no more than slack before *nextDue, or *nextDue
 // is 0 (nothing drawn yet). On true, *nextDue becomes the next frame's time:
-// an interval after this one was due, so the rate holds whatever the caller's
-// cadence -- or, after a stall of more than an interval, an interval from now.
+// an interval after this one was due, so the average rate holds whatever the
+// caller's cadence -- or, after a stall of more than an interval, an interval
+// from now. Frames are evenly spaced only if the calls come on the refreshes;
+// from calls at another cadence (105 a second on 144 Hz) they are spaced 1
+// and 2 calls apart by turns, which nothing that only filters calls can fix.
 __private_extern__ bool hsFrameDue(double now, double *nextDue, double interval, double slack);
 
 #endif

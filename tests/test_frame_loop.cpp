@@ -123,9 +123,12 @@ int framesIn10s(double callInterval, int *calls = nullptr)
     const double firstCall = 0.25;
     const double interval = 2.0 / 144.0, slack = 0.5 / 144.0;
     double nextDue = 0.0;
-    int frames = 0, made = 0;
-    for (double t = firstCall; t < firstCall + 10.0; t += callInterval, made++)
-        frames += hsFrameDue(t, &nextDue, interval, slack);
+    // Each call's time from its index, not by summing: summed error moves
+    // where the 10 s boundary falls.
+    const int made = (int)floor(10.0 / callInterval - 1e-9) + 1;
+    int frames = 0;
+    for (int k = 0; k < made; k++)
+        frames += hsFrameDue(firstCall + k * callInterval, &nextDue, interval, slack);
     if (calls)
         *calls = made;
     return frames;
