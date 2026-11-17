@@ -76,7 +76,13 @@ __private_extern__ void setDefaults(HyperspaceSaverSettings *inSettings);
 // the same number of refreshes. 144 Hz at 60 gives 1/72; 120 Hz 1/60; a
 // display at or under minPerSecond, every refresh. The 0.5% is for rates
 // reported a hair under a whole one: 119.88 Hz draws 59.94, not 119.88.
-// refreshInterval must be > 0.
+// refreshInterval and minPerSecond must be > 0.
 __private_extern__ double hsFrameInterval(double refreshInterval, double minPerSecond);
+// Whether a call at time now draws a frame, on a schedule of one frame each
+// interval: true when now is no more than slack before *nextDue, or *nextDue
+// is 0 (nothing drawn yet). On true, *nextDue becomes the next frame's time:
+// an interval after this one was due, so the rate holds whatever the caller's
+// cadence -- or, after a stall of more than an interval, an interval from now.
+__private_extern__ bool hsFrameDue(double now, double *nextDue, double interval, double slack);
 
 #endif

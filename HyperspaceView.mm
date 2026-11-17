@@ -117,12 +117,11 @@ static const double kMinFramesPerSecond = 60.0;
 // out -- so the main screen is used instead, then kFallbackInterval.
 // The macOS 26 host calls animateOneFrame at its own rate whatever
 // animationTimeInterval says (measured: an interval of 1/72 still drew about
-// 105 frames a second), so animateOneFrame keeps its own schedule: a frame is
-// due one interval after the last one was due, whatever the host's cadence,
-// and the renderer holds each frame on screen for that interval
-// (setMinimumPresentDuration), so the holds stay whole refreshes even where
-// the calls are uneven. The host is asked for one refresh, the finest any
-// schedule needs.
+// 105 frames a second), so animateOneFrame keeps its own schedule
+// (hsFrameDue): a frame is due one interval after the last one was due,
+// whatever the host's cadence. The host is asked for one refresh, the finest
+// any schedule needs. Frames present when done: each frame's step is the time
+// since the last, so the scene moves at the speed the frames are shown.
 - (void)matchRefresh
 {
 	if (lView == nil)
@@ -279,13 +278,8 @@ static const double kMinFramesPerSecond = 60.0;
 				{
 					CFTimeInterval asked = CACurrentMediaTime();
 					// Not yet due (matchRefresh); half a refresh early still draws.
-					if (lNextDue > 0 && asked < lNextDue - lSlack)
+					if (!hsFrameDue(asked, &lNextDue, lFrameInterval, lSlack))
 						return;
-					// The next is due an interval after this one was, so the rate
-					// holds whatever the host's cadence; after a stall of more than
-					// an interval, the schedule starts again from now.
-					lNextDue = (lNextDue > 0 && asked - lNextDue < lFrameInterval) ?
-						lNextDue + lFrameInterval : asked + lFrameInterval;
 					// Waits only while every drawable is in flight; nil only after
 					// the layer's one-second timeout, as when the display sleeps.
 					id<CAMetalDrawable> drawable = [lLayer nextDrawable];
@@ -307,7 +301,6 @@ static const double kMinFramesPerSecond = 60.0;
 					lLastFrame = now;
 					try
 					{
-						lRenderer->setMinimumPresentDuration(lFrameInterval);
 						lRenderer->setDrawable((__bridge void *)drawable);
 						draw(&lSettings);
 					}

@@ -16,6 +16,9 @@
 #include "harness.h"
 #include "recorder.h"
 
+#include <cstdlib>
+#include <string>
+
 #include "Hyperspace/renderer.h"
 #include "Hyperspace/transform.h"
 #include "Hyperspace/splinePath.h"
@@ -110,6 +113,71 @@ TEST(hsFrameInterval_draws_every_nth_refresh_keeping_the_minimum_rate_within_hal
     };
     for (const auto &c : cases)
         CHECK_NEAR(1.0 / hsFrameInterval(1.0 / c.hz, 60.0), c.fps, 1e-6);
+}
+
+namespace {
+// Frames hsFrameDue draws in ten seconds of calls every callInterval, on
+// 144 Hz's 72-a-second schedule with half a refresh of slack.
+int framesIn10s(double callInterval, int *calls = nullptr)
+{
+    const double firstCall = 0.25;
+    const double interval = 2.0 / 144.0, slack = 0.5 / 144.0;
+    double nextDue = 0.0;
+    int frames = 0, made = 0;
+    for (double t = firstCall; t < firstCall + 10.0; t += callInterval, made++)
+        frames += hsFrameDue(t, &nextDue, interval, slack);
+    if (calls)
+        *calls = made;
+    return frames;
+}
+}
+
+TEST(hsFrameDue_draws_every_other_call_of_a_host_calling_every_refresh)
+{
+    const double interval = 2.0 / 144.0, slack = 0.5 / 144.0;
+    double nextDue = 0.0;
+    std::string pattern;
+    for (int i = 0; i < 8; i++)
+        pattern += hsFrameDue(1.0 + i / 144.0, &nextDue, interval, slack) ? 'x' : '.';
+    CHECK(pattern == "x.x.x.x.");
+    CHECK(framesIn10s(1.0 / 144.0) == 720);
+}
+
+TEST(hsFrameDue_still_draws_a_call_that_lands_a_little_early)
+{
+    // A tenth of a millisecond early, as host timers are: without the slack
+    // these frames would slip a refresh, held 3 refreshes instead of 2.
+    const double interval = 2.0 / 144.0, slack = 0.5 / 144.0;
+    double nextDue = 0.0;
+    std::string pattern;
+    for (int i = 0; i < 8; i++)
+        pattern += hsFrameDue(1.0 + i / 144.0 - (i ? 1e-4 : 0.0), &nextDue, interval, slack) ? 'x' : '.';
+    CHECK(pattern == "x.x.x.x.");
+}
+
+TEST(hsFrameDue_keeps_the_rate_whatever_the_host_calling_cadence)
+{
+    // macOS 26's host was measured calling about 105 times a second; a gate
+    // timed from the last frame drew 52.5 a second there.
+    CHECK(std::abs(framesIn10s(1.0 / 105.0) - 720) <= 2);
+    CHECK(std::abs(framesIn10s(1.0 / 240.0) - 720) <= 2);
+    CHECK(std::abs(framesIn10s(1.0 / 90.0) - 720) <= 2);
+    // A host slower than the schedule draws every call: nothing to skip.
+    int calls = 0;
+    CHECK(framesIn10s(1.0 / 50.0, &calls) == calls);
+}
+
+TEST(hsFrameDue_restarts_the_schedule_after_a_stall_instead_of_catching_up)
+{
+    const double interval = 2.0 / 144.0, slack = 0.5 / 144.0;
+    double nextDue = 0.0;
+    CHECK(hsFrameDue(1.0, &nextDue, interval, slack));
+    CHECK(hsFrameDue(1.0 + interval, &nextDue, interval, slack));
+    // A second's stall: one frame now, then the next a whole interval later,
+    // not a burst of the frames the stall missed.
+    CHECK(hsFrameDue(2.0, &nextDue, interval, slack));
+    CHECK(!hsFrameDue(2.0 + 1.0 / 144.0, &nextDue, interval, slack));
+    CHECK_NEAR(nextDue, 2.0 + interval, 1e-9);
 }
 
 TEST(setDefaults_picks_the_shipped_settings)

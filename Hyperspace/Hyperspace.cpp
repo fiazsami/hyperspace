@@ -328,6 +328,14 @@ double hsFrameInterval(double refreshInterval, double minPerSecond){
 }
 
 
+bool hsFrameDue(double now, double *nextDue, double interval, double slack){
+	if(*nextDue > 0.0 && now < *nextDue - slack)
+		return false;
+	*nextDue = (*nextDue > 0.0 && now - *nextDue < interval) ? *nextDue + interval : now + interval;
+	return true;
+}
+
+
 void setDefaults(HyperspaceSaverSettings *inSettings){
 	inSettings->dSpeed = 23;
 	inSettings->dStars = 2000;
