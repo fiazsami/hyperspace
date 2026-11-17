@@ -23,7 +23,8 @@
 # level. Their fixtures are backend_textures_*.sed and backend_caustics_*.sed.
 #
 # About 8 minutes for everything (8m03s measured on an M5 Max, 2026-11-16:
-# eight passes, 63 fixtures, the goo at resolution 20).
+# eight passes, 63 fixtures, the goo at resolution 20; since then two more
+# goosoft fixtures).
 #
 #   parity/backendcheck.sh [stars|goo|tunnel|burst|sun|goosoft|textures|caustics ...]    default: all eight
 #

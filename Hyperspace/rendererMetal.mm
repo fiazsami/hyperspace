@@ -189,13 +189,17 @@ struct HSRendererMetalState {
 	id<MTLBuffer> gooVertices;
 	NSUInteger gooCapacity;      // in vertices, a multiple of 3
 	id<MTLCommandBuffer> gooBuildCommands;   // this frame's build, nil until drawGooField
-	// The soft goo (setSoftGoo): drawn into gooTarget in a command buffer of
-	// its own, committed after the build and before the frame, then added over
-	// the frame by softenPipeline.
+	// The soft goo (setSoftGoo): drawn into gooTarget, in the frame's format,
+	// in a command buffer of its own (softCommands) committed after the build
+	// and before the frame; then added over the frame by softenPipeline. The
+	// format is the frame's on purpose: a half-float target was measured
+	// brighter than GL (parity goosoft bias 3.07, faithful 8-bit 0.66), since
+	// it keeps light GL's 8-bit blending rounds away.
 	bool softGoo;
 	id<MTLLibrary> softenLibrary;
 	id<MTLRenderPipelineState> softenPipeline;   // for pipelineFormat, rebuilt with the others
 	id<MTLTexture> gooTarget;
+	id<MTLCommandBuffer> softCommands;   // this frame's soft goo, nil until drawGooField
 	MTLViewport viewport;   // the frame's
 };
 
@@ -333,6 +337,7 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->softenLibrary = compilePass(st->device, metalDir, "Soften.metal");
 	st->softenPipeline = nil;
 	st->gooTarget = nil;
+	st->softCommands = nil;
 }
 
 HSRendererMetal::~HSRendererMetal(){
@@ -424,6 +429,7 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 	st->inOverlay = false;
 	st->draws = st->gooDraws = st->tunnelDraws = 0;
 	st->gooBuildCommands = nil;
+	st->softCommands = nil;
 
 	MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
 	rp.colorAttachments[0].texture = st->target;
@@ -469,6 +475,11 @@ void HSRendererMetal::endFrame(){
 		[st->commands waitUntilCompleted];
 		if(st->commands.status == MTLCommandBufferStatusError)
 			fail("the GPU failed the frame", st->commands.error.localizedDescription.UTF8String);
+		if(st->softCommands){
+			[st->softCommands waitUntilCompleted];
+			if(st->softCommands.status == MTLCommandBufferStatusError)
+				fail("the GPU failed the soft goo", st->softCommands.error.localizedDescription.UTF8String);
+		}
 		if(st->gooBuildCommands){
 			[st->gooBuildCommands waitUntilCompleted];
 			if(st->gooBuildCommands.status == MTLCommandBufferStatusError)
@@ -862,11 +873,11 @@ void HSRendererMetal::drawGooField(const HSGooField &field){
 
 	simd_float4x4 model = matrix_identity_float4x4;
 	model.columns[3] = simd_make_float4(field.origin[0], 0.0f, field.origin[1], 1.0f);
+	st->gooDraws++;
 	if(!st->softGoo){
 		bindGoo(st, st->encoder, model, st->gooVertices);
 		[st->encoder drawPrimitives:MTLPrimitiveTypeTriangle indirectBuffer:st->gooArgs indirectBufferOffset:0];
 		st->draws++;
-		st->gooDraws++;
 		return;
 	}
 
@@ -906,19 +917,29 @@ void HSRendererMetal::drawGooField(const HSGooField &field){
 			NSLog(@"HSRendererMetal: the GPU failed the soft goo: %@", done.error.localizedDescription);
 	}];
 	[soft commit];
+	st->softCommands = soft;
 
-	// Added over the whole target, which the goo target spans; then the goo's
-	// state back, for whatever else the goo pass draws (the sphere).
-	MTLViewport whole = {0.0, 0.0, double(st->target.width), double(st->target.height), 0.0, 1.0};
-	[st->encoder setViewport:whole];
-	[st->encoder setRenderPipelineState:st->softenPipeline];
-	[st->encoder setFragmentTexture:st->gooTarget atIndex:0];
-	[st->encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
-	[st->encoder setViewport:st->viewport];
-	[st->encoder setRenderPipelineState:st->gooPipeline];
-	bindGooTextures(st, st->encoder);
-	st->draws += 2;
-	st->gooDraws++;
+	// Added over the whole target, which the goo target spans, but cut to the
+	// frame's viewport, which the blur would otherwise spread past. Nothing
+	// else draws in the goo pass (a second drawGooField fails) and endGoo
+	// resets the pipeline, so only the viewport and scissor are put back.
+	const NSUInteger tw = st->target.width, th = st->target.height;
+	const double x0 = std::max(0.0, st->viewport.originX), y0 = std::max(0.0, st->viewport.originY);
+	const double x1 = std::min(double(tw), st->viewport.originX + st->viewport.width);
+	const double y1 = std::min(double(th), st->viewport.originY + st->viewport.height);
+	if(x1 > x0 && y1 > y0){
+		const MTLScissorRect cut = {NSUInteger(x0), NSUInteger(y0), NSUInteger(x1) - NSUInteger(x0), NSUInteger(y1) - NSUInteger(y0)};
+		MTLViewport whole = {0.0, 0.0, double(tw), double(th), 0.0, 1.0};
+		[st->encoder setViewport:whole];
+		[st->encoder setScissorRect:cut];
+		[st->encoder setRenderPipelineState:st->softenPipeline];
+		[st->encoder setFragmentTexture:st->gooTarget atIndex:0];
+		[st->encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+		[st->encoder setScissorRect:(MTLScissorRect){0, 0, tw, th}];
+		[st->encoder setViewport:st->viewport];
+		st->draws++;
+	}
+	st->draws++;
 }
 
 void HSRendererMetal::drawGooSphere(const float center[3], float radius){

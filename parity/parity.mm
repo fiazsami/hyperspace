@@ -98,6 +98,7 @@ struct Pass {
     int burstAt;   // frame at which to set off the starburst; 0 leaves it to the saver's timer
     float sunAhead;   // distance ahead of the camera to hold the sun at; 0 leaves it where the saver puts it
     bool softGoo;     // the backend draws the goo soft, as the saver does (HSRendererMetal::setSoftGoo)
+    int block;        // >1: both images averaged over block x block pixels before they are compared
 };
 static const Pass kPasses[] = {
     // 60 s; stars are tiny, so the lit-pixel normalization matters most here.
@@ -119,13 +120,13 @@ static const Pass kPasses[] = {
     // stays at (0, 2, 0): drawn on the sun, its core hides it.
     {"sun",    false, false, 1200, 100, 1.0, 0.1, 0.06, 0, 12.0f},
     // The goo pass with the backend's goo soft, as the saver draws it, against
-    // GL's sharp goo. Softening moves light between pixels, so the per-pixel
-    // shares say nothing and are not limited; it must not add or remove
-    // light, so the signed bias is. Measured at resolution 20: faithful worst
-    // bias 0.656 (light GL clips at 255 spreads below it); weakest defect, the
-    // tent divided by 15 rather than 16, 7.431; the soft goo never added
-    // back, 127.6.
-    {"goosoft", true, false, 3600, 300, 100.0, 100.0, 2.0, 0, 0.0f, true},
+    // GL's sharp goo, both averaged over 16x16 blocks: softening moves light
+    // a few pixels, which blocks that size mostly absorb, while goo drawn in
+    // the wrong place still shows. Measured at resolution 20, worst shot:
+    // faithful 34.2% / 4.48% / bias 0.665; drawn two pixels off 62.9% / 25.5%
+    // / 0.801; upside down 98.6% / 96.3% / 0.586 (brightness alone passes
+    // both); the tent divided by 15, bias 7.231; never added back, 121.6.
+    {"goosoft", true, false, 3600, 300, 50.0, 12.0, 2.0, 0, 0.0f, true, 16},
 };
 
 static void writePNG(NSString *path, const uint8_t *rgba, int w, int h)
@@ -162,8 +163,28 @@ static std::vector<uint8_t> readPNG(NSString *path, int &w, int &h)
 // _backend.png (renderer=metal), under the pass's rules. Either way a shot
 // missing from either side is an error, and a shot outside the rule writes
 // <new-dir>/NNNNN_diffx8.png: the per-pixel difference, times 8.
+// The mean of each whole block x block square of an RGBA image, rounded; a
+// partial block at the right or bottom edge is dropped.
+static std::vector<uint8_t> blockMean(const std::vector<uint8_t> &img, int &w, int &h, int block)
+{
+    const int bw = w / block, bh = h / block;
+    std::vector<uint8_t> out((size_t)bw * bh * 4);
+    for (int by = 0; by < bh; by++)
+        for (int bx = 0; bx < bw; bx++)
+            for (int c = 0; c < 4; c++) {
+                int sum = 0;
+                for (int y = 0; y < block; y++)
+                    for (int x = 0; x < block; x++)
+                        sum += img[((size_t)(by * block + y) * w + bx * block + x) * 4 + c];
+                out[((size_t)by * bw + bx) * 4 + c] = (uint8_t)((sum + block * block / 2) / (block * block));
+            }
+    w = bw; h = bh;
+    return out;
+}
+
 static int compareRuns(NSString *refDir, NSString *newDir, NSString *newSuffix,
-                       double max2, double max8, double maxBias, const char *same, const char *different)
+                       double max2, double max8, double maxBias, const char *same, const char *different,
+                       int block = 1)
 {
     auto shots = [](NSString *dir, NSString *suffix) -> NSArray<NSString *> * {
         NSArray<NSString *> *all = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:nil];
@@ -189,6 +210,7 @@ static int compareRuns(NSString *refDir, NSString *newDir, NSString *newSuffix,
         std::vector<uint8_t> a = readPNG([refDir stringByAppendingPathComponent:[n stringByAppendingString:@"_gl.png"]], rw, rh);
         std::vector<uint8_t> b = readPNG([newDir stringByAppendingPathComponent:[n stringByAppendingString:newSuffix]], nw, nh);
         if (a.empty() || b.empty() || rw != nw || rh != nh) { printf("ERROR %s missing or a different size\n", n.UTF8String); return 2; }
+        if (block > 1) { a = blockMean(a, rw, rh, block); b = blockMean(b, nw, nh, block); }
         size_t lit = 0, l2 = 0, l8 = 0; int maxd = 0; double sb[3] = {0, 0, 0};
         std::vector<uint8_t> heat((size_t)rw * rh * 4);
         for (size_t i = 0; i < (size_t)rw * rh; i++) {
@@ -349,7 +371,7 @@ int main(int argc, const char *argv[])
         if (argc == 3 && !strcmp(argv[1], "--backend-caustics")) return compareBackendCaustics(@(argv[2]));
         if (argc == 5 && !strcmp(argv[1], "--compare-backend")) {
             for (const Pass &p : kPasses)
-                if (!strcmp(argv[2], p.name)) return compareRuns(@(argv[3]), @(argv[4]), @"_backend.png", p.max2, p.max8, p.maxBias, "PASS", "FAIL");
+                if (!strcmp(argv[2], p.name)) return compareRuns(@(argv[3]), @(argv[4]), @"_backend.png", p.max2, p.max8, p.maxBias, "PASS", "FAIL", p.block);
             fprintf(stderr, "unknown pass %s\n", argv[2]); return 2;
         }
         if (argc < 4) {

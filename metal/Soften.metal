@@ -22,7 +22,7 @@ vertex SoftenVaryings soften_vertex(uint vid [[vertex_id]])
 // A 3x3 tent of bilinear taps one low-resolution texel apart, weights
 // (1 2 1) x (1 2 1) / 16: they sum to 1, so the goo keeps its brightness and
 // only spreads. Blended (ONE, ONE): the goo target holds what the goo's own
-// (SRC_ALPHA, ONE) blending added to black.
+// (SRC_ALPHA, ONE) blending added to black. Alpha 0: the pass adds colour only.
 fragment float4 soften_fragment(SoftenVaryings in [[stage_in]],
                                 texture2d<float> goo [[texture(0)]])
 {
@@ -32,5 +32,5 @@ fragment float4 soften_fragment(SoftenVaryings in [[stage_in]],
     for (int y = -1; y <= 1; y++)
         for (int x = -1; x <= 1; x++)
             sum += goo.sample(s, in.uv + float2(x, y) * texel).rgb * float((2 - abs(x)) * (2 - abs(y)));
-    return float4(sum / 16.0f, 1.0f);
+    return float4(sum / 16.0f, 0.0f);
 }
