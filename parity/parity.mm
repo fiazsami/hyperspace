@@ -19,12 +19,14 @@
 // seamcheck.sh can run older parity builds, which did, with the same arguments. Both share the seed, so they draw the same frames, and
 // `parity --compare-backend <pass> <gl-dir> <backend-dir>` judges one against the
 // other under the pass's rules (parity/backendcheck.sh). `parity --compare` judges
-// two GL runs against each other (parity/seamcheck.sh). `--backend-textures` and
+// two GL runs against each other (parity/seamcheck.sh), and `parity --compare-golden`
+// a backend run against approved backend images (parity/goldencheck.sh). `--backend-textures` and
 // `--backend-caustics` check texture uploads and the offscreen target directly.
 // Exit 0 = written (or PASS), 1 = FAIL, 2 = a run or setup error.
 //
-// Nothing here is a golden image: both renderers draw the same frame in the same
-// process, so the reference is always the shipped renderer on this machine. The
+// Apart from --compare-golden, nothing here is a golden image: both renderers draw
+// the same frame in the same process, so the reference is always the shipped
+// renderer on this machine. The
 // rules below were calibrated on one machine (Apple M5 Max, macOS 26); see
 // parity/README.md for the measurements and for what a different GPU may need.
 
@@ -179,14 +181,17 @@ static std::vector<uint8_t> blockMean(const std::vector<uint8_t> &img, int &w, i
 // shot by shot (parity/seamcheck.sh). Both sides are the GL renderer, so nothing
 // here is a translation residual: the rule is the tightest any pass uses.
 // parity --compare-backend compares one run's GL images with another's
-// _backend.png (renderer=metal), under the pass's rules. Either way a shot
+// _backend.png (renderer=metal), under the pass's rules. parity --compare-golden
+// compares approved _backend.png images (parity/golden/<pass>) with a new run's,
+// under --compare's rule: the backend draws the same bytes run to run on one
+// machine, so anything past that rule is a change in the picture. Either way a shot
 // missing from either side is an error, and a shot outside the rule writes
 // <new-dir>/NNNNN_diffx8.png: the per-pixel difference, times 8. A pass with
 // block > 1 compares block means, and its diff is of those: NNNNN_diffx8_blockN.png,
 // one pixel a block.
 static int compareRuns(NSString *refDir, NSString *newDir, NSString *newSuffix,
                        double max2, double max8, double maxBias, const char *same, const char *different,
-                       int block = 1)
+                       int block = 1, NSString *refSuffix = @"_gl.png")
 {
     auto shots = [](NSString *dir, NSString *suffix) -> NSArray<NSString *> * {
         NSArray<NSString *> *all = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:nil];
@@ -197,7 +202,7 @@ static int compareRuns(NSString *refDir, NSString *newDir, NSString *newSuffix,
         for (NSString *n in found) [frames addObject:[n substringToIndex:n.length - suffix.length]];
         return [frames sortedArrayUsingSelector:@selector(compare:)];
     };
-    NSArray<NSString *> *names = shots(refDir, @"_gl.png"), *newNames = shots(newDir, newSuffix);
+    NSArray<NSString *> *names = shots(refDir, refSuffix), *newNames = shots(newDir, newSuffix);
     if (!names || !newNames) return 2;
     if (![names isEqualToArray:newNames]) {
         NSMutableSet *onlyRef = [NSMutableSet setWithArray:names], *onlyNew = [NSMutableSet setWithArray:newNames];
@@ -209,7 +214,7 @@ static int compareRuns(NSString *refDir, NSString *newDir, NSString *newSuffix,
     bool ok = true; double worst2 = 0, worst8 = 0, worstBias = 0; int worstMax = 0;
     for (NSString *n in names) {
         int rw = 0, rh = 0, nw = 0, nh = 0;
-        std::vector<uint8_t> a = readPNG([refDir stringByAppendingPathComponent:[n stringByAppendingString:@"_gl.png"]], rw, rh);
+        std::vector<uint8_t> a = readPNG([refDir stringByAppendingPathComponent:[n stringByAppendingString:refSuffix]], rw, rh);
         std::vector<uint8_t> b = readPNG([newDir stringByAppendingPathComponent:[n stringByAppendingString:newSuffix]], nw, nh);
         if (a.empty() || b.empty() || rw != nw || rh != nh) { printf("ERROR %s missing or a different size\n", n.UTF8String); return 2; }
         if (block > 1) {
@@ -373,6 +378,8 @@ int main(int argc, const char *argv[])
 {
     @autoreleasepool {
         if (argc == 4 && !strcmp(argv[1], "--compare")) return compareRuns(@(argv[2]), @(argv[3]), @"_gl.png", 0.1, 0.01, 0.06, "SAME", "DIFFERENT");
+        if (argc == 4 && !strcmp(argv[1], "--compare-golden"))
+            return compareRuns(@(argv[2]), @(argv[3]), @"_backend.png", 0.1, 0.01, 0.06, "SAME", "DIFFERENT", 1, @"_backend.png");
         if (argc == 3 && !strcmp(argv[1], "--backend-textures")) return compareBackendTextures(@(argv[2]));
         if (argc == 3 && !strcmp(argv[1], "--backend-caustics")) return compareBackendCaustics(@(argv[2]));
         if (argc == 5 && !strcmp(argv[1], "--compare-backend")) {
@@ -384,6 +391,7 @@ int main(int argc, const char *argv[])
             fprintf(stderr, "usage: parity <stars|goo|tunnel|burst|sun|goosoft> <metal-dir> <outdir> [renderer=metal] [frames=N] [every=N] [w=N] [h=N]\n"
                             "       parity --compare <ref-dir> <new-dir>\n"
                             "       parity --compare-backend <pass> <gl-dir> <backend-dir>\n"
+                            "       parity --compare-golden <golden-dir> <backend-dir>\n"
                             "       parity --backend-textures <metal-dir>\n"
                             "       parity --backend-caustics <metal-dir>\n");
             return 2;
