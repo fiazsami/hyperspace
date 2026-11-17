@@ -501,7 +501,8 @@ back and writing shots costs, which the saver never does). The process figure,
 not the drawing thread's, is the one that counts: Metal's driver threads and
 the kernel's submission work cost several times the drawing itself (0.14
 against 0.027 ms a frame for the goo, measured). A change is HIGHER only past
-the larger of twice the run-to-run noise and 2% of the reference -- refcheck
+the largest of twice the reference's run-to-run noise, 2% of the reference,
+and 0.003 ms a frame (0.2 ms a second at 60 fps, too little to matter) -- refcheck
 against itself, with nothing changed, measured GPU within 0.3% and CPU within
 2.5%, except the cheapest pass (sun, 0.04 ms) whose CPU once moved 6% -- inside
 twice its noise, so not HIGHER. Read a CPU change on the 0.04 ms passes

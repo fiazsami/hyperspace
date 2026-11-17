@@ -6,8 +6,8 @@
 #                 so it installs beside the user's own Hyperspace and never in
 #                 its place; backs up the copy it replaces, installs, and
 #                 restarts legacyScreenSaver so the next run loads it.
-# restore         undoes the last install: puts back the copy it replaced, or
-#                 removes the test copy if there was none.
+# restore         undoes every install since the last restore: puts back the
+#                 copy the first replaced, or removes the test copy if none.
 # profile [secs]  waits (up to two hours) for the user to run Hyperspace Metal,
 #                 lets it settle, then records secs (default 5) each of a Time
 #                 Profiler and a Metal System Trace and reports: the saver's
@@ -49,16 +49,17 @@ install)
     built="$src/sym/Release/$NAME.saver"
     [ "$(plutil -extract NSPrincipalClass raw "$built/Contents/Info.plist")" = HyperspaceMetalView ] ||
         { echo "the built bundle's class is not HyperspaceMetalView" >&2; exit 2; }
-    # The last install's backup, or "none" when there was no copy to back up,
-    # is what restore puts back: an older backup belongs to an older install.
+    # What was there before the first install since the last restore -- its
+    # backup, or "none" -- is what restore goes back to, however many installs
+    # come between. Recorded once the new copy is in place.
     backup=none
     if [ -d "$SAVERS/$NAME.saver" ]; then
         backup=$OUT/backup-$(date +%Y%m%d-%H%M%S).saver
         cp -R "$SAVERS/$NAME.saver" "$backup" || exit 2
         echo "backed up the installed copy to $backup"
     fi
-    echo "$backup" > "$OUT/last-backup"
-    rm -rf "$SAVERS/$NAME.saver" && cp -R "$built" "$SAVERS/" || exit 2
+    mkdir -p "$SAVERS" && rm -rf "$SAVERS/$NAME.saver" && cp -R "$built" "$SAVERS/" || exit 2
+    [ -f "$OUT/last-backup" ] || echo "$backup" > "$OUT/last-backup"
     pkill -x legacyScreenSaver
     echo "installed $NAME at ${sha:0:12}"
     ;;
@@ -81,7 +82,10 @@ profile)
     echo "waiting for $NAME to run full-screen..."
     pid=; hits=0
     for _ in $(seq 1 7200); do
-        cand=$(ps -Ao pid=,pcpu=,comm= | awk '/legacyScreenSaver/ && $2 > 5 {print $1}' | while read -r p; do
+        # Which process has the bundle loaded tells it is the test copy; a
+        # little CPU tells it is drawing. The bar is low (1%) so a quiet saver
+        # still clears it; a System Settings preview may too, so close those.
+        cand=$(LC_ALL=C ps -Ao pid=,pcpu=,comm= | awk '/legacyScreenSaver/ && $2 + 0 > 1 {print $1}' | while read -r p; do
             lsof -p "$p" 2>/dev/null | grep -q "$NAME.saver/" && echo "$p"; done | head -1)
         if [ -n "$cand" ]; then pid=$cand; hits=$((hits + 1)); else hits=0; fi
         [ $hits -ge 3 ] && break
@@ -91,7 +95,7 @@ profile)
     sleep 5
     ws=$(pgrep -x WindowServer | head -1)
     # Each xctrace step logs to the profile directory and stops the run when it fails.
-    xt(){ local log=$1; shift; xcrun xctrace "$@" > "$dir/$log.log" 2>&1 || { echo "xctrace $1 failed: $dir/$log.log" >&2; tail -3 "$dir/$log.log" >&2; exit 2; }; }
+    xt(){ local log=$1; shift; xcrun xctrace "$@" > "$dir/$log.log" 2>&1 || { echo "xctrace $log failed: $dir/$log.log" >&2; tail -3 "$dir/$log.log" >&2; exit 2; }; }
     xt cpu-record record --template "Time Profiler" --attach "$pid" --time-limit "${secs}s" --output "$dir/cpu.trace"
     # top's first sample has nothing to measure against and reads 0%: skipped.
     top -l 4 -s 2 -stats pid,cpu 2>/dev/null | awk -v p="$pid" -v w="$ws" '/^Processes:/ {k++} k < 2 {next}

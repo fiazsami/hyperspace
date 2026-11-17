@@ -522,10 +522,12 @@ void *HSRendererMetal::texture(unsigned int name) const{
 
 // A command buffer for this frame's work. Every per-frame buffer comes from
 // here, so the frame's GPU time (lastFrameGPUMilliseconds) covers it without
-// anyone remembering to add it.
+// anyone remembering to add it. Only a target's frame is timed: a drawable's
+// buffers are not kept, so the saver holds nothing past its frame.
 static id<MTLCommandBuffer> frameCommands(HSRendererMetalState *st){
 	id<MTLCommandBuffer> cb = [st->queue commandBuffer];
-	st->frameBuffers.push_back(cb);
+	if(!st->drawable)
+		st->frameBuffers.push_back(cb);
 	return cb;
 }
 

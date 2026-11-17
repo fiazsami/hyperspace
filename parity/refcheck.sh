@@ -8,12 +8,14 @@
 # frames (the footage its look shots come from: the tunnel pass is two minutes
 # because one rarely reaches the inside of a tunnel), the two sides alternated (ref new ref new) so drift lands on both. Reported per pass:
 # GPU ms a frame (median) and the process's CPU ms a frame (mean), each side's
-# two runs averaged, the change, and the noise -- the larger of each side's
-# own run-to-run difference. A change counts only past the larger of twice
+# two runs averaged, the change, and the noise -- the reference's own
+# run-to-run difference. Only the reference's: the side being judged must not
+# set its own bar, or a change that made timings erratic would raise it. A change counts only past the larger of twice
 # that noise and 2% of the reference: with nothing changed the two sides'
 # GPU differs by under 0.3% and CPU by up to a few percent on the cheapest
 # passes (measured, refcheck against itself), more than either side moves on
-# its own. Timings are printed to 0.00001 ms, so rounding never
+# its own. Nor below 0.003 ms a frame (0.2 ms a second at 60 fps): the
+# cheapest passes' CPU drifted up to 0.0026 ms against themselves. Timings are printed to 0.00001 ms, so rounding never
 # reaches that 2% (the cheapest passes are about 0.04 ms a frame).
 #
 # Look: six shots of each pass through `parity --compare-look` (mid-tones kept,
@@ -85,9 +87,10 @@ for pass in "${cost[@]}"; do
         END {
             # +0: substr() gives strings, and "0.00000" <= 0 compares as text.
             for (i = 1; i <= 4; i++) if (NR != 4 || g[i] + 0 <= 0 || c[i] + 0 <= 0) { print "ERROR"; exit }
-            gr = (g[1] + g[3]) / 2; gn = (g[2] + g[4]) / 2; gnoise = abs(g[1] - g[3]) > abs(g[2] - g[4]) ? abs(g[1] - g[3]) : abs(g[2] - g[4])
-            cr = (c[1] + c[3]) / 2; cn = (c[2] + c[4]) / 2; cnoise = abs(c[1] - c[3]) > abs(c[2] - c[4]) ? abs(c[1] - c[3]) : abs(c[2] - c[4])
+            gr = (g[1] + g[3]) / 2; gn = (g[2] + g[4]) / 2; gnoise = abs(g[1] - g[3])
+            cr = (c[1] + c[3]) / 2; cn = (c[2] + c[4]) / 2; cnoise = abs(c[1] - c[3])
             gl = 2 * gnoise > 0.02 * gr ? 2 * gnoise : 0.02 * gr; cl = 2 * cnoise > 0.02 * cr ? 2 * cnoise : 0.02 * cr
+            if (gl < 0.003) gl = 0.003; if (cl < 0.003) cl = 0.003
             higher = (gn - gr > gl) || (cn - cr > cl)
             printf "%6.3f -> %6.3f (%+6.1f%%, noise %.3f)  %6.3f -> %6.3f (%+6.1f%%, noise %.3f)  %s",
                 gr, gn, 100 * (gn - gr) / gr, gnoise, cr, cn, 100 * (cn - cr) / cr, cnoise, higher ? "HIGHER" : "not higher"
