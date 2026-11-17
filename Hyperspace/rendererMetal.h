@@ -67,7 +67,7 @@ public:
 	void setTunnelDetail(int detail);
 	int tunnelDetail() const;
 	// The GPU time of the last frame drawn into a target (setTarget), in
-	// milliseconds: every command buffer it committed, end less start, summed.
+	// milliseconds: the union of the GPU spans of every command buffer it committed.
 	// 0 before the first such frame, and for a drawable's frame, which is not
 	// waited for (the saver's GPU time is measured by a trace instead).
 	double lastFrameGPUMilliseconds() const;

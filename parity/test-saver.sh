@@ -6,7 +6,8 @@
 #                 so it installs beside the user's own Hyperspace and never in
 #                 its place; backs up the copy it replaces, installs, and
 #                 restarts legacyScreenSaver so the next run loads it.
-# restore         puts the last backup back.
+# restore         undoes the last install: puts back the copy it replaced, or
+#                 removes the test copy if there was none.
 # profile [secs]  waits (up to two hours) for the user to run Hyperspace Metal,
 #                 lets it settle, then records secs (default 5) each of a Time
 #                 Profiler and a Metal System Trace and reports: the saver's
@@ -36,8 +37,11 @@ install)
     # Any other code naming the class would build a bundle with both names,
     # the clash the rename exists to avoid. (The nib's File's Owner names it
     # too; that class is never made from the nib.)
-    left=$(grep -rnw HyperspaceView --include='*.m' --include='*.mm' --include='*.h' --include='*.c' --include='*.cpp' "$src" |
-        grep -v '#import "HyperspaceView.h"')
+    # The saver's own sources only (parity and the tests are not built into
+    # it), and code rather than comments.
+    left=$(grep -rnw HyperspaceView --include='*.m' --include='*.mm' --include='*.h' --include='*.c' --include='*.cpp' \
+            --exclude-dir=parity --exclude-dir=tests "$src" |
+        grep -v '#import "HyperspaceView.h"' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|/?\*)')
     [ -z "$left" ] || { echo "code still names HyperspaceView after the rename:" >&2; echo "$left" >&2; exit 2; }
     (cd "$src" && xcodebuild -project Hyperspace.xcodeproj -target Hyperspace -configuration Release \
         SYMROOT="$src/sym" OBJROOT="$src/obj" "PRODUCT_NAME=$NAME" PRODUCT_BUNDLE_IDENTIFIER=com.reallyslick.HyperspaceMetal \
@@ -45,20 +49,31 @@ install)
     built="$src/sym/Release/$NAME.saver"
     [ "$(plutil -extract NSPrincipalClass raw "$built/Contents/Info.plist")" = HyperspaceMetalView ] ||
         { echo "the built bundle's class is not HyperspaceMetalView" >&2; exit 2; }
+    # The last install's backup, or "none" when there was no copy to back up,
+    # is what restore puts back: an older backup belongs to an older install.
+    backup=none
     if [ -d "$SAVERS/$NAME.saver" ]; then
         backup=$OUT/backup-$(date +%Y%m%d-%H%M%S).saver
         cp -R "$SAVERS/$NAME.saver" "$backup" || exit 2
         echo "backed up the installed copy to $backup"
     fi
+    echo "$backup" > "$OUT/last-backup"
     rm -rf "$SAVERS/$NAME.saver" && cp -R "$built" "$SAVERS/" || exit 2
     pkill -x legacyScreenSaver
     echo "installed $NAME at ${sha:0:12}"
     ;;
 restore)
-    backup=$(ls -d "$OUT"/backup-*.saver 2>/dev/null | tail -1)
-    [ -n "$backup" ] || { echo "no backup in $OUT" >&2; exit 2; }
-    rm -rf "$SAVERS/$NAME.saver" && cp -R "$backup" "$SAVERS/$NAME.saver" && pkill -x legacyScreenSaver
-    echo "restored $backup"
+    [ -f "$OUT/last-backup" ] || { echo "nothing installed by this script to undo" >&2; exit 2; }
+    backup=$(cat "$OUT/last-backup")
+    if [ "$backup" = none ]; then
+        rm -rf "$SAVERS/$NAME.saver" && pkill -x legacyScreenSaver
+        echo "removed $NAME: there was none before the last install"
+    else
+        [ -d "$backup" ] || { echo "the last install's backup $backup is gone" >&2; exit 2; }
+        rm -rf "$SAVERS/$NAME.saver" && cp -R "$backup" "$SAVERS/$NAME.saver" && pkill -x legacyScreenSaver
+        echo "restored $backup"
+    fi
+    rm -f "$OUT/last-backup"
     ;;
 profile)
     secs=${2:-5}

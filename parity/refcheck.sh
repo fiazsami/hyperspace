@@ -10,9 +10,10 @@
 # GPU ms a frame (median) and the process's CPU ms a frame (mean), each side's
 # two runs averaged, the change, and the noise -- the larger of each side's
 # own run-to-run difference. A change counts only past the larger of twice
-# that noise and 2% of the reference: the two sides differ by about 1% with
-# nothing changed (measured, refcheck against itself), more than either side
-# moves on its own. Timings are printed to 0.00001 ms, so rounding never
+# that noise and 2% of the reference: with nothing changed the two sides'
+# GPU differs by under 0.3% and CPU by up to a few percent on the cheapest
+# passes (measured, refcheck against itself), more than either side moves on
+# its own. Timings are printed to 0.00001 ms, so rounding never
 # reaches that 2% (the cheapest passes are about 0.04 ms a frame).
 #
 # Look: six shots of each pass through `parity --compare-look` (mid-tones kept,
@@ -35,7 +36,11 @@ passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo tunnel burst sun)
 for pass in "${passes[@]}"; do
     case $pass in stars|goo|tunnel|burst|sun) ;; *) echo "unknown pass $pass (goosoft is goo as the saver draws it)" >&2; exit 2;; esac
 done
-cost=(${REFCHECK_COST//,/ }); [ ${#cost[@]} -gt 0 ] || cost=("${passes[@]}")
+costList=${REFCHECK_COST:-}
+cost=(${costList//,/ }); [ ${#cost[@]} -gt 0 ] || cost=("${passes[@]}")
+for pass in "${cost[@]}"; do
+    case $pass in stars|goo|tunnel|burst|sun) ;; *) echo "unknown pass $pass in REFCHECK_COST" >&2; exit 2;; esac
+done
 sha=$(git rev-parse --verify "$ref^{commit}") || exit 2
 
 OUT=.parity-build/ref
@@ -96,10 +101,11 @@ done
 {
     echo '<!doctype html><meta charset="utf-8"><title>refcheck</title>'
     echo '<style>body{background:#111;color:#ddd;font:14px -apple-system,sans-serif;margin:16px}img{max-width:100%;cursor:pointer;display:block}figure{margin:0 0 20px}</style>'
-    echo "<h1>$ref (ref) against the working tree (new)</h1><p>Click an image to flip it between the two. Most changed shots first.</p>"
+    echo "<h1>$ref (ref) against the working tree (new)</h1><p>Click an image to flip it between the two. Shots outside a rule first, then by mid-tone change.</p>"
     for pass in "${passes[@]}"; do
         echo "<h2>$pass</h2><pre>$(tail -1 "$OUT/$pass.look")</pre>"
-        grep '_backend.png' "$OUT/$pass.look" | sort -k4 -rn | awk '{print $1, $0}' | while read -r shot rest; do
+        grep '_backend.png' "$OUT/$pass.look" | awk '{print ($NF == "CHANGED" ? 1 : 0), $4, $0}' | sort -k1,1nr -k2,2gr |
+            cut -d' ' -f3- | awk '{print $1, $0}' | while read -r shot rest; do
             printf '<figure><img src="ref/%s/%s" data-a="ref/%s/%s" data-b="new/%s/%s"><figcaption>%s -- showing ref</figcaption></figure>\n' \
                 "$pass" "$shot" "$pass" "$shot" "$pass" "$shot" "$rest"
         done

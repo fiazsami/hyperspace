@@ -13,6 +13,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 namespace {
 
@@ -619,13 +620,23 @@ void HSRendererMetal::endFrame(){
 				st->draws--;
 			}
 		}
-		// Summed, not spanned: the three may overlap on the GPU, and the sum is
-		// the work, which is what a quieter frame has less of.
-		double seconds = st->commands.GPUEndTime - st->commands.GPUStartTime;
+		// The union of the frame's command buffers' spans: the time the GPU was
+		// busy with the frame at all, as parity/saverprofile.py measures the
+		// saver. A sum would count twice whatever overlaps, or one waiting on
+		// another, and so move with scheduling rather than with the work.
+		std::vector<std::pair<double, double>> spans{{st->commands.GPUStartTime, st->commands.GPUEndTime}};
 		if(st->softCommands)
-			seconds += st->softCommands.GPUEndTime - st->softCommands.GPUStartTime;
+			spans.push_back({st->softCommands.GPUStartTime, st->softCommands.GPUEndTime});
 		if(st->gooBuildCommands)
-			seconds += st->gooBuildCommands.GPUEndTime - st->gooBuildCommands.GPUStartTime;
+			spans.push_back({st->gooBuildCommands.GPUStartTime, st->gooBuildCommands.GPUEndTime});
+		std::sort(spans.begin(), spans.end());
+		double seconds = 0.0, reached = spans[0].first;
+		for(const auto &span : spans){
+			double from = std::max(span.first, reached);
+			if(span.second > from)
+				seconds += span.second - from;
+			reached = std::max(reached, span.second);
+		}
 		st->lastGPUms = seconds * 1000.0;
 	}
 	st->encoder = nil;

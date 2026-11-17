@@ -20,7 +20,11 @@ baseline) ref=${2:-origin/master};;
 final) [ $# -eq 2 ] || { echo "usage: parity/basemac.sh final <ref>" >&2; exit 2; }; ref=$2;;
 *) echo "usage: parity/basemac.sh baseline [ref] | final <ref>" >&2; exit 2;;
 esac
-git fetch -q origin || { echo "git fetch failed" >&2; exit 2; }
+# Fetched only when needed: origin/master to be current, any other ref only if
+# this clone lacks it, so an offline Mac can still time a commit it has.
+if [ "$ref" = origin/master ] || ! git rev-parse -q --verify "$ref^{commit}" >/dev/null; then
+    git fetch -q origin || { echo "git fetch failed" >&2; exit 2; }
+fi
 sha=$(git rev-parse --verify "$ref^{commit}") || exit 2
 WT=.parity-build/basemac/tree
 parity/at-ref.sh "$sha" "$WT" || exit 2

@@ -232,9 +232,9 @@ static std::vector<uint8_t> blockMean(const std::vector<uint8_t> &img, int &w, i
 // <new-dir>/NNNNN_diffx8.png: the per-pixel difference, times 8. A pass with
 // block > 1 compares block means, and its diff is of those: NNNNN_diffx8_blockN.png,
 // one pixel a block.
-static int compareRuns(NSString *refDir, NSString *refSuffix, NSString *newDir, NSString *newSuffix,
-                       double max2, double max8, double maxBias, const char *same, const char *different,
-                       int block = 1)
+// The frames two runs shot (NNNNN, sorted), or nil after printing why: a side
+// unreadable, empty, or with frames the other lacks.
+static NSArray<NSString *> *sameShots(NSString *refDir, NSString *refSuffix, NSString *newDir, NSString *newSuffix)
 {
     auto shots = [](NSString *dir, NSString *suffix) -> NSArray<NSString *> * {
         NSArray<NSString *> *all = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:nil];
@@ -246,14 +246,23 @@ static int compareRuns(NSString *refDir, NSString *refSuffix, NSString *newDir, 
         return [frames sortedArrayUsingSelector:@selector(compare:)];
     };
     NSArray<NSString *> *names = shots(refDir, refSuffix), *newNames = shots(newDir, newSuffix);
-    if (!names || !newNames) return 2;
+    if (!names || !newNames) return nil;
     if (![names isEqualToArray:newNames]) {
         NSMutableSet *onlyRef = [NSMutableSet setWithArray:names], *onlyNew = [NSMutableSet setWithArray:newNames];
         [onlyRef minusSet:[NSSet setWithArray:newNames]]; [onlyNew minusSet:[NSSet setWithArray:names]];
         printf("ERROR the two runs shot different frames: only in ref %s; only in new %s\n",
                [[onlyRef.allObjects componentsJoinedByString:@" "] UTF8String], [[onlyNew.allObjects componentsJoinedByString:@" "] UTF8String]);
-        return 2;
+        return nil;
     }
+    return names;
+}
+
+static int compareRuns(NSString *refDir, NSString *refSuffix, NSString *newDir, NSString *newSuffix,
+                       double max2, double max8, double maxBias, const char *same, const char *different,
+                       int block = 1)
+{
+    NSArray<NSString *> *names = sameShots(refDir, refSuffix, newDir, newSuffix);
+    if (!names) return 2;
     bool ok = true; double worst2 = 0, worst8 = 0, worstBias = 0; int worstMax = 0;
     for (NSString *n in names) {
         int rw = 0, rh = 0, nw = 0, nh = 0;
@@ -311,10 +320,10 @@ static double cpuSeconds(const rusage &u)
 // Exit 0 = KEPT, 1 = CHANGED, 2 = a shot missing or a different size.
 static int compareLook(NSString *refDir, NSString *newDir)
 {
-    NSArray<NSString *> *all = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:refDir error:nil];
-    NSArray<NSString *> *names = [[all filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"self ENDSWITH '_backend.png'"]]
-                                  sortedArrayUsingSelector:@selector(compare:)];
-    if (!names.count) { printf("ERROR no *_backend.png in %s\n", refDir.UTF8String); return 2; }
+    NSArray<NSString *> *frames = sameShots(refDir, @"_backend.png", newDir, @"_backend.png");
+    if (!frames) return 2;
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    for (NSString *f in frames) [names addObject:[f stringByAppendingString:@"_backend.png"]];
     bool kept = true; double worstMean = 0, worstRise = 0, worstLit = 0, worstDark = 0; int worstP99 = 0; size_t clipRef = 0, clipNew = 0, total = 0;
     for (NSString *n in names) {
         int rw = 0, rh = 0, nw = 0, nh = 0;
@@ -585,6 +594,7 @@ int main(int argc, const char *argv[])
         if (backend) printf(" shot  backend draws (%s)\n", judgedKind); else printf(" shot  GL primitives\n");
         int shots = 0; long drawnTotal = 0;
         std::vector<double> gpuMs, cpuMs;   // time's, a frame each after the warm-up
+        long timedDraws = 0;                 // the pass's own draws over every timed frame
         const int warmup = 30;
         rusage usage0 = {};
         double shotCpuSeconds = 0;   // reading back and writing shots, left out of the process figure
@@ -632,6 +642,7 @@ int main(int argc, const char *argv[])
                 // Thread CPU time leaves out endFrame's wait for the GPU.
                 cpuMs.push_back((cpu1.tv_sec - cpu0.tv_sec) * 1e3 + (cpu1.tv_nsec - cpu0.tv_nsec) / 1e6);
                 gpuMs.push_back(metalRenderer->lastFrameGPUMilliseconds());
+                timedDraws += pass->goo ? metalRenderer->gooDrawCount() : pass->tunnels ? metalRenderer->tunnelDrawCount() : metalRenderer->drawCount();
             }
             if (shot && pass->sunAhead > 0) {
                 // Checked where the sun was drawn this frame, drawPos. A sun off
@@ -689,10 +700,11 @@ int main(int argc, const char *argv[])
         // A pass that drew nothing would compare black with black and pass. In
         // backend mode, nothing of the pass's own surface (judgedKind); a GL run
         // counts every primitive, and the backend run it is compared with
-        // carries that check. A timed run is exempt: it takes one shot, of
-        // whatever its last frame holds, and its look runs carry the check.
-        if (drawnTotal == 0 && !timed) {
-            printf("ERROR the %s pass drew %s in any shot\n", pass->name, backend && strcmp(judgedKind, "all") ? (pass->goo ? "no goo" : "no tunnel") : "nothing");
+        // carries that check. A timed run counts every timed frame instead,
+        // since it may take a single shot of a frame with nothing of its own.
+        if ((timed ? timedDraws : drawnTotal) == 0) {
+            printf("ERROR the %s pass drew %s in any %s\n", pass->name, backend && strcmp(judgedKind, "all") ? (pass->goo ? "no goo" : "no tunnel") : "nothing",
+                   timed ? "timed frame" : "shot");
             return 2;
         }
         if (timed) {
