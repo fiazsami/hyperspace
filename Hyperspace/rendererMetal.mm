@@ -203,8 +203,8 @@ struct HSRendererMetalState {
 	id<MTLRenderPipelineState> gooPipeline, tunnelPipeline;
 	id<MTLRenderPipelineState> gooTargetPipeline;   // the goo into gooTarget, one sample
 	MTLPixelFormat pipelineFormat;
-	NSUInteger samples, pipelineSamples;
-	int tunnelDetail;   // setTunnelDetail's   // setSampleCount's; those the pipelines were built for
+	NSUInteger samples, pipelineSamples;   // setSampleCount's; those the pipelines were built for
+	int tunnelDetail;                      // setTunnelDetail's
 	id<MTLTexture> multisample;            // the frame's samples, memoryless, when samples > 1
 	id<MTLTexture> target;
 	id<CAMetalDrawable> drawable;   // set for one frame by setDrawable, presented by endFrame
