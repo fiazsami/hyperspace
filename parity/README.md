@@ -4,9 +4,11 @@
 through the Metal backend, look like the saver drawn through OpenGL?** It runs
 Hyperspace's code offscreen, deterministically, once through `HSRendererGL` and
 once through `HSRendererMetal` (`Hyperspace/rendererMetal.mm`), and compares
-the two images shot by shot. There are no stored golden images: both sides
-render the same frame in the same process, so the reference is always the
-shipped renderer on this machine.
+the two images shot by shot. Both sides render the same frame in the same
+process, so the reference is always the shipped renderer on this machine.
+Where the Metal saver is meant to look better than GL, GL stops being the
+reference, and stored golden images of the Metal saver take its place (below,
+**Golden check**).
 
 ```bash
 parity/build.sh                                                    # -> .parity-build/parity
@@ -15,6 +17,7 @@ parity/build.sh                                                    # -> .parity-
 .parity-build/parity --compare-backend goo .parity-build/out/gl .parity-build/out/mt
 parity/backendcheck.sh                                             # every pass and fixture (~7.5 min)
 parity/seamcheck.sh master                                         # GL against GL at <ref>
+parity/goldencheck.sh                                              # Metal against its goldens (~10 s)
 ```
 
 Until ss-a4a.4.5 the passes were judged a second way: a recorder interposed
@@ -402,13 +405,53 @@ which at the saver's near and far planes (0.001, 200) is within
 overlay sits at z = 0, on Metal's inclusive boundary. Measured: it passes
 `stars` at 0.000%. It is still kept, since nothing guarantees the planes.
 
+## Golden check
+
+ss-ss8 makes the Metal saver look better than GL on purpose: truer colours,
+antialiasing, finer geometry, extended range. Each such change breaks the
+backend check for the parts it touches, by design. So the user chose to judge
+the Metal saver against approved images of itself from then on, rather than
+keeping every improvement behind a switch for the GL comparison.
+
+`parity/golden/<pass>/` holds six shots of each pass (stars, goo, tunnel,
+burst, sun, goosoft) drawn through the backend at 480x270, 2.7 MB in all.
+`parity/goldencheck.sh` draws them again (`parity ... shots=6`, so it needs
+no pass's length) and compares with `parity --compare-golden`, under
+`--compare`'s rule (0.1% / 0.01% / bias 0.06). That rule fits because the
+backend is near enough deterministic here: of three runs, every pass but goo
+drew the same bytes each time, and goo's worst pixel moved by one level. So
+the rule is not exact equality, and should not be made so.
+
+PNGs are read as their stored bytes, not drawn into a context, so a colour
+profile that differs on another Mac does not shift every pixel.
+
+It proves it can fail, every run: `tunnel_fog110`, `stars_fog110` and
+`stars_jumpless` are drawn against the goldens and must come out DIFFERENT
+(narrowest: `tunnel_fog110`, 0.157% against 0.1%). A fixture made from an
+older shader is STALE, as in the backend check.
+
+The first goldens (hyperspace 460ddbb) are the backend as parity proved it
+equal to GL, so until a change is meant to alter the picture, both checks
+agree. A change that is meant to alter it, in one pull request:
+
+1. runs `parity/goldencheck.sh --update <passes>` once the new look is
+   approved from full-size images (480x270 keeps the goldens small, about
+   3 MB a full update, and is not where the look is judged);
+2. adds each pass whose look departs from GL to `parity/gl-retired`, with
+   why, so the default `backendcheck.sh` leaves it out and says so rather
+   than failing on every run;
+3. re-points `goldencheck.sh`'s fixtures if the shader they were made from
+   changed.
+
 ## Limits
 
 - **One machine.** Calibrated on an Apple M5 Max under macOS 26. Another GPU or
   driver may move the residual; rerun `backendcheck.sh`, fixtures and all,
   before trusting a verdict there.
 - **Not in CI.** A hosted runner's GPU is virtualized and uncalibrated, so a
-  verdict there would mean nothing yet. This runs locally.
+  verdict there would mean nothing yet. This runs locally. The goldens are
+  this machine's bytes: another GPU or macOS version may differ by a few
+  pixels, and the first golden check there should be read, not trusted.
 - **Shaders on only.** The Metal saver has no shaders-off look (ss-5dl), so
   nothing compares GL's fixed-function goo and tunnel with anything.
 - **The shaded GL saver is the reference.** A deliberate visual change to the
