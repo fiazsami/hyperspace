@@ -84,6 +84,7 @@
 		A4A40001A4A400010000001B /* FixedFunction.metal in Copy Metal Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000017 /* FixedFunction.metal */; };
 		A4A40001A4A400010000001C /* Goo.metal in Copy Metal Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000018 /* Goo.metal */; };
 		A4A40001A4A400010000001D /* Tunnel.metal in Copy Metal Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000019 /* Tunnel.metal */; };
+		A4A40001A4A4000100000031 /* GooBuild.metal in Copy Metal Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000030 /* GooBuild.metal */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -97,6 +98,7 @@
 				A4A40001A4A400010000001B /* FixedFunction.metal in Copy Metal Sources */,
 				A4A40001A4A400010000001C /* Goo.metal in Copy Metal Sources */,
 				A4A40001A4A400010000001D /* Tunnel.metal in Copy Metal Sources */,
+				A4A40001A4A4000100000031 /* GooBuild.metal in Copy Metal Sources */,
 			);
 			name = "Copy Metal Sources";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -194,6 +196,7 @@
 		A4A40001A4A4000100000017 /* FixedFunction.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = FixedFunction.metal; sourceTree = "<group>"; };
 		A4A40001A4A4000100000018 /* Goo.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = Goo.metal; sourceTree = "<group>"; };
 		A4A40001A4A4000100000019 /* Tunnel.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = Tunnel.metal; sourceTree = "<group>"; };
+		A4A40001A4A4000100000030 /* GooBuild.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = GooBuild.metal; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -402,6 +405,7 @@
 				A4A40001A4A4000100000017 /* FixedFunction.metal */,
 				A4A40001A4A4000100000018 /* Goo.metal */,
 				A4A40001A4A4000100000019 /* Tunnel.metal */,
+				A4A40001A4A4000100000030 /* GooBuild.metal */,
 			);
 			path = metal;
 			sourceTree = "<group>";

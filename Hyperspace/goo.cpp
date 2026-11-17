@@ -26,6 +26,8 @@
 
 //extern float frameTime, simulationTime;
 
+const float goo::isoValue = 0.4f;
+
 
 
 goo::goo(int res, float rad){
@@ -53,7 +55,7 @@ goo::goo(int res, float rad){
 	volume->setCrawlFromSides(true);
 	volume->function = function;
 	volume->contextInfoForFunction = this;
-	volume->setSurfaceValue(0.4f);
+	volume->setSurfaceValue(isoValue);
 	surface = new impSurface**[arraySize];
 	useSurface = new bool*[arraySize];
 	for(i=0; i<arraySize; i++){
@@ -99,10 +101,6 @@ void goo::update(float x, float z, float heading, float fov, HyperspaceSaverSett
 	clip[2][0] = sinf(heading);
 	clip[2][1] = -cosf(heading);
 
-	// Empty crawl point vector.
-	// This is only needed so that the right version of impCubeVolume::makeSurface() is called.
-	impCrawlPointVector cpv;
-
 	for(i=0; i<arraySize; i++){
 		for(j=0; j<arraySize; j++){
 			shiftx = volumeSize * (0.5f + float(i - arraySize / 2));
@@ -110,11 +108,6 @@ void goo::update(float x, float z, float heading, float fov, HyperspaceSaverSett
 			if(shiftx * clip[0][0] + shiftz * clip[0][1] > volumeSize * -1.41421f){
 				if(shiftx * clip[1][0] + shiftz * clip[1][1] > volumeSize * -1.41421f){
 					if(shiftx * clip[2][0] + shiftz * clip[2][1] < radius + volumeSize * 1.41421f){
-						shiftx += centerx;
-						shiftz += centerz;
-						volume->setSurface(surface[i][j]);
-						surface[i][j]->reset();
-						volume->makeSurface(cpv);
 						useSurface[i][j] = true;
 					}
 				}
@@ -151,14 +144,58 @@ float goo::function(float* position, void *contextInfo){
 }
 
 
+void goo::blockCentre(int i, int j, float &x, float &z) const{
+	x = centerx + volumeSize * (0.5f + float(i - arraySize / 2));
+	z = centerz + volumeSize * (0.5f + float(j - arraySize / 2));
+}
+
+void goo::buildSurface(int i, int j){
+	// goo::function reads the block's place from shiftx and shiftz.
+	blockCentre(i, j, shiftx, shiftz);
+	// Empty crawl point vector.
+	// This is only needed so that the right version of impCubeVolume::makeSurface() is called.
+	impCrawlPointVector cpv;
+	volume->setSurface(surface[i][j]);
+	surface[i][j]->reset();
+	volume->makeSurface(cpv);
+}
+
 void goo::draw(HSRenderer *renderer){
 	int i, j;
+
+	if(renderer->buildsGoo()){
+		HSGooField field;
+		for(i=0; i<4; i++)
+			field.c[i] = c[i];
+		field.camx = camx;
+		field.camz = camz;
+		field.origin[0] = centerx;
+		field.origin[1] = centerz;
+		field.unitSize = unitSize;
+		field.volumeSize = volumeSize;
+		field.surface = isoValue;
+		field.resolution = resolution;
+		field.offsets.reserve(2 * arraySize * arraySize);
+		for(i=0; i<arraySize; i++){
+			for(j=0; j<arraySize; j++){
+				if(useSurface[i][j]){
+					float x, z;
+					blockCentre(i, j, x, z);
+					field.offsets.push_back(x);
+					field.offsets.push_back(z);
+					useSurface[i][j] = false;
+				}
+			}
+		}
+		if(!field.offsets.empty())
+			renderer->drawGooField(field);
+		return;
+	}
 
 	for(i=0; i<arraySize; i++){
 		for(j=0; j<arraySize; j++){
 			if(useSurface[i][j]){
-				shiftx = centerx + volumeSize * (0.5f + float(i - arraySize / 2));
-				shiftz = centerz + volumeSize * (0.5f + float(j - arraySize / 2));
+				buildSurface(i, j);
 				const float offset[3] = {shiftx, 0.0f, shiftz};
 				renderer->drawGooSurface(surface[i][j], offset);
 				useSurface[i][j] = false;

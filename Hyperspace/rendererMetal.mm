@@ -55,6 +55,21 @@ static_assert(sizeof(GooUniforms) == 240 && offsetof(GooUniforms, color) == 128 
 	offsetof(GooUniforms, fogEnd) == 160 && offsetof(GooUniforms, fogScale) == 164 &&
 	offsetof(GooUniforms, projection) == 176, "GooUniforms must match Interface.metal");
 
+struct GooBuildUniforms {
+	simd_float4 c;
+	simd_float2 cam;
+	simd_float2 origin;
+	float unitSize;
+	float halfVolume;
+	float surface;
+	uint32_t resolution;
+	uint32_t maxVertices;
+	uint32_t pad[3];
+};
+static_assert(sizeof(GooBuildUniforms) == 64 && offsetof(GooBuildUniforms, cam) == 16 &&
+	offsetof(GooBuildUniforms, unitSize) == 32 && offsetof(GooBuildUniforms, resolution) == 44 &&
+	offsetof(GooBuildUniforms, maxVertices) == 48, "GooBuildUniforms must match Interface.metal");
+
 struct TunnelUniforms {
 	simd_float4x4 mvp;
 	simd_float4x4 modelview;
@@ -162,6 +177,18 @@ struct HSRendererMetalState {
 	bool inTunnel;
 	float tunnelAlpha;   // the caustics' mix, carried in every vertex's alpha
 	std::vector<ImmediateVertex> tunnelStrip;   // reused: a tunnel draws about 200 strips a frame
+	// The goo built on the GPU (drawGooField). The vertices are written and
+	// drawn by the GPU alone, so one buffer serves every frame: Metal orders
+	// the next frame's build after this frame's draw.
+	id<MTLLibrary> gooBuildLibrary;
+	id<MTLComputePipelineState> gooBuild, gooBuildCount;
+	id<MTLBuffer> gooTable;      // hsGooTriangleTable
+	id<MTLBuffer> gooCounter;    // vertices this build needed
+	id<MTLBuffer> gooPeak;       // the most any build has needed: never reset, read to size the buffer
+	id<MTLBuffer> gooArgs;       // the draw's MTLDrawPrimitivesIndirectArguments
+	id<MTLBuffer> gooVertices;
+	NSUInteger gooCapacity;      // in vertices, a multiple of 3
+	id<MTLCommandBuffer> gooBuildCommands;   // this frame's build, nil until drawGooField
 };
 
 static NSString *readSource(const char *dir, const char *file){
@@ -221,6 +248,17 @@ static id<MTLRenderPipelineState> additivePipeline(id<MTLDevice> device, id<MTLL
 	return ps;
 }
 
+static id<MTLComputePipelineState> computePipeline(id<MTLDevice> device, id<MTLLibrary> lib, NSString *fn){
+	id<MTLFunction> f = [lib newFunctionWithName:fn];
+	if(!f)
+		fail("missing entry point", fn.UTF8String);
+	NSError *err = nil;
+	id<MTLComputePipelineState> ps = [device newComputePipelineStateWithFunction:f error:&err];
+	if(!ps)
+		fail("compute pipeline", err.localizedDescription.UTF8String);
+	return ps;
+}
+
 HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HSRendererMetalState){
 	st->device = (__bridge id<MTLDevice>)device;
 	st->queue = [st->device newCommandQueue];
@@ -267,6 +305,22 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	[st->blank replaceRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0 withBytes:white bytesPerRow:4];
 	st->inTunnel = false;
 	st->tunnelAlpha = 1.0f;
+	st->gooBuildLibrary = compilePass(st->device, metalDir, "GooBuild.metal");
+	st->gooBuild = computePipeline(st->device, st->gooBuildLibrary, @"goo_build");
+	st->gooBuildCount = computePipeline(st->device, st->gooBuildLibrary, @"goo_build_count");
+	short table[256][HS_GOO_TABLE_ROW];
+	hsGooTriangleTable(table);
+	st->gooTable = [st->device newBufferWithBytes:table length:sizeof table options:MTLResourceStorageModeShared];
+	st->gooCounter = [st->device newBufferWithLength:sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	st->gooPeak = [st->device newBufferWithLength:sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	*(uint32_t *)st->gooPeak.contents = 0;
+	st->gooBuildCommands = nil;
+	// Zeroed, so a first build that fails draws nothing rather than reading
+	// a vertex count from uninitialized memory.
+	const MTLDrawPrimitivesIndirectArguments noDraw = {0, 0, 0, 0};
+	st->gooArgs = [st->device newBufferWithBytes:&noDraw length:sizeof noDraw options:MTLResourceStorageModeShared];
+	st->gooVertices = nil;
+	st->gooCapacity = 0;
 }
 
 HSRendererMetal::~HSRendererMetal(){
@@ -333,6 +387,7 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 	st->fog = true;
 	st->inOverlay = false;
 	st->draws = st->gooDraws = st->tunnelDraws = 0;
+	st->gooBuildCommands = nil;
 
 	MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
 	rp.colorAttachments[0].texture = st->target;
@@ -377,6 +432,17 @@ void HSRendererMetal::endFrame(){
 		[st->commands waitUntilCompleted];
 		if(st->commands.status == MTLCommandBufferStatusError)
 			fail("the GPU failed the frame", st->commands.error.localizedDescription.UTF8String);
+		if(st->gooBuildCommands){
+			[st->gooBuildCommands waitUntilCompleted];
+			if(st->gooBuildCommands.status == MTLCommandBufferStatusError)
+				fail("the GPU failed the goo's build", st->gooBuildCommands.error.localizedDescription.UTF8String);
+			// A build that made no triangles drew nothing, which only a frame
+			// waited for can know: parity's check that the goo drew relies on it.
+			if(*(const uint32_t *)st->gooCounter.contents == 0){
+				st->gooDraws--;
+				st->draws--;
+			}
+		}
 	}
 	st->encoder = nil;
 	st->commands = nil;
@@ -638,27 +704,118 @@ static void bindGoo(HSRendererMetalState *st, const simd_float4x4 &model, id<MTL
 	[st->encoder setFragmentBytes:&u length:sizeof u atIndex:1];
 }
 
+// This backend builds the goo itself (buildsGoo), so goo::draw never hands it
+// a surface; one arriving means a caller that skipped the field.
 void HSRendererMetal::drawGooSurface(impSurface *surface, const float offset[3]){
+	(void)surface;
+	(void)offset;
+	fail("drawGooSurface", "this backend builds the goo itself: draw it with drawGooField");
+}
+
+bool HSRendererMetal::buildsGoo() const{
+	return true;
+}
+
+// metal/GooBuild.metal reads the table's rows 16 entries apart.
+static_assert(HS_GOO_TABLE_ROW == 16, "GooBuild.metal's goo_build hardcodes the table's row length");
+
+// A block's surface measured 6 triangles per res^2 on average (2407 a block at
+// resolution 20); the buffer starts at 8, and grows when a frame needed more.
+static const NSUInteger kGooTrianglesPerSquare = 8;
+
+void HSRendererMetal::drawGooField(const HSGooField &field){
 	if(!st->inGoo)
-		fail("drawGooSurface", "outside beginGoo/endGoo");
-	const unsigned int vertexCount = surface->getVertexCount(), indexCount = surface->getIndexCount();
-	if(vertexCount == 0 || indexCount == 0)
+		fail("drawGooField", "outside beginGoo/endGoo");
+	// One vertex buffer serves the frame, and a second build would overwrite
+	// the first before either is drawn.
+	if(st->gooBuildCommands)
+		fail("drawGooField", "called twice in a frame");
+	const NSUInteger blocks = field.offsets.size() / 2;
+	const NSUInteger res = NSUInteger(field.resolution);
+	if(blocks == 0 || res == 0)
 		return;
-	// An index past the vertices would read past the buffer; HSRendererGL
-	// refuses the same surface.
-	std::vector<unsigned int> indices(indexCount);
-	for(unsigned int i = 0; i < indexCount; i++)
-		if((indices[i] = surface->getIndex(i)) >= vertexCount)
-			fail("drawGooSurface", "an index is past the surface's vertices");
-	id<MTLBuffer> vb = [st->device newBufferWithBytes:surface->getVertex(0) length:size_t(vertexCount) * 6 * sizeof(float)
-		options:MTLResourceStorageModeShared];
-	id<MTLBuffer> ib = [st->device newBufferWithBytes:indices.data() length:indices.size() * sizeof(unsigned int)
-		options:MTLResourceStorageModeShared];
+	// Sized for this frame's blocks, and for the most any build has needed,
+	// with a quarter to spare. The peak is read without waiting, so a frame
+	// that needs more than ever before drops cells until its build has
+	// finished -- a frame or two -- and the buffer grows.
+	NSUInteger want = blocks * res * res * kGooTrianglesPerSquare * 3;
+	want = std::max(want, NSUInteger(*(const uint32_t *)st->gooPeak.contents) * 5 / 4);
+	// Capped at what the device can allocate and a 32-bit count can index:
+	// Resolution and Depth read from the defaults are not clamped, and a
+	// field too big for the cap draws what fits.
+	want = std::min(want, NSUInteger(st->device.maxBufferLength / (sizeof(float) * 6)));
+	want = std::min(want, NSUInteger(UINT32_MAX / 2));
+	want = want / 3 * 3;   // whole triangles: the draw stops at the capacity
+	if(want > st->gooCapacity){
+		id<MTLBuffer> grown = [st->device newBufferWithLength:want * sizeof(float) * 6 options:MTLResourceStorageModePrivate];
+		if(grown){   // out of memory: keep drawing into what there is
+			st->gooVertices = grown;
+			st->gooCapacity = want;
+		}
+	}
+	if(!st->gooVertices)
+		return;
+	// The kernel's counter is 32 bits and counts every vertex the field
+	// needs, fitted or not: at most 15 a cell. Past 2^32 it would wrap, so a
+	// field that could reach that is cut to the blocks that cannot.
+	const NSUInteger maxBlocks = NSUInteger(UINT32_MAX) / (15 * res * res * res);
+	const NSUInteger built = std::min(blocks, maxBlocks);
+	GooBuildUniforms u;
+	u.c = simd_make_float4(field.c[0], field.c[1], field.c[2], field.c[3]);
+	u.cam = simd_make_float2(field.camx, field.camz);
+	u.origin = simd_make_float2(field.origin[0], field.origin[1]);
+	u.unitSize = field.unitSize;
+	u.halfVolume = 0.5f * field.volumeSize;
+	u.surface = field.surface;
+	u.resolution = uint32_t(res);
+	u.maxVertices = uint32_t(st->gooCapacity);
+	u.pad[0] = u.pad[1] = u.pad[2] = 0;
+
+	// Built in a command buffer of its own, committed now, ahead of the
+	// frame's, which is committed at endFrame. Commit order alone only orders
+	// when the two start: what makes the frame's draw wait for the build, and
+	// the next build wait for this frame's draw, is Metal's hazard tracking on
+	// gooVertices, gooArgs and gooCounter -- the default for buffers made with
+	// newBuffer, as these are. Moving them onto a heap, or making them
+	// untracked, needs an MTLEvent in its place. Building inside the frame's
+	// buffer would mean ending its render pass and reloading the target.
+	id<MTLCommandBuffer> build = [st->queue commandBuffer];
+	id<MTLBlitCommandEncoder> blit = [build blitCommandEncoder];
+	[blit fillBuffer:st->gooCounter range:NSMakeRange(0, sizeof(uint32_t)) value:0];
+	[blit endEncoding];
+	id<MTLComputeCommandEncoder> ce = [build computeCommandEncoder];
+	[ce setComputePipelineState:st->gooBuild];
+	[ce setBytes:&u length:sizeof u atIndex:0];
+	[ce setBuffer:st->gooTable offset:0 atIndex:2];
+	[ce setBuffer:st->gooCounter offset:0 atIndex:3];
+	[ce setBuffer:st->gooVertices offset:0 atIndex:4];
+	// setBytes carries 4 KB at most, 512 blocks' offsets, so the blocks go in
+	// dispatches of that many. The saver's own settings choose 400 at most, so
+	// it is one dispatch; a Depth written to the defaults directly is not
+	// clamped, and can choose more. All share the counter, so their triangles
+	// land one after another.
+	const NSUInteger kBlocksPerDispatch = 4096 / (2 * sizeof(float));
+	for(NSUInteger first = 0; first < built; first += kBlocksPerDispatch){
+		const NSUInteger n = std::min(kBlocksPerDispatch, built - first);
+		[ce setBytes:field.offsets.data() + 2 * first length:n * 2 * sizeof(float) atIndex:1];
+		[ce dispatchThreads:MTLSizeMake(res, res, res * n) threadsPerThreadgroup:MTLSizeMake(4, 4, 4)];
+	}
+	[ce setComputePipelineState:st->gooBuildCount];
+	[ce setBuffer:st->gooArgs offset:0 atIndex:5];
+	[ce setBuffer:st->gooPeak offset:0 atIndex:6];
+	[ce dispatchThreads:MTLSizeMake(1, 1, 1) threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
+	[ce endEncoding];
+	[build addCompletedHandler:^(id<MTLCommandBuffer> done){
+		if(done.status == MTLCommandBufferStatusError)
+			NSLog(@"HSRendererMetal: the GPU failed the goo's build: %@", done.error.localizedDescription);
+	}];
+	[build commit];
+	st->gooBuildCommands = build;
+
 	simd_float4x4 model = matrix_identity_float4x4;
-	model.columns[3] = simd_make_float4(offset[0], offset[1], offset[2], 1.0f);
-	bindGoo(st, model, vb);
-	[st->encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:indexCount
-		indexType:MTLIndexTypeUInt32 indexBuffer:ib indexBufferOffset:0];
+	model.columns[3] = simd_make_float4(field.origin[0], 0.0f, field.origin[1], 1.0f);
+	bindGoo(st, model, st->gooVertices);
+	[st->encoder drawPrimitives:MTLPrimitiveTypeTriangle indirectBuffer:st->gooArgs indirectBufferOffset:0];
 	st->draws++;
 	st->gooDraws++;
 }

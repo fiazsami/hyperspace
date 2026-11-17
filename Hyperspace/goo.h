@@ -60,9 +60,17 @@ public:
 
 	goo(int res, float rad);
 	~goo();
+	static const float isoValue;  // goo::function's value on the surface
+
+	// Chooses the blocks in view. draw() builds their surfaces, for a
+	// renderer that does not build the goo itself (HSRenderer::buildsGoo).
 	void update(float x, float z, float heading, float fov, HyperspaceSaverSettings *inSettings);
+	// Block (i, j)'s centre in x and z, and its surface built there.
+	void blockCentre(int i, int j, float &x, float &z) const;
+	void buildSurface(int i, int j);
 	static float function(float* position, void *contextInfo);
-	// Each surface update() made, between the caller's beginGoo and endGoo.
+	// Each block update() chose, between the caller's beginGoo and endGoo: its
+	// surface, built here, or for a renderer that builds the goo, the field.
 	void draw(HSRenderer *renderer);
 };
 

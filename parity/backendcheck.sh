@@ -11,7 +11,9 @@
 # and must FAIL its pass against the same GL images. So must every
 # parity/defects/<pass>_*.metal: a copy of the pass's shader file with one
 # translation defect, drawn through the backend from a copy of metal/ with it in
-# place. A fixture that changes nothing is an error, not a survivor.
+# place. The goo pass also takes parity/defects/goobuild_*.metal, defects in
+# GooBuild.metal, the kernel the backend builds the goo's surface with. A
+# fixture that changes nothing is an error, not a survivor.
 #
 # textures and caustics are not passes but the same shape. `parity
 # --backend-textures` uploads mip chains and six different cube faces through
@@ -21,7 +23,8 @@
 # level. Their fixtures are backend_textures_*.sed and backend_caustics_*.sed.
 #
 # About 7.5 minutes for everything (7m23s measured on an M5 Max: seven passes,
-# 27 backend and 29 shader fixtures).
+# 27 backend and 29 shader fixtures; since then the goo build kernel's
+# 4 and one more backend fixture).
 #
 #   parity/backendcheck.sh [stars|goo|tunnel|burst|sun|textures|caustics ...]    default: all seven
 #
@@ -53,6 +56,7 @@ for pass in "${passes[@]}"; do
     printf '%-10s %-25s %s\n' "$verdict" "backend ($pass)" "$(tail -1 "$OUT/$pass.compare")"
 
     fixtures=(parity/defects/backend_"$pass"_*.sed parity/defects/"$pass"_*.metal)
+    [ "$pass" = goo ] && fixtures+=(parity/defects/goobuild_*.metal)
     if [ ${#fixtures[@]} -eq 0 ]; then
         printf 'NO FIXTURES %-25s parity/defects/backend_%s_*.sed and %s_*.metal match nothing\n' "$pass" "$pass" "$pass"; bad=1
     fi
@@ -61,7 +65,9 @@ for pass in "${passes[@]}"; do
             # A shader defect: the committed backend, drawing from a metal/ with
             # the defect in place of the pass's shader file.
             name=$(basename "$fixture" .metal); bin=.parity-build/parity; metal=$OUT/variants/$name-metal
-            case $pass in goo|burst) file=Goo.metal;; tunnel) file=Tunnel.metal;; *) file=FixedFunction.metal;; esac
+            case $name in goobuild_*) file=GooBuild.metal;; *)
+                case $pass in goo|burst) file=Goo.metal;; tunnel) file=Tunnel.metal;; *) file=FixedFunction.metal;; esac;;
+            esac
             # Line 1 names the blob of metal/$file the fixture was made from. A
             # shader changed since then would make the fixture differ by the
             # change as well as by its defect, and it would be killed for that.

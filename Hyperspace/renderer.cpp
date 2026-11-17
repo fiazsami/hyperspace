@@ -14,7 +14,9 @@
 #include <Hyperspace/renderer.h>
 #include <Hyperspace/transform.h>
 #include <rsMath/rsMath.h>
+#include <Implicit/impCubeTables.h>
 #include <math.h>
+#include <stdlib.h>
 
 void hsQuad(const float m[16], float half, HSVertex out[4]){
 	for(int i = 0; i < 4; i++){
@@ -64,5 +66,27 @@ void hsSphereBand(int band, float out[HS_SPHERE_BAND_POINTS][3]){
 		out[2*i+1][0] = sjj * ci;
 		out[2*i+1][1] = cjj;
 		out[2*i+1][2] = sjj * si;
+	}
+}
+
+// polygonize walks each strip of a row and emits strip triangle i (i from 1)
+// as entries i, i+1, i+2 when i is odd and i+2, i+1, i when it is even: the
+// same triangles, every other one turned to keep the winding.
+void hsGooTriangleTable(short out[256][HS_GOO_TABLE_ROW]){
+	const impCubeTables tables;
+	for(int mask = 0; mask < 256; mask++){
+		const int *row = tables.triStripPatterns[mask];
+		int count = 0;
+		for(int at = 0; row[at] != 0; at += row[at] + 1)
+			for(int i = 1; i < row[at] - 1; i++){
+				// Five triangles fill a row; the tables never need a sixth.
+				if(1 + 3 * (count + 1) > HS_GOO_TABLE_ROW) abort();
+				for(int j = 0; j < 3; j++)
+					out[mask][1 + 3 * count + j] = short(row[at + ((i % 2) ? i + j : i + (2 - j))]);
+				count++;
+			}
+		out[mask][0] = short(count);
+		for(int k = 1 + 3 * count; k < HS_GOO_TABLE_ROW; k++)
+			out[mask][k] = 0;
 	}
 }

@@ -361,12 +361,12 @@ TEST(goo_builds_the_surfaces_in_view_and_draws_each_once)
     CHECK(g.useSurface[3][4]);
     CHECK(!g.useSurface[2][4]);
     for (int i = 0; i < 6; i++) CHECK(!g.useSurface[i][5]);
-    CHECK(g.surface[0][0]->getIndexCount() > 0);
 
     int used = 0;
     for (int i = 0; i < 6; i++) for (int j = 0; j < 6; j++) used += g.useSurface[i][j];
     Recorder r;
     g.draw(&r);
+    CHECK(g.surface[0][0]->getIndexCount() > 0);   // built by draw, for a CPU renderer
     CHECK(r.goo.size() == size_t(used));
     bool sawCorner = false;
     for (size_t n = 0; n < r.goo.size(); n++) {
