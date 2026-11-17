@@ -59,7 +59,7 @@ public:
 	// the saver's look; parity sets 1 to judge the backend against GL, which
 	// draws aliased. The samples live in tile memory only (memoryless) and are
 	// resolved into the target as the frame ends. A count the device cannot
-	// draw at is taken as 1. Between frames only, like setTarget.
+	// draw at, or a memoryless texture it cannot make, is taken as 1. Between frames only, like setTarget.
 	void setSampleCount(int samples);
 	// The id<MTLTexture> a create* call returned name for, or NULL.
 	void *texture(unsigned int name) const;

@@ -481,9 +481,9 @@ int main(int argc, const char *argv[])
             bd.usage = MTLTextureUsageRenderTarget; bd.storageMode = MTLStorageModeShared;
             backendTarget = [dev newTextureWithDescriptor:bd];
             metalRenderer = new HSRendererMetal((__bridge void *)dev, metalDir.fileSystemRepresentation);
+            metalRenderer->setSampleCount(samples);   // before the target, so the pipelines are built once
             metalRenderer->setTarget((__bridge void *)backendTarget);
             metalRenderer->setSoftGoo(pass->softGoo);
-            metalRenderer->setSampleCount(samples);
         }
         HSRenderer *renderer = metalRenderer;
         if (!backend) renderer = new HSRendererGL;

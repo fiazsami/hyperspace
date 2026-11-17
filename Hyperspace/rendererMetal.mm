@@ -514,8 +514,6 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 	st->gooBuildCommands = nil;
 	st->softCommands = nil;
 
-	if(st->samples != st->pipelineSamples)
-		useTarget(st, st->target);
 	MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
 	rp.colorAttachments[0].loadAction = MTLLoadActionClear;
 	rp.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
@@ -532,9 +530,15 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 			td.usage = MTLTextureUsageRenderTarget;
 			td.storageMode = MTLStorageModeMemoryless;
 			st->multisample = [st->device newTextureWithDescriptor:td];
-			if(!st->multisample)
-				fail("multisample target", "no memoryless multisample texture on this device");
+			if(!st->multisample){
+				// Drawn aliased rather than not at all, as the header promises.
+				NSLog(@"HSRendererMetal: no memoryless %lux texture; drawing with 1 sample", (unsigned long)st->samples);
+				st->samples = 1;
+				useTarget(st, st->target);
+			}
 		}
+	}
+	if(st->samples > 1){
 		rp.colorAttachments[0].texture = st->multisample;
 		rp.colorAttachments[0].resolveTexture = st->target;
 		rp.colorAttachments[0].storeAction = MTLStoreActionMultisampleResolve;

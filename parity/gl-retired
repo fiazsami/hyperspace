@@ -1,7 +1,7 @@
-# Passes backendcheck.sh leaves out by default: the Metal saver draws them
-# differently from GL on purpose (ss-ss8), and parity/goldencheck.sh judges them
-# against approved images instead. One per line: the pass, then why and where.
-# A pass goes in here in the pull request that changes its look.
+# Passes the Metal saver draws differently from GL on purpose (ss-ss8).
+# backendcheck.sh judges each of them, and all its fixtures, against its
+# goldens (parity/golden/<pass>) instead of GL. One per line: the pass, then
+# why. A pass goes in here in the pull request that changes its look.
 stars    ss-ss8.2: no streak along a wrap (GL streaks a wrapping star for a frame); ss-ss8.3: 4x MSAA
 tunnel   ss-ss8.2: true cos and sin (GL's rsCosf tables lose the argument past ~400); ss-ss8.3: 4x MSAA
 sun      the stars pass with the sun in view: its stars, as stars
