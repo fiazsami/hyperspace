@@ -50,7 +50,9 @@ public:
 	// width and height, then added over the frame blurred by a 3x3 tent
 	// (metal/Soften.metal). On from creation, which is the saver's look; parity
 	// turns it off to judge the goo against GL, which draws it sharp. The
-	// starburst's sphere, drawn in the goo's look, is never softened.
+	// starburst's sphere, drawn in the goo's look, is never softened. Between
+	// frames only, like setTarget. A frame whose soft target cannot be
+	// allocated draws the goo sharp.
 	void setSoftGoo(bool soft);
 	// The id<MTLTexture> a create* call returned name for, or NULL.
 	void *texture(unsigned int name) const;

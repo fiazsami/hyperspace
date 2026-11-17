@@ -156,13 +156,6 @@ static std::vector<uint8_t> readPNG(NSString *path, int &w, int &h)
     return px;
 }
 
-// parity --compare <ref-dir> <new-dir>: the GL images of two runs of the same pass,
-// shot by shot (parity/seamcheck.sh). Both sides are the GL renderer, so nothing
-// here is a translation residual: the rule is the tightest any pass uses.
-// parity --compare-backend compares one run's GL images with another's
-// _backend.png (renderer=metal), under the pass's rules. Either way a shot
-// missing from either side is an error, and a shot outside the rule writes
-// <new-dir>/NNNNN_diffx8.png: the per-pixel difference, times 8.
 // The mean of each whole block x block square of an RGBA image, rounded; a
 // partial block at the right or bottom edge is dropped.
 static std::vector<uint8_t> blockMean(const std::vector<uint8_t> &img, int &w, int &h, int block)
@@ -182,6 +175,15 @@ static std::vector<uint8_t> blockMean(const std::vector<uint8_t> &img, int &w, i
     return out;
 }
 
+// parity --compare <ref-dir> <new-dir>: the GL images of two runs of the same pass,
+// shot by shot (parity/seamcheck.sh). Both sides are the GL renderer, so nothing
+// here is a translation residual: the rule is the tightest any pass uses.
+// parity --compare-backend compares one run's GL images with another's
+// _backend.png (renderer=metal), under the pass's rules. Either way a shot
+// missing from either side is an error, and a shot outside the rule writes
+// <new-dir>/NNNNN_diffx8.png: the per-pixel difference, times 8. A pass with
+// block > 1 compares block means, and its diff is of those: NNNNN_diffx8_blockN.png,
+// one pixel a block.
 static int compareRuns(NSString *refDir, NSString *newDir, NSString *newSuffix,
                        double max2, double max8, double maxBias, const char *same, const char *different,
                        int block = 1)
@@ -210,7 +212,10 @@ static int compareRuns(NSString *refDir, NSString *newDir, NSString *newSuffix,
         std::vector<uint8_t> a = readPNG([refDir stringByAppendingPathComponent:[n stringByAppendingString:@"_gl.png"]], rw, rh);
         std::vector<uint8_t> b = readPNG([newDir stringByAppendingPathComponent:[n stringByAppendingString:newSuffix]], nw, nh);
         if (a.empty() || b.empty() || rw != nw || rh != nh) { printf("ERROR %s missing or a different size\n", n.UTF8String); return 2; }
-        if (block > 1) { a = blockMean(a, rw, rh, block); b = blockMean(b, nw, nh, block); }
+        if (block > 1) {
+            if (rw < block || rh < block) { printf("ERROR %s is %dx%d, smaller than one %d-pixel block\n", n.UTF8String, rw, rh, block); return 2; }
+            a = blockMean(a, rw, rh, block); b = blockMean(b, nw, nh, block);
+        }
         size_t lit = 0, l2 = 0, l8 = 0; int maxd = 0; double sb[3] = {0, 0, 0};
         std::vector<uint8_t> heat((size_t)rw * rh * 4);
         for (size_t i = 0; i < (size_t)rw * rh; i++) {
@@ -228,7 +233,8 @@ static int compareRuns(NSString *refDir, NSString *newDir, NSString *newSuffix,
         bool shotOk = p2 <= max2 && p8 <= max8 && bias <= maxBias;
         ok &= shotOk; worst2 = MAX(worst2, p2); worst8 = MAX(worst8, p8); worstBias = MAX(worstBias, bias); worstMax = MAX(worstMax, maxd);
         printf("%s  max %3d  lit>2 %6.3f%%  lit>8 %6.3f%%  bias %5.3f  %s\n", n.UTF8String, maxd, p2, p8, bias, shotOk ? "ok" : "FAIL");
-        if (!shotOk) writePNG([newDir stringByAppendingPathComponent:[n stringByAppendingString:@"_diffx8.png"]], heat.data(), rw, rh);
+        if (!shotOk) writePNG([newDir stringByAppendingPathComponent:[n stringByAppendingString:
+                                  block > 1 ? [NSString stringWithFormat:@"_diffx8_block%d.png", block] : @"_diffx8.png"]], heat.data(), rw, rh);
     }
     printf("%s shots=%lu worst_max=%d worst_lit>2=%.3f%% worst_lit>8=%.3f%% worst_bias=%.3f (limits %.2f%% / %.2f%% / %.3f)\n",
            ok ? same : different, (unsigned long)names.count, worstMax, worst2, worst8, worstBias, max2, max8, maxBias);

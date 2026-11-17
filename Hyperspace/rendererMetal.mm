@@ -407,6 +407,8 @@ int HSRendererMetal::tunnelDrawCount() const{
 }
 
 void HSRendererMetal::setSoftGoo(bool soft){
+	if(st->encoder)
+		fail("setSoftGoo", "called inside a frame");
 	st->softGoo = soft;
 }
 
@@ -874,26 +876,27 @@ void HSRendererMetal::drawGooField(const HSGooField &field){
 	simd_float4x4 model = matrix_identity_float4x4;
 	model.columns[3] = simd_make_float4(field.origin[0], 0.0f, field.origin[1], 1.0f);
 	st->gooDraws++;
-	if(!st->softGoo){
-		bindGoo(st, st->encoder, model, st->gooVertices);
-		[st->encoder drawPrimitives:MTLPrimitiveTypeTriangle indirectBuffer:st->gooArgs indirectBufferOffset:0];
-		st->draws++;
-		return;
-	}
-
-	// Soft: drawn into a target half the frame's width and height, in a
-	// command buffer committed now -- after the build, before the frame -- so
-	// the frame's render pass is not split; then added over the frame.
+	// Soft: drawn into a target half the frame's width and height. A target
+	// that cannot be had draws the goo sharp rather than not at all.
 	const NSUInteger w = std::max<NSUInteger>(1, (st->target.width + 1) / 2);
 	const NSUInteger h = std::max<NSUInteger>(1, (st->target.height + 1) / 2);
-	if(!st->gooTarget || st->gooTarget.width != w || st->gooTarget.height != h ||
-		st->gooTarget.pixelFormat != st->pipelineFormat){
+	if(st->softGoo && (!st->gooTarget || st->gooTarget.width != w || st->gooTarget.height != h ||
+		st->gooTarget.pixelFormat != st->pipelineFormat)){
 		MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:st->pipelineFormat
 			width:w height:h mipmapped:NO];
 		td.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
 		td.storageMode = MTLStorageModePrivate;
 		st->gooTarget = [st->device newTextureWithDescriptor:td];
 	}
+	if(!st->softGoo || !st->gooTarget){
+		bindGoo(st, st->encoder, model, st->gooVertices);
+		[st->encoder drawPrimitives:MTLPrimitiveTypeTriangle indirectBuffer:st->gooArgs indirectBufferOffset:0];
+		st->draws++;
+		return;
+	}
+
+	// In a command buffer committed now -- after the build, before the frame
+	// -- so the frame's render pass is not split; then added over the frame.
 	MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
 	rp.colorAttachments[0].texture = st->gooTarget;
 	rp.colorAttachments[0].loadAction = MTLLoadActionClear;
