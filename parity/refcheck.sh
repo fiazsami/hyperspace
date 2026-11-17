@@ -12,7 +12,8 @@
 # own run-to-run difference. A change counts only past the larger of twice
 # that noise and 2% of the reference: the two sides differ by about 1% with
 # nothing changed (measured, refcheck against itself), more than either side
-# moves on its own.
+# moves on its own. Timings are printed to 0.00001 ms, so rounding never
+# reaches that 2% (the cheapest passes are about 0.04 ms a frame).
 #
 # Look: six shots of each pass through `parity --compare-look` (mid-tones kept,
 # no shot darker, clipped pixels reported), and a page flipping between the
@@ -77,7 +78,7 @@ for pass in "${cost[@]}"; do
         { for (i = 1; i <= NF; i++) { if ($i == "gpu_ms") g[NR] = substr($(i+1), 8); if ($i == "process_cpu_ms") c[NR] = substr($(i+1), 6) } }
         function abs(x) { return x < 0 ? -x : x }
         END {
-            if (NR != 4 || g[1] <= 0 || g[3] <= 0 || c[1] <= 0 || c[3] <= 0) { print "ERROR"; exit }
+            for (i = 1; i <= 4; i++) if (NR != 4 || g[i] <= 0 || c[i] <= 0) { print "ERROR"; exit }
             gr = (g[1] + g[3]) / 2; gn = (g[2] + g[4]) / 2; gnoise = abs(g[1] - g[3]) > abs(g[2] - g[4]) ? abs(g[1] - g[3]) : abs(g[2] - g[4])
             cr = (c[1] + c[3]) / 2; cn = (c[2] + c[4]) / 2; cnoise = abs(c[1] - c[3]) > abs(c[2] - c[4]) ? abs(c[1] - c[3]) : abs(c[2] - c[4])
             gl = 2 * gnoise > 0.02 * gr ? 2 * gnoise : 0.02 * gr; cl = 2 * cnoise > 0.02 * cr ? 2 * cnoise : 0.02 * cr

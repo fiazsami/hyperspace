@@ -33,6 +33,12 @@ install)
     # header keeps its file name, so its import stays as it was.
     sed -i '' 's/HyperspaceView/HyperspaceMetalView/g' "$src/HyperspaceView.h" "$src/HyperspaceView.mm" "$src/Info.plist"
     sed -i '' 's/"HyperspaceMetalView.h"/"HyperspaceView.h"/' "$src/HyperspaceView.mm"
+    # Any other code naming the class would build a bundle with both names,
+    # the clash the rename exists to avoid. (The nib's File's Owner names it
+    # too; that class is never made from the nib.)
+    left=$(grep -rnw HyperspaceView --include='*.m' --include='*.mm' --include='*.h' --include='*.c' --include='*.cpp' "$src" |
+        grep -v '#import "HyperspaceView.h"')
+    [ -z "$left" ] || { echo "code still names HyperspaceView after the rename:" >&2; echo "$left" >&2; exit 2; }
     (cd "$src" && xcodebuild -project Hyperspace.xcodeproj -target Hyperspace -configuration Release \
         SYMROOT="$src/sym" OBJROOT="$src/obj" "PRODUCT_NAME=$NAME" PRODUCT_BUNDLE_IDENTIFIER=com.reallyslick.HyperspaceMetal \
         build > "$src/build.log" 2>&1) || { echo "build failed: $src/build.log" >&2; exit 2; }
@@ -69,15 +75,20 @@ profile)
     [ $hits -ge 3 ] || { echo "$NAME never ran" >&2; exit 1; }
     sleep 5
     ws=$(pgrep -x WindowServer | head -1)
-    xcrun xctrace record --template "Time Profiler" --attach "$pid" --time-limit "${secs}s" --output "$dir/cpu.trace" > /dev/null 2>&1
+    # Each xctrace step logs to the profile directory and stops the run when it fails.
+    xt(){ local log=$1; shift; xcrun xctrace "$@" > "$dir/$log.log" 2>&1 || { echo "xctrace $1 failed: $dir/$log.log" >&2; tail -3 "$dir/$log.log" >&2; exit 2; }; }
+    xt cpu-record record --template "Time Profiler" --attach "$pid" --time-limit "${secs}s" --output "$dir/cpu.trace"
     # top's first sample has nothing to measure against and reads 0%: skipped.
     top -l 4 -s 2 -stats pid,cpu 2>/dev/null | awk -v p="$pid" -v w="$ws" '/^Processes:/ {k++} k < 2 {next}
         $1 == p {s += $2; n++} $1 == w {ws += $2; m++}
         END {if (!n || !m) {print "  top did not see the saver and WindowServer"; exit 1}
              printf "  saver CPU %.1f%%   WindowServer CPU %.1f%%   (top, 3 samples)\n", s / n, ws / m}'
-    xcrun xctrace record --template "Metal System Trace" --all-processes --time-limit "${secs}s" --output "$dir/gpu.trace" > /dev/null 2>&1
-    xcrun xctrace export --input "$dir/cpu.trace" --xpath '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]' > "$dir/cpu.xml" 2>/dev/null
-    xcrun xctrace export --input "$dir/gpu.trace" --xpath '/trace-toc/run[@number="1"]/data/table[@schema="metal-gpu-intervals"]' > "$dir/gpu.xml" 2>/dev/null
+    xt gpu-record record --template "Metal System Trace" --all-processes --time-limit "${secs}s" --output "$dir/gpu.trace"
+    xcrun xctrace export --input "$dir/cpu.trace" --xpath '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]' > "$dir/cpu.xml" 2> "$dir/cpu-export.log"
+    xcrun xctrace export --input "$dir/gpu.trace" --xpath '/trace-toc/run[@number="1"]/data/table[@schema="metal-gpu-intervals"]' > "$dir/gpu.xml" 2> "$dir/gpu-export.log"
+    for t in cpu gpu; do
+        grep -q '<row' "$dir/$t.xml" || { echo "the $t trace exported no rows: $dir/$t-export.log" >&2; exit 2; }
+    done
     echo "where the saver's CPU goes:"; python3 -I parity/saverprofile.py cpu "$dir/cpu.xml"
     echo "GPU:"; python3 -I parity/saverprofile.py gpu "$dir/gpu.xml" "$secs" | head -6
     echo "traces: $dir"

@@ -22,6 +22,15 @@ def rows(path):
         yield [deref(e) for e in row], deref
 
 
+def walk(el, deref):
+    """Every element under el, following refs: a tagged backtrace can hold its
+    backtrace, and a backtrace its frames, by reference to an earlier row's."""
+    el = deref(el)
+    yield el
+    for child in el:
+        yield from walk(child, deref)
+
+
 def cpu(path):
     inclusive, total = collections.Counter(), 0
     for cells, deref in rows(path):
@@ -34,7 +43,7 @@ def cpu(path):
         if trace is None:
             continue
         total += w
-        for name in {deref(f).attrib.get('name', '') for f in trace.iter('frame')} - {''}:
+        for name in {f.attrib.get('name', '') for f in walk(trace, deref) if f.tag == 'frame'} - {''}:
             inclusive[name] += w
     if not total:
         sys.exit('no saver samples in the trace')

@@ -516,8 +516,9 @@ over the user's own Hyperspace, and backs up the copy it replaces.
 **Look** is six shots of each pass through `parity --compare-look`, which
 holds a change to what a change of look must keep: pixels with a reference
 luminance of 16-200 move by a mean of at most 2 levels and a 99th percentile of
-at most 8, pixels darker than 16 rise by a mean of at most 2 levels (no haze,
-no light where there was none), and no shot's mean luminance falls by more
+at most 8, pixels darker than 16 rise by a mean of at most 2 levels with at
+most 1% of them by more than 8 (no haze, even over part of a frame, and no
+light where there was none), and no shot's mean luminance falls by more
 than 2%. It reports the
 clipped pixels (any channel at 255) on each side without judging them; a change
 meant to soften highlights states its own rule for those. The look is judged
