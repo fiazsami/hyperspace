@@ -24,14 +24,19 @@ set -uo pipefail
 # relative to metal/. -z, because git quotes a name holding a quote or a
 # backslash otherwise, whatever core.quotePath says.
 if tracked=$(git ls-files -z -- metal 2>/dev/null | tr '\0' '\n' | sed 's|^metal/||') && [ -n "$tracked" ]; then :; else
-    tracked=$(cd metal && find . \( -type f -o -type l \) | sed 's|^\./||')
+    tracked=$(cd metal && find . ! -type d | sed 's|^\./||')
 fi
-# A symlink is listed too: the folder reference copies one like any file.
-bundled=$(cd -- "$1/Contents/Resources/metal" && find . \( -type f -o -type l \) | sed 's|^\./||') ||
-    { echo "$1 has no Contents/Resources/metal" >&2; exit 1; }
+[ -d "$1/Contents/Resources/metal" ] || { echo "$1 has no Contents/Resources/metal" >&2; exit 1; }
+# Everything but directories, symlinks included: the folder reference copies a
+# link like any file.
+bundled=$(cd -- "$1/Contents/Resources/metal" && find . ! -type d | sed 's|^\./||') ||
+    { echo "could not list $1/Contents/Resources/metal" >&2; exit 1; }
 while IFS= read -r f; do
     [ -n "$f" ] || continue
     b="$1/Contents/Resources/metal/$f"
+    # metal/ holds plain files. A link would be checked through its target
+    # here and could break once installed, so none is allowed, either side.
+    [ ! -L "metal/$f" ] && [ ! -L "$b" ] || { echo "metal/$f is a symlink: metal/ holds plain files only" >&2; exit 1; }
     [ -f "metal/$f" ] || { echo "metal/$f is tracked but not in the working tree: git rm it, or restore it" >&2; exit 1; }
     [ -f "$b" ] || { echo "$1 lacks metal/$f: check the project's metal folder reference and its Copy Metal Sources phase" >&2; exit 1; }
     cmp -s "metal/$f" "$b" || { echo "$1 holds a different metal/$f from the tree's" >&2; exit 1; }
