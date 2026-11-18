@@ -38,9 +38,7 @@ case ${1:-} in
 install)
     [ $# -eq 2 ] || { echo "usage: parity/test-saver.sh install <ref>" >&2; exit 2; }
     sha=$(git rev-parse --verify "$2^{commit}") || exit 2
-    # Built aside and swapped in once installed: reinstalling the installed
-    # commit must not delete its build (and dSYM) before the new one exists.
-    final=$OUT/src-${sha:0:12}; src=$final.new; rm -rf "$src"; mkdir -p "$src"
+    src=$OUT/src-${sha:0:12}; rm -rf "$src"; mkdir -p "$src"
     git archive "$sha" | tar -x -C "$src" || exit 2
     # The class is renamed in the view and its principal-class entry; the
     # header keeps its file name, so its import stays as it was.
@@ -80,9 +78,9 @@ install)
     mkdir -p "$SAVERS" && rm -rf "$SAVERS/$NAME.saver" && cp -R "$built" "$SAVERS/" ||
         { echo "copying into $SAVERS failed: parity/test-saver.sh restore undoes it" >&2; exit 2; }
     pkill -x legacyScreenSaver
-    # One build kept, the installed one: profile wants its dSYM for symbols.
-    for d in "$OUT"/src-*; do [ "$d" = "$src" ] || rm -rf "$d"; done
-    mv "$src" "$final"
+    # The build is not needed once installed (the binary keeps its symbols, so
+    # profile names functions without a dSYM); a failed one stays, for its log.
+    rm -rf "$src"
     echo "installed $NAME at ${sha:0:12}"
     ;;
 restore)

@@ -3,7 +3,8 @@
  *
  * It draws the shaded look only: the shaders-off goo and tunnel are ss-5dl,
  * and asking for them throws HSRendererMetalError saying so.
- * parity/backendcheck.sh judges this backend against HSRendererGL.
+ * parity/backendcheck.sh judges it against its goldens (parity/gl-retired:
+ * every frame pass since the tone map, ss-z8x).
  */
 
 #ifndef HYPERSPACE_RENDERER_METAL_H
@@ -28,7 +29,8 @@ class HSRendererMetal : public HSRenderer{
 public:
 	// metalDir holds Interface.metal and the pass files, compiled at creation;
 	// device is an id<MTLDevice>. A missing file or a compile error throws
-	// HSRendererMetalError with the compiler's message.
+	// HSRendererMetalError with the compiler's message; so does a device that
+	// is not an Apple GPU, which the tone map needs.
 	HSRendererMetal(void *device, const char *metalDir);
 	~HSRendererMetal();
 

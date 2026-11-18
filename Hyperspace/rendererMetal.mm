@@ -370,6 +370,11 @@ static id<MTLComputePipelineState> computePipeline(id<MTLDevice> device, id<MTLL
 
 HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HSRendererMetalState){
 	st->device = (__bridge id<MTLDevice>)device;
+	// The tone map reads the scene from tile memory ([[color(0)]]), which
+	// only Apple GPUs do; anywhere else the renderer cannot draw a frame.
+	// Checked first, before anything is compiled or allocated.
+	if(![st->device supportsFamily:MTLGPUFamilyApple1])
+		fail("creation", "the tone map needs an Apple GPU (it reads tile memory)");
 	st->queue = [st->device newCommandQueue];
 	st->ffLibrary = compilePass(st->device, metalDir, "FixedFunction.metal");
 	st->gooLibrary = compilePass(st->device, metalDir, "Goo.metal");
@@ -446,10 +451,6 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->multisample = nil;
 	st->gooTargetPipeline = nil;
 	st->softenLibrary = compilePass(st->device, metalDir, "Soften.metal");
-	// The tone map reads the scene from tile memory ([[color(0)]]), which
-	// only Apple GPUs do; anywhere else the renderer cannot draw a frame.
-	if(![st->device supportsFamily:MTLGPUFamilyApple1])
-		fail("HSRendererMetal", "the tone map needs an Apple GPU (it reads tile memory)");
 	st->toneMapLibrary = compilePass(st->device, metalDir, "ToneMap.metal");
 	st->softenPipeline = nil;
 	st->gooTarget = nil;
