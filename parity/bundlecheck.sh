@@ -24,9 +24,11 @@ set -uo pipefail
 # relative to metal/. -z, because git quotes a name holding a quote or a
 # backslash otherwise, whatever core.quotePath says.
 if tracked=$(git ls-files -z -- metal 2>/dev/null | tr '\0' '\n' | sed 's|^metal/||') && [ -n "$tracked" ]; then :; else
-    tracked=$(cd metal && find . -type f | sed 's|^\./||')
+    tracked=$(cd metal && find . \( -type f -o -type l \) | sed 's|^\./||')
 fi
-bundled=$(cd "$1/Contents/Resources/metal" 2>/dev/null && find . -type f | sed 's|^\./||')
+# A symlink is listed too: the folder reference copies one like any file.
+bundled=$(cd -- "$1/Contents/Resources/metal" && find . \( -type f -o -type l \) | sed 's|^\./||') ||
+    { echo "$1 has no Contents/Resources/metal" >&2; exit 1; }
 while IFS= read -r f; do
     [ -n "$f" ] || continue
     b="$1/Contents/Resources/metal/$f"
