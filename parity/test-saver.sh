@@ -57,6 +57,12 @@ install)
         SYMROOT="$src/sym" OBJROOT="$src/obj" "PRODUCT_NAME=$NAME" PRODUCT_BUNDLE_IDENTIFIER=com.reallyslick.HyperspaceMetal \
         build > "$src/build.log" 2>&1) || { echo "build failed: $src/build.log" >&2; exit 2; }
     built="$src/sym/Release/$NAME.saver"
+    # The renderer compiles metal/ at run time, from the bundle: a shader the
+    # project does not copy builds fine and fails only in the saver.
+    for m in "$src"/metal/*.metal; do
+        [ -f "$built/Contents/Resources/metal/$(basename "$m")" ] ||
+            { echo "the bundle lacks metal/$(basename "$m"): add it to the project's Copy Metal Sources" >&2; exit 2; }
+    done
     [ "$(plutil -extract NSPrincipalClass raw "$built/Contents/Info.plist")" = HyperspaceMetalView ] ||
         { echo "the built bundle's class is not HyperspaceMetalView" >&2; exit 2; }
     # Settings are kept by bundle id: the user's own id would share theirs.

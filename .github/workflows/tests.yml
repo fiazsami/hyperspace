@@ -162,6 +162,14 @@ jobs:
             if [ "$archs" != "arm64" ]; then
               echo "::error::$1 is built for '$archs', not arm64 only"; exit 1
             fi
+            # The renderer compiles metal/ at run time from the bundle, so a
+            # shader the project does not copy builds clean and fails only in
+            # the saver ("Could not start Metal backend", ToneMap.metal once).
+            for m in metal/*.metal; do
+              if [ ! -f "$1/Contents/Resources/metal/$(basename "$m")" ]; then
+                echo "::error::$1 lacks metal/$(basename "$m"); add it to Copy Metal Sources"; exit 1
+              fi
+            done
           }
 
           for configuration in Release Debug; do
