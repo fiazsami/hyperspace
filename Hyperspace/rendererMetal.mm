@@ -13,6 +13,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 namespace {
 
@@ -205,6 +206,12 @@ struct HSRendererMetalState {
 	MTLPixelFormat pipelineFormat;
 	NSUInteger samples, pipelineSamples;   // setSampleCount's; those the pipelines were built for
 	int tunnelDetail;                      // setTunnelDetail's
+	double lastGPUms;                      // lastFrameGPUMilliseconds's
+	// Every command buffer this frame made (frameCommands), whose GPU spans
+	// lastGPUms is the union of; and room for those spans. Cleared, not
+	// freed, each frame.
+	std::vector<id<MTLCommandBuffer>> frameBuffers;
+	std::vector<std::pair<double, double>> frameSpans;
 	id<MTLTexture> multisample;            // the frame's samples, memoryless, when samples > 1
 	id<MTLTexture> target;
 	id<CAMetalDrawable> drawable;   // set for one frame by setDrawable, presented by endFrame
@@ -392,6 +399,7 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->gooCapacity = 0;
 	st->softGoo = true;
 	st->tunnelDetail = 2;
+	st->lastGPUms = 0.0;
 	st->samples = 4;
 	if(![st->device supportsTextureSampleCount:st->samples])
 		st->samples = 1;
@@ -495,6 +503,10 @@ int HSRendererMetal::tunnelDetail() const{
 	return st->tunnelDetail;
 }
 
+double HSRendererMetal::lastFrameGPUMilliseconds() const{
+	return st->lastGPUms;
+}
+
 void HSRendererMetal::setSampleCount(int samples){
 	if(st->encoder)
 		fail("setSampleCount", "called inside a frame");
@@ -508,11 +520,24 @@ void *HSRendererMetal::texture(unsigned int name) const{
 	return t == st->textures.end() ? NULL : (__bridge void *)t->second.texture;
 }
 
+// A command buffer for this frame's work. Every per-frame buffer comes from
+// here, so the frame's GPU time (lastFrameGPUMilliseconds) covers it without
+// anyone remembering to add it. Only a target's frame is timed: a drawable's
+// buffers are not kept, so the saver holds nothing past its frame.
+static id<MTLCommandBuffer> frameCommands(HSRendererMetalState *st){
+	id<MTLCommandBuffer> cb = [st->queue commandBuffer];
+	if(!st->drawable)
+		st->frameBuffers.push_back(cb);
+	return cb;
+}
+
 void HSRendererMetal::beginFrame(const HSFrame &frame){
 	if(!st->target)
 		fail("beginFrame", "no target: call setTarget first");
 	if(st->encoder)
 		fail("beginFrame", "the last frame was not ended");
+	st->lastGPUms = 0.0;   // set again by endFrame for a target's frame only
+	st->frameBuffers.clear();
 	st->projection = fromGL(frame.projection);
 	st->clipProjection = simd_mul(clipZ(), st->projection);
 	st->view = fromGL(frame.view);
@@ -557,7 +582,7 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 		rp.colorAttachments[0].texture = st->target;
 		rp.colorAttachments[0].storeAction = MTLStoreActionStore;
 	}
-	st->commands = [st->queue commandBuffer];
+	st->commands = frameCommands(st);
 	st->encoder = [st->commands renderCommandEncoderWithDescriptor:rp];
 	// GL's viewport origin is the bottom left, Metal's the top left. Signed:
 	// a viewport taller than the target hangs off its top, as it would in GL.
@@ -612,6 +637,28 @@ void HSRendererMetal::endFrame(){
 				st->draws--;
 			}
 		}
+		// The union of the frame's command buffers' spans: the time the GPU was
+		// busy with the frame at all, as parity/saverprofile.py measures the
+		// saver. A sum would count twice whatever overlaps, or one waiting on
+		// another, and so move with scheduling rather than with the work.
+		auto &spans = st->frameSpans;
+		spans.clear();
+		for(id<MTLCommandBuffer> cb : st->frameBuffers){
+			[cb waitUntilCompleted];   // all are, today; a buffer added later may not be
+			if(cb.status == MTLCommandBufferStatusError)
+				fail("the GPU failed a frame's command buffer", cb.error.localizedDescription.UTF8String);
+			spans.push_back({cb.GPUStartTime, cb.GPUEndTime});
+		}
+		std::sort(spans.begin(), spans.end());
+		double seconds = 0.0, reached = spans.empty() ? 0.0 : spans[0].first;
+		for(const auto &span : spans){
+			double from = std::max(span.first, reached);
+			if(span.second > from)
+				seconds += span.second - from;
+			reached = std::max(reached, span.second);
+		}
+		st->lastGPUms = seconds * 1000.0;
+		st->frameBuffers.clear();   // nothing kept alive past the frame
 	}
 	st->encoder = nil;
 	st->commands = nil;
@@ -1039,7 +1086,7 @@ void HSRendererMetal::drawGooField(const HSGooField &field){
 	// newBuffer, as these are. Moving them onto a heap, or making them
 	// untracked, needs an MTLEvent in its place. Building inside the frame's
 	// buffer would mean ending its render pass and reloading the target.
-	id<MTLCommandBuffer> build = [st->queue commandBuffer];
+	id<MTLCommandBuffer> build = frameCommands(st);
 	id<MTLBlitCommandEncoder> blit = [build blitCommandEncoder];
 	[blit fillBuffer:st->gooCounter range:NSMakeRange(0, sizeof(uint32_t)) value:0];
 	[blit endEncoding];
@@ -1101,7 +1148,7 @@ void HSRendererMetal::drawGooField(const HSGooField &field){
 	rp.colorAttachments[0].loadAction = MTLLoadActionClear;
 	rp.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 0);
 	rp.colorAttachments[0].storeAction = MTLStoreActionStore;
-	id<MTLCommandBuffer> soft = [st->queue commandBuffer];
+	id<MTLCommandBuffer> soft = frameCommands(st);
 	id<MTLRenderCommandEncoder> se = [soft renderCommandEncoderWithDescriptor:rp];
 	// The frame's viewport, scaled as the target is.
 	const double sx = double(w) / double(st->target.width), sy = double(h) / double(st->target.height);

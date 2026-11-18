@@ -66,6 +66,11 @@ public:
 	// initSaver reads it, so set it before initSaver; at least 1.
 	void setTunnelDetail(int detail);
 	int tunnelDetail() const;
+	// The GPU time of the last frame drawn into a target (setTarget), in
+	// milliseconds: the union of the GPU spans of every command buffer it committed.
+	// 0 before the first such frame, and for a drawable's frame, which is not
+	// waited for (the saver's GPU time is measured by a trace instead).
+	double lastFrameGPUMilliseconds() const;
 	// The id<MTLTexture> a create* call returned name for, or NULL.
 	void *texture(unsigned int name) const;
 
