@@ -315,23 +315,20 @@ static void frameAttachments(MTLRenderPipelineDescriptor *pd, MTLPixelFormat for
 	pd.colorAttachments[1].writeMask = MTLColorWriteMaskNone;
 }
 
-// Everything Hyperspace draws is blended (SRC_ALPHA, ONE). inFrame: drawn into
-// the frame pass (frameAttachments), not a target of its own format.
-static id<MTLRenderPipelineState> additivePipeline(id<MTLDevice> device, id<MTLLibrary> lib,
-	NSString *vfn, NSString *ffn, MTLPixelFormat format, NSUInteger samples = 1, bool inFrame = false){
+// A render pipeline's descriptor with its two entry points, and the pipeline
+// built from it: every render pipeline here is made by these two.
+static MTLRenderPipelineDescriptor *pipelineDescriptor(id<MTLLibrary> lib, NSString *vfn, NSString *ffn,
+	NSUInteger samples){
 	MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
 	pd.rasterSampleCount = samples;
 	pd.vertexFunction = [lib newFunctionWithName:vfn];
 	pd.fragmentFunction = [lib newFunctionWithName:ffn];
 	if(!pd.vertexFunction || !pd.fragmentFunction)
 		fail("missing entry point", [vfn stringByAppendingFormat:@" / %@", ffn].UTF8String);
-	if(inFrame)
-		frameAttachments(pd, format);
-	else
-		pd.colorAttachments[0].pixelFormat = format;
-	pd.colorAttachments[0].blendingEnabled = YES;
-	pd.colorAttachments[0].sourceRGBBlendFactor = pd.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
-	pd.colorAttachments[0].destinationRGBBlendFactor = pd.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOne;
+	return pd;
+}
+
+static id<MTLRenderPipelineState> buildPipeline(id<MTLDevice> device, MTLRenderPipelineDescriptor *pd){
 	NSError *err = nil;
 	id<MTLRenderPipelineState> ps = [device newRenderPipelineStateWithDescriptor:pd error:&err];
 	if(!ps)
@@ -339,22 +336,28 @@ static id<MTLRenderPipelineState> additivePipeline(id<MTLDevice> device, id<MTLL
 	return ps;
 }
 
+// Everything Hyperspace draws is blended (SRC_ALPHA, ONE). inFrame: drawn into
+// the frame pass (frameAttachments), not a target of its own format.
+static id<MTLRenderPipelineState> additivePipeline(id<MTLDevice> device, id<MTLLibrary> lib,
+	NSString *vfn, NSString *ffn, MTLPixelFormat format, NSUInteger samples = 1, bool inFrame = false){
+	MTLRenderPipelineDescriptor *pd = pipelineDescriptor(lib, vfn, ffn, samples);
+	if(inFrame)
+		frameAttachments(pd, format);
+	else
+		pd.colorAttachments[0].pixelFormat = format;
+	pd.colorAttachments[0].blendingEnabled = YES;
+	pd.colorAttachments[0].sourceRGBBlendFactor = pd.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
+	pd.colorAttachments[0].destinationRGBBlendFactor = pd.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOne;
+	return buildPipeline(device, pd);
+}
+
 static id<MTLRenderPipelineState> toneMapPipeline(id<MTLDevice> device, id<MTLLibrary> lib, MTLPixelFormat format,
 	NSUInteger samples){
-	MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
-	pd.rasterSampleCount = samples;
-	pd.vertexFunction = [lib newFunctionWithName:@"tonemap_vertex"];
-	pd.fragmentFunction = [lib newFunctionWithName:@"tonemap_fragment"];
-	if(!pd.vertexFunction || !pd.fragmentFunction)
-		fail("missing entry point", "tonemap_vertex / tonemap_fragment");
+	MTLRenderPipelineDescriptor *pd = pipelineDescriptor(lib, @"tonemap_vertex", @"tonemap_fragment", samples);
 	frameAttachments(pd, format);
 	pd.colorAttachments[0].writeMask = MTLColorWriteMaskNone;   // read, not written
 	pd.colorAttachments[1].writeMask = MTLColorWriteMaskAll;
-	NSError *err = nil;
-	id<MTLRenderPipelineState> ps = [device newRenderPipelineStateWithDescriptor:pd error:&err];
-	if(!ps)
-		fail("pipeline", err.localizedDescription.UTF8String);
-	return ps;
+	return buildPipeline(device, pd);
 }
 
 static id<MTLComputePipelineState> computePipeline(id<MTLDevice> device, id<MTLLibrary> lib, NSString *fn){
@@ -449,7 +452,8 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 		st->samples = 1;
 	st->pipelineSamples = 0;
 	st->multisample = nil;
-	st->gooTargetPipeline = nil;
+	// One sample, kSoftGooFormat: nothing about the target, so built once.
+	st->gooTargetPipeline = additivePipeline(st->device, st->gooLibrary, @"goo_vertex", @"goo_fragment", kSoftGooFormat);
 	st->softenLibrary = compilePass(st->device, metalDir, "Soften.metal");
 	st->toneMapLibrary = compilePass(st->device, metalDir, "ToneMap.metal");
 	st->softenPipeline = nil;
@@ -470,21 +474,12 @@ HSRendererMetal::~HSRendererMetal(){
 // target already holds the goo's own (SRC_ALPHA, ONE) blending.
 static id<MTLRenderPipelineState> softenPipeline(id<MTLDevice> device, id<MTLLibrary> lib, MTLPixelFormat format,
 	NSUInteger samples){
-	MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
-	pd.rasterSampleCount = samples;
-	pd.vertexFunction = [lib newFunctionWithName:@"soften_vertex"];
-	pd.fragmentFunction = [lib newFunctionWithName:@"soften_fragment"];
-	if(!pd.vertexFunction || !pd.fragmentFunction)
-		fail("missing entry point", "soften_vertex / soften_fragment");
+	MTLRenderPipelineDescriptor *pd = pipelineDescriptor(lib, @"soften_vertex", @"soften_fragment", samples);
 	frameAttachments(pd, format);
 	pd.colorAttachments[0].blendingEnabled = YES;
 	pd.colorAttachments[0].sourceRGBBlendFactor = pd.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
 	pd.colorAttachments[0].destinationRGBBlendFactor = pd.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOne;
-	NSError *err = nil;
-	id<MTLRenderPipelineState> ps = [device newRenderPipelineStateWithDescriptor:pd error:&err];
-	if(!ps)
-		fail("pipeline", err.localizedDescription.UTF8String);
-	return ps;
+	return buildPipeline(device, pd);
 }
 
 // Pipelines are built for the target's pixel format and the frame's samples,
@@ -498,7 +493,6 @@ static void useTarget(HSRendererMetalState *st, id<MTLTexture> target){
 	st->quadPipeline = additivePipeline(st->device, st->ffLibrary, @"ff_quad_vertex", @"ff_fragment", f, n, true);
 	st->starPipeline = additivePipeline(st->device, st->ffLibrary, @"star_vertex", @"ff_fragment", f, n, true);
 	st->gooPipeline = additivePipeline(st->device, st->gooLibrary, @"goo_vertex", @"goo_fragment", f, n, true);
-	st->gooTargetPipeline = additivePipeline(st->device, st->gooLibrary, @"goo_vertex", @"goo_fragment", kSoftGooFormat);
 	st->tunnelPipeline = additivePipeline(st->device, st->tunnelLibrary, @"tunnel_build_vertex", @"tunnel_fragment", f, n, true);
 	st->softenPipeline = softenPipeline(st->device, st->softenLibrary, f, n);
 	st->toneMapPipeline = toneMapPipeline(st->device, st->toneMapLibrary, f, n);
@@ -570,11 +564,57 @@ void *HSRendererMetal::texture(unsigned int name) const{
 // here, so the frame's GPU time (lastFrameGPUMilliseconds) covers it without
 // anyone remembering to add it. Only a target's frame is timed: a drawable's
 // buffers are not kept, so the saver holds nothing past its frame.
-static id<MTLCommandBuffer> frameCommands(HSRendererMetalState *st){
+// label names it in the error should the GPU fail it.
+static id<MTLCommandBuffer> frameCommands(HSRendererMetalState *st, NSString *label){
 	id<MTLCommandBuffer> cb = [st->queue commandBuffer];
+	cb.label = label;
 	if(!st->drawable)
 		st->frameBuffers.push_back(cb);
 	return cb;
+}
+
+// A memoryless texture the size of the target: samples live in tile memory
+// only, so they cost no memory or bandwidth. nil if the device cannot make it.
+static id<MTLTexture> memoryless(HSRendererMetalState *st, MTLPixelFormat format, NSUInteger samples){
+	MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
+		width:st->target.width height:st->target.height mipmapped:NO];
+	td.textureType = samples > 1 ? MTLTextureType2DMultisample : MTLTextureType2D;
+	td.sampleCount = samples;
+	td.usage = MTLTextureUsageRenderTarget;
+	td.storageMode = MTLStorageModeMemoryless;
+	return [st->device newTextureWithDescriptor:td];
+}
+
+static bool fits(id<MTLTexture> t, id<MTLTexture> target, MTLPixelFormat format, NSUInteger samples){
+	return t && t.width == target.width && t.height == target.height && t.pixelFormat == format &&
+		t.sampleCount == samples;
+}
+
+// The frame's two memoryless attachments (frameAttachments): the half-float
+// scene, and, with samples > 1, the displayed samples resolved into the
+// target. Made again only when the target or the sample count changes. A
+// count the device cannot make either at is dropped to 1 sample, aliased
+// before not at all, as the header promises; the drop lasts until the next
+// setSampleCount. At 1 sample there is no fallback: a GPU that cannot make
+// the scene memoryless cannot read it from tile memory either.
+static void frameTextures(HSRendererMetalState *st){
+	const MTLPixelFormat f = st->target.pixelFormat;
+	if(fits(st->scene, st->target, kSceneFormat, st->samples) &&
+		(st->samples == 1 || fits(st->multisample, st->target, f, st->samples)))
+		return;
+	if(st->samples > 1){
+		st->scene = memoryless(st, kSceneFormat, st->samples);
+		st->multisample = memoryless(st, f, st->samples);
+		if(st->scene && st->multisample)
+			return;
+		NSLog(@"HSRendererMetal: no memoryless %lux attachments; drawing with 1 sample", (unsigned long)st->samples);
+		st->samples = 1;
+		useTarget(st, st->target);
+	}
+	st->multisample = nil;
+	st->scene = memoryless(st, kSceneFormat, 1);
+	if(!st->scene)
+		fail("beginFrame", "no memoryless scene texture");
 }
 
 void HSRendererMetal::beginFrame(const HSFrame &frame){
@@ -595,54 +635,8 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 	st->gooBuildCommands = nil;
 	st->softCommands = nil;
 
+	frameTextures(st);
 	MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
-	if(st->samples > 1){
-		// Memoryless: the samples never leave tile memory, so the frame costs
-		// no more memory or bandwidth than an aliased one, only the resolve.
-		id<MTLTexture> ms = st->multisample;
-		if(!ms || ms.width != st->target.width || ms.height != st->target.height ||
-			ms.pixelFormat != st->target.pixelFormat || ms.sampleCount != st->samples){
-			MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:st->target.pixelFormat
-				width:st->target.width height:st->target.height mipmapped:NO];
-			td.textureType = MTLTextureType2DMultisample;
-			td.sampleCount = st->samples;
-			td.usage = MTLTextureUsageRenderTarget;
-			td.storageMode = MTLStorageModeMemoryless;
-			st->multisample = [st->device newTextureWithDescriptor:td];
-			if(!st->multisample){
-				// Drawn aliased rather than not at all, as the header promises.
-				NSLog(@"HSRendererMetal: no memoryless %lux texture; drawing with 1 sample", (unsigned long)st->samples);
-				st->samples = 1;
-				useTarget(st, st->target);
-			}
-		}
-	}
-	// The scene lives in tile memory only: the tone map reads it there, so
-	// the half floats never reach memory.
-	id<MTLTexture> sc = st->scene;
-	if(!sc || sc.width != st->target.width || sc.height != st->target.height || sc.sampleCount != st->samples){
-		MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:kSceneFormat
-			width:st->target.width height:st->target.height mipmapped:NO];
-		td.textureType = st->samples > 1 ? MTLTextureType2DMultisample : MTLTextureType2D;
-		td.sampleCount = st->samples;
-		td.usage = MTLTextureUsageRenderTarget;
-		td.storageMode = MTLStorageModeMemoryless;
-		st->scene = [st->device newTextureWithDescriptor:td];
-		// As the multisample texture above: aliased before not at all. There is
-		// no fallback to memory: a GPU that cannot make it memoryless at 1
-		// sample cannot read it from tile memory either.
-		if(!st->scene && st->samples > 1){
-			NSLog(@"HSRendererMetal: no memoryless %lux scene; drawing with 1 sample", (unsigned long)st->samples);
-			st->samples = 1;
-			st->multisample = nil;
-			useTarget(st, st->target);
-			td.textureType = MTLTextureType2D;
-			td.sampleCount = 1;
-			st->scene = [st->device newTextureWithDescriptor:td];
-		}
-		if(!st->scene)
-			fail("beginFrame", "no memoryless scene texture");
-	}
 	rp.colorAttachments[0].texture = st->scene;
 	rp.colorAttachments[0].loadAction = MTLLoadActionClear;
 	rp.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
@@ -658,7 +652,7 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 		rp.colorAttachments[1].texture = st->target;
 		rp.colorAttachments[1].storeAction = MTLStoreActionStore;
 	}
-	st->commands = frameCommands(st);
+	st->commands = frameCommands(st, @"the frame");
 	st->encoder = [st->commands renderCommandEncoderWithDescriptor:rp];
 	// GL's viewport origin is the bottom left, Metal's the top left. Signed:
 	// a viewport taller than the target hangs off its top, as it would in GL.
@@ -698,36 +692,25 @@ void HSRendererMetal::endFrame(){
 	}
 	else{
 		[st->commands commit];
-		[st->commands waitUntilCompleted];
-		if(st->commands.status == MTLCommandBufferStatusError)
-			fail("the GPU failed the frame", st->commands.error.localizedDescription.UTF8String);
-		if(st->softCommands){
-			[st->softCommands waitUntilCompleted];
-			if(st->softCommands.status == MTLCommandBufferStatusError)
-				fail("the GPU failed the soft goo", st->softCommands.error.localizedDescription.UTF8String);
-		}
-		if(st->gooBuildCommands){
-			[st->gooBuildCommands waitUntilCompleted];
-			if(st->gooBuildCommands.status == MTLCommandBufferStatusError)
-				fail("the GPU failed the goo's build", st->gooBuildCommands.error.localizedDescription.UTF8String);
-			// A build that made no triangles drew nothing, which only a frame
-			// waited for can know: parity's check that the goo drew relies on it.
-			if(*(const uint32_t *)st->gooCounter.contents == 0){
-				st->gooDraws--;
-				st->draws--;
-			}
-		}
-		// The union of the frame's command buffers' spans: the time the GPU was
-		// busy with the frame at all, as parity/saverprofile.py measures the
-		// saver. A sum would count twice whatever overlaps, or one waiting on
-		// another, and so move with scheduling rather than with the work.
+		// Every buffer the frame made (frameCommands) is waited for and checked
+		// here, one way, whatever made it. The union of their spans is the time
+		// the GPU was busy with the frame at all, as parity/saverprofile.py
+		// measures the saver. A sum would count twice whatever overlaps, or one
+		// waiting on another, and so move with scheduling rather than with the work.
 		auto &spans = st->frameSpans;
 		spans.clear();
 		for(id<MTLCommandBuffer> cb : st->frameBuffers){
-			[cb waitUntilCompleted];   // all are, today; a buffer added later may not be
+			[cb waitUntilCompleted];
 			if(cb.status == MTLCommandBufferStatusError)
-				fail("the GPU failed a frame's command buffer", cb.error.localizedDescription.UTF8String);
+				fail([@"the GPU failed " stringByAppendingString:cb.label].UTF8String,
+					cb.error.localizedDescription.UTF8String);
 			spans.push_back({cb.GPUStartTime, cb.GPUEndTime});
+		}
+		// A build that made no triangles drew nothing, which only a frame
+		// waited for can know: parity's check that the goo drew relies on it.
+		if(st->gooBuildCommands && *(const uint32_t *)st->gooCounter.contents == 0){
+			st->gooDraws--;
+			st->draws--;
 		}
 		std::sort(spans.begin(), spans.end());
 		double seconds = 0.0, reached = spans.empty() ? 0.0 : spans[0].first;
@@ -1166,7 +1149,7 @@ void HSRendererMetal::drawGooField(const HSGooField &field){
 	// newBuffer, as these are. Moving them onto a heap, or making them
 	// untracked, needs an MTLEvent in its place. Building inside the frame's
 	// buffer would mean ending its render pass and reloading the target.
-	id<MTLCommandBuffer> build = frameCommands(st);
+	id<MTLCommandBuffer> build = frameCommands(st, @"the goo's build");
 	id<MTLBlitCommandEncoder> blit = [build blitCommandEncoder];
 	[blit fillBuffer:st->gooCounter range:NSMakeRange(0, sizeof(uint32_t)) value:0];
 	[blit endEncoding];
@@ -1227,7 +1210,7 @@ void HSRendererMetal::drawGooField(const HSGooField &field){
 	rp.colorAttachments[0].loadAction = MTLLoadActionClear;
 	rp.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 0);
 	rp.colorAttachments[0].storeAction = MTLStoreActionStore;
-	id<MTLCommandBuffer> soft = frameCommands(st);
+	id<MTLCommandBuffer> soft = frameCommands(st, @"the soft goo");
 	id<MTLRenderCommandEncoder> se = [soft renderCommandEncoderWithDescriptor:rp];
 	// The frame's viewport, scaled as the target is.
 	const double sx = double(w) / double(st->target.width), sy = double(h) / double(st->target.height);
