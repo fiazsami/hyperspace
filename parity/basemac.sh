@@ -28,8 +28,8 @@ fi
 sha=$(git rev-parse --verify "$ref^{commit}") || exit 2
 WT=.parity-build/basemac/tree
 parity/at-ref.sh "$sha" "$WT" || exit 2
-usage=$("$WT/.parity-build/parity" 2>&1)
-[[ $usage == *look=saver* ]] || { echo "$ref's parity has no look=saver and time (ss-z8x.1)" >&2; exit 2; }
+. parity/timing.sh
+times_as_saver "$WT/.parity-build/parity" || { echo "$ref's parity has no look=saver and time (ss-z8x.1)" >&2; exit 2; }
 out=.parity-build/basemac/$mode-${sha:0:12}.txt
 rm -f "$out"   # written only when every run succeeds, so a file is a whole result
 {
@@ -37,8 +37,8 @@ rm -f "$out"   # written only when every run succeeds, so a file is a whole resu
     echo "machine $(sysctl -n hw.model) $(sysctl -n machdep.cpu.brand_string) macOS $(sw_vers -productVersion)"
     for run in 1 2; do
         for pass in stars goo tunnel burst sun; do
-            "$WT/.parity-build/parity" "$pass" "$WT/metal" ".parity-build/basemac/run" renderer=metal look=saver time \
-                shots=1 w=3440 h=1440 | grep '^TIME' || { echo "ERROR $pass run failed"; exit 2; }
+            "$WT/.parity-build/parity" "$pass" "$WT/metal" ".parity-build/basemac/run" "${TIME_ARGS[@]}" |
+                grep '^TIME' || { echo "ERROR $pass run failed"; exit 2; }
         done
     done
 } | tee "$out.partial"

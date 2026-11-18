@@ -28,7 +28,8 @@ cd "$(dirname "$0")/.."
 ALL=(stars goo tunnel burst sun goosoft)
 SHOTS=6
 # fixture:shader file:pass. The narrowest of the three is tunnel_fog110, a 10%
-# fog change: 0.157% of lit pixels against --compare's 0.1%.
+# fog change: 0.114% of lit pixels against --compare's 0.1%, through the tone
+# map (hyperspace#59; it was 0.157% before).
 KILL=(tunnel_fog110:Tunnel.metal:tunnel stars_fog110:FixedFunction.metal:stars stars_jumpstreak:FixedFunction.metal:stars)
 
 update=0; passes=()

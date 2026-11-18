@@ -62,10 +62,9 @@ for pass in "${passes[@]}"; do
         run=("${GOLDEN_RUN[@]}"); against=goldens
         compare(){ .parity-build/parity --compare-golden "parity/golden/$pass" "$1"; }
     else
-        run=(); against=GL
-        compare(){ .parity-build/parity --compare-backend "$pass" "$OUT/$pass/gl" "$1"; }
-        .parity-build/parity "$pass" metal "$OUT/$pass/gl" > "$OUT/$pass-gl.log" ||
-            { echo "GL $pass run failed: $(tail -1 "$OUT/$pass-gl.log")" >&2; exit 2; }
+        # Every frame pass goes through the tone map (ss-z8x), which GL does
+        # not draw, so GL cannot judge one: a frame pass is judged by goldens.
+        echo "$pass is not in parity/gl-retired: a frame pass is judged by its goldens since the tone map (ss-z8x)" >&2; exit 2
     fi
     if [ "$pass" != textures ] && [ "$pass" != caustics ]; then
         .parity-build/parity "$pass" metal "$OUT/$pass/backend" renderer=metal ${run[@]+"${run[@]}"} > "$OUT/$pass-backend.log" ||
