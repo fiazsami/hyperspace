@@ -32,7 +32,9 @@
 # does, on purpose (ss-ss8). Its reference is then its goldens, not GL: the
 # backend and every one of its fixtures are drawn as parity/goldencheck.sh
 # draws them (six shots, 480x270, the saver's 4 samples) and judged by
-# `parity --compare-golden`. Every other pass is drawn at 1 sample, as GL draws.
+# `parity --compare-golden`. Since the tone map (ss-z8x) that is every frame
+# pass; textures and caustics, not drawn through the frame, are still judged
+# against GL.
 #
 #   parity/backendcheck.sh [stars|goo|tunnel|burst|sun|goosoft|textures|caustics ...]    default: all eight
 #

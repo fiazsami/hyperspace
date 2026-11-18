@@ -30,7 +30,8 @@ static half shoulder(half x){
 
 // [[sample_id]] runs it per sample, so the tone map comes before the resolve:
 // an edge between a highlight and the dark is averaged after its highlight is
-// brought into range, not before.
+// brought into range, not before. Neither the goldens (480x270) nor the cost
+// (3440x1440) could tell it from once a pixel: a fixture without it survived.
 fragment ToneMapOut tonemap_fragment(ToneMapVertex in [[stage_in]], half4 scene [[color(0)]],
 	uint sample [[sample_id]]){
 	ToneMapOut out;

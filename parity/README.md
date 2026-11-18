@@ -364,7 +364,9 @@ tone-maps each sample before the resolve (`metal/ToneMap.metal`, ss-z8x): up
 to the knee at 0.85 it is the identity, above it a shoulder rolls off towards
 1 instead of clipping. `parity/defects/tonemap_<defect>.metal` is that shader
 with one defect, run under `goo`, whose overlaps go furthest past the knee.
-Killed: the shoulder replaced by clipping at 1, as the 8-bit frame did.
+Killed: the shoulder replaced by clipping at 1, as the 8-bit frame did, and
+the knee at 0.90. Not made: once a pixel instead of per sample, which
+survived (worst_max 1), so per sample is a choice nothing here can see.
 
 **The soft goo.** `goosoft_tent15.metal` is `Soften.metal` with the tent
 divided by 15, `goosoft_flip.metal` adds the goo upside down, and
@@ -458,8 +460,9 @@ so far, at hyperspace ss-z8x:
 | `goo`, `burst`, `goosoft` | tone-mapped: GL clips each blend at 8 bits, and the goo's overlaps clip most | judged by goldens |
 | `textures`, `caustics` | not drawn through the frame | still judged against GL |
 
-Every pass is now judged by goldens; the comparison with GL is history. With
-that, `backendcheck.sh` kills 79 fixtures. The narrowest against
+Every frame pass is now judged by goldens, whose first generation the backend
+drew when it was proven equal to GL; GL still judges textures and caustics. With
+that, `backendcheck.sh` kills 80 fixtures. The narrowest against
 goldens are `tunnel_fog110` (0.114%) and `tunnel_radialfog` (0.123%), re-measured
 through the tone map.
 

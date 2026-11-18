@@ -258,7 +258,7 @@ struct HSRendererMetalState {
 	id<MTLBuffer> gooVertices;
 	NSUInteger gooCapacity;      // in vertices, a multiple of 3
 	id<MTLCommandBuffer> gooBuildCommands;   // this frame's build, nil until drawGooField
-	// The soft goo (setSoftGoo): drawn into gooTarget, in the frame's format,
+	// The soft goo (setSoftGoo): drawn into gooTarget, 8-bit (kSoftGooFormat),
 	// in a command buffer of its own (softCommands) committed after the build
 	// and before the frame; then added over the frame by softenPipeline, into
 	// the half-float scene. The target stays 8-bit on purpose: in half float
@@ -307,6 +307,8 @@ static id<MTLLibrary> compilePass(id<MTLDevice> device, const char *dir, const c
 // draw adds to, and the displayed one in the target's format, which only the
 // tone map writes.
 static const MTLPixelFormat kSceneFormat = MTLPixelFormatRGBA16Float;
+// The soft goo's target: 8-bit whatever the frame's format (see gooTarget).
+static const MTLPixelFormat kSoftGooFormat = MTLPixelFormatBGRA8Unorm;
 static void frameAttachments(MTLRenderPipelineDescriptor *pd, MTLPixelFormat format){
 	pd.colorAttachments[0].pixelFormat = kSceneFormat;
 	pd.colorAttachments[1].pixelFormat = format;
@@ -491,7 +493,7 @@ static void useTarget(HSRendererMetalState *st, id<MTLTexture> target){
 	st->quadPipeline = additivePipeline(st->device, st->ffLibrary, @"ff_quad_vertex", @"ff_fragment", f, n, true);
 	st->starPipeline = additivePipeline(st->device, st->ffLibrary, @"star_vertex", @"ff_fragment", f, n, true);
 	st->gooPipeline = additivePipeline(st->device, st->gooLibrary, @"goo_vertex", @"goo_fragment", f, n, true);
-	st->gooTargetPipeline = additivePipeline(st->device, st->gooLibrary, @"goo_vertex", @"goo_fragment", f);
+	st->gooTargetPipeline = additivePipeline(st->device, st->gooLibrary, @"goo_vertex", @"goo_fragment", kSoftGooFormat);
 	st->tunnelPipeline = additivePipeline(st->device, st->tunnelLibrary, @"tunnel_build_vertex", @"tunnel_fragment", f, n, true);
 	st->softenPipeline = softenPipeline(st->device, st->softenLibrary, f, n);
 	st->toneMapPipeline = toneMapPipeline(st->device, st->toneMapLibrary, f, n);
@@ -621,8 +623,24 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 		td.usage = MTLTextureUsageRenderTarget;
 		td.storageMode = MTLStorageModeMemoryless;
 		st->scene = [st->device newTextureWithDescriptor:td];
+		// As the multisample texture above: aliased before not at all, and
+		// in memory before not at all.
+		if(!st->scene && st->samples > 1){
+			NSLog(@"HSRendererMetal: no memoryless %lux scene; drawing with 1 sample", (unsigned long)st->samples);
+			st->samples = 1;
+			st->multisample = nil;
+			useTarget(st, st->target);
+			td.textureType = MTLTextureType2D;
+			td.sampleCount = 1;
+			st->scene = [st->device newTextureWithDescriptor:td];
+		}
+		if(!st->scene){
+			NSLog(@"HSRendererMetal: no memoryless scene; keeping it in memory");
+			td.storageMode = MTLStorageModePrivate;
+			st->scene = [st->device newTextureWithDescriptor:td];
+		}
 		if(!st->scene)
-			fail("beginFrame", "no memoryless scene texture");
+			fail("beginFrame", "no scene texture");
 	}
 	rp.colorAttachments[0].texture = st->scene;
 	rp.colorAttachments[0].loadAction = MTLLoadActionClear;
@@ -1188,8 +1206,8 @@ void HSRendererMetal::drawGooField(const HSGooField &field){
 	const NSUInteger w = std::max<NSUInteger>(1, (st->target.width + 1) / 2);
 	const NSUInteger h = std::max<NSUInteger>(1, (st->target.height + 1) / 2);
 	if(st->softGoo && (!st->gooTarget || st->gooTarget.width != w || st->gooTarget.height != h ||
-		st->gooTarget.pixelFormat != st->pipelineFormat)){
-		MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:st->pipelineFormat
+		st->gooTarget.pixelFormat != kSoftGooFormat)){
+		MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:kSoftGooFormat
 			width:w height:h mipmapped:NO];
 		td.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
 		td.storageMode = MTLStorageModePrivate;

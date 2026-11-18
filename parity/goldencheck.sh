@@ -2,8 +2,9 @@
 # Judges the Metal saver against approved images of itself (ss-ss8.1), and
 # proves the judgement can fail.
 #
-# backendcheck.sh proves the backend draws what GL draws. Where the Metal saver
-# is meant to look better than GL (ss-ss8), GL stops being the reference, and
+# backendcheck.sh proved the backend drew what GL draws. Where the Metal saver
+# is meant to look better than GL (ss-ss8, and every frame pass since the
+# tone map, ss-z8x), GL stops being the reference, and
 # these goldens take its place: each pass drawn through the backend at 480x270,
 # six shots, kept in parity/golden/<pass>/, and compared with a new run under
 # parity --compare's rule. See parity/README.md, Golden check.

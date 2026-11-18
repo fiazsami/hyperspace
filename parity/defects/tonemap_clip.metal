@@ -1,4 +1,4 @@
-// Kill-check fixture: tone map with one deliberate defect (clip): the shoulder replaced by clipping at 1, as the 8-bit frame did. parity/backendcheck.sh requires it to FAIL. base=4a9920c2fd20faa982bea32a715b99ad696919b3
+// Kill-check fixture: tone map with one deliberate defect (clip): the shoulder replaced by clipping at 1, as the 8-bit frame did. parity/backendcheck.sh requires it to FAIL. base=d56ce175183d9eeedc65b9081228eef5a950fa00
 // The frame's last draw: the scene, accumulated in half floats so additive
 // layers no longer clip at each blend, is tone-mapped into the displayed
 // attachment, one sample at a time, from tile memory (programmable blending).
@@ -31,7 +31,8 @@ static half shoulder(half x){
 
 // [[sample_id]] runs it per sample, so the tone map comes before the resolve:
 // an edge between a highlight and the dark is averaged after its highlight is
-// brought into range, not before.
+// brought into range, not before. Neither the goldens (480x270) nor the cost
+// (3440x1440) could tell it from once a pixel: a fixture without it survived.
 fragment ToneMapOut tonemap_fragment(ToneMapVertex in [[stage_in]], half4 scene [[color(0)]],
 	uint sample [[sample_id]]){
 	ToneMapOut out;
