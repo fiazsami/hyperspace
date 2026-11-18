@@ -24,9 +24,17 @@ unset CDPATH   # a cd under it prints the directory, which the listings below wo
 # git (test-saver's), the files there, which are only tracked ones. Paths are
 # relative to metal/. -z, because git quotes a name holding a quote or a
 # backslash otherwise, whatever core.quotePath says.
-if tracked=$(git ls-files -z -- metal 2>/dev/null | tr '\0' '\n' | sed 's|^metal/||') && [ -n "$tracked" ]; then :; else
-    tracked=$(cd metal && find . ! -type d | sed 's|^\./||')
+# Any other git failure is an error: the directory listing would count an
+# untracked file as belonging.
+tracked=
+if command -v git >/dev/null && gitdir=$(git rev-parse --git-dir 2>&1); then
+    tracked=$(git ls-files -z -- metal | tr '\0' '\n' | sed 's|^metal/||') ||
+        { echo "git ls-files failed in $PWD" >&2; exit 2; }
+elif command -v git >/dev/null && [[ $gitdir != *"not a git repository"* ]]; then
+    echo "git failed in $PWD: $gitdir" >&2; exit 2
 fi
+# Empty: no repository, or an archive inside one that git ignores (test-saver's).
+[ -n "$tracked" ] || tracked=$(cd metal && find . ! -type d | sed 's|^\./||')
 [ -d "$1/Contents/Resources/metal" ] || { echo "$1 has no Contents/Resources/metal" >&2; exit 1; }
 # Everything but directories, symlinks included: the folder reference copies a
 # link like any file.
