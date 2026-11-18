@@ -4,7 +4,7 @@
 # the saver in any direction (parity/README.md, Evolving the saver): the
 # reference is a commit, not a mode kept in the code.
 #
-# Cost: `parity <pass> ... look=saver time` at 3440x1440 over the pass's own
+# Cost: `parity <pass> ...` with parity/timing.sh's TIME_ARGS, over the pass's own
 # frames (the footage its look shots come from: the tunnel pass is two minutes
 # because one rarely reaches the inside of a tunnel), the two sides alternated (ref new ref new ref new) so drift lands on both. Reported per pass:
 # GPU ms a frame (median) and the process's CPU ms a frame (mean), each side's
@@ -57,8 +57,8 @@ rm -rf "$OUT"; mkdir -p "$OUT"
 parity/at-ref.sh "$sha" "$WT" || exit 2
 parity/build.sh >/dev/null || exit 2
 REF=$WT/.parity-build/parity; NEW=.parity-build/parity
-usage=$("$REF" 2>&1)   # parity prints its usage and exits 2, so not a pipeline under pipefail
-[[ $usage == *look=saver* ]] ||
+. parity/timing.sh
+times_as_saver "$REF" ||
     { echo "$ref's parity has no look=saver: refcheck compares with commits from ss-z8x.1 on" >&2; exit 2; }
 
 esc(){ sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'; }
@@ -84,15 +84,15 @@ for pass in "${passes[@]}"; do
     printf '  %-7s %s\n' "$pass" "$(tail -1 "$OUT/$pass.look")"
 done
 
-echo "cost (3440x1440, each pass's own frames, ref new ref new ref new)"
+echo "cost (${TIME_ARGS[*]}, each pass's own frames, ref new ref new ref new)"
 git diff --quiet "$sha" -- parity/parity.mm parity/build.sh ||
     echo "  note: parity itself differs from $ref's; a cost change may be the harness's, not the saver's"
 printf '  %-7s %26s %30s\n' "" "GPU ms/frame ref -> new" "process CPU ms/frame ref -> new"
 for pass in "${cost[@]}"; do
     for run in 1 2 3; do
         for side in ref new; do
-            "$(bin_for $side)" "$pass" "$(metal_for $side)" "$OUT/time/$side$run-$pass" renderer=metal look=saver time \
-                shots=1 w=3440 h=1440 > "$OUT/time-$side$run-$pass.log" ||
+            "$(bin_for $side)" "$pass" "$(metal_for $side)" "$OUT/time/$side$run-$pass" "${TIME_ARGS[@]}" \
+                > "$OUT/time-$side$run-$pass.log" ||
                 { echo "$side $pass timing failed: $(tail -1 "$OUT/time-$side$run-$pass.log")" >&2; exit 2; }
         done
     done

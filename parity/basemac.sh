@@ -7,7 +7,7 @@
 #   parity/basemac.sh final <ref>
 #
 # Builds parity at <ref> (parity/at-ref.sh), then times every pass as the saver
-# draws it (look=saver time) at 3440x1440 over the pass's own frames, twice, and writes
+# draws it (parity/timing.sh's TIME_ARGS) over the pass's own frames, twice, and writes
 # .parity-build/basemac/<mode>-<sha>.txt: the machine, the commit, and each
 # run's TIME line. Dividing its numbers by the same commit's on the reference
 # Mac gives that Mac's scale factor per pass. About a minute; keep other work
@@ -28,17 +28,18 @@ fi
 sha=$(git rev-parse --verify "$ref^{commit}") || exit 2
 WT=.parity-build/basemac/tree
 parity/at-ref.sh "$sha" "$WT" || exit 2
-usage=$("$WT/.parity-build/parity" 2>&1)
-[[ $usage == *look=saver* ]] || { echo "$ref's parity has no look=saver and time (ss-z8x.1)" >&2; exit 2; }
+. parity/timing.sh
+times_as_saver "$WT/.parity-build/parity" || { echo "$ref's parity has no look=saver and time (ss-z8x.1)" >&2; exit 2; }
 out=.parity-build/basemac/$mode-${sha:0:12}.txt
 rm -f "$out"   # written only when every run succeeds, so a file is a whole result
 {
     echo "basemac $mode ref=$ref sha=$sha date=$(date -u +%FT%TZ)"
+    echo "timing ${TIME_ARGS[*]}"   # the workload, so two Macs' files can be checked to match
     echo "machine $(sysctl -n hw.model) $(sysctl -n machdep.cpu.brand_string) macOS $(sw_vers -productVersion)"
     for run in 1 2; do
         for pass in stars goo tunnel burst sun; do
-            "$WT/.parity-build/parity" "$pass" "$WT/metal" ".parity-build/basemac/run" renderer=metal look=saver time \
-                shots=1 w=3440 h=1440 | grep '^TIME' || { echo "ERROR $pass run failed"; exit 2; }
+            "$WT/.parity-build/parity" "$pass" "$WT/metal" ".parity-build/basemac/run" "${TIME_ARGS[@]}" |
+                grep '^TIME' || { echo "ERROR $pass run failed"; exit 2; }
         done
     done
 } | tee "$out.partial"

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A4A40001A4A4000100000036 /* metal in Copy Metal Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000015 /* metal */; };
 		8D255AC70486D3F9007BF209 /* Hyperspace_Prefix.pch in Headers */ = {isa = PBXBuildFile; fileRef = 32DBCFA80370C50100C91783 /* Hyperspace_Prefix.pch */; };
 		8D255AC80486D3F9007BF209 /* HyperspaceView.h in Headers */ = {isa = PBXBuildFile; fileRef = F50079790118B23001CA0E54 /* HyperspaceView.h */; };
 		8D255ACA0486D3F9007BF209 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 089C167DFE841241C02AAC07 /* InfoPlist.strings */; };
@@ -80,29 +81,16 @@
 		A4A40001A4A4000100000010 /* rendererMetal.h in Headers */ = {isa = PBXBuildFile; fileRef = A4A40001A4A400010000000F /* rendererMetal.h */; };
 		A4A40001A4A4000100000012 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000011 /* Metal.framework */; };
 		A4A40001A4A4000100000014 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000013 /* QuartzCore.framework */; };
-		A4A40001A4A400010000001A /* Interface.metal in Copy Metal Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000016 /* Interface.metal */; };
-		A4A40001A4A400010000001B /* FixedFunction.metal in Copy Metal Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000017 /* FixedFunction.metal */; };
-		A4A40001A4A400010000001C /* Goo.metal in Copy Metal Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000018 /* Goo.metal */; };
-		A4A40001A4A400010000001D /* Tunnel.metal in Copy Metal Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000019 /* Tunnel.metal */; };
-		A4A40001A4A4000100000031 /* GooBuild.metal in Copy Metal Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000030 /* GooBuild.metal */; };
-		A4A40001A4A4000100000033 /* Soften.metal in Copy Metal Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000032 /* Soften.metal */; };
-		A4A40001A4A4000100000035 /* ToneMap.metal in Copy Metal Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000034 /* ToneMap.metal */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
 		A4A40001A4A400010000001E /* Copy Metal Sources */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
-			dstPath = metal;
+			dstPath = "";
 			dstSubfolderSpec = 7;
 			files = (
-				A4A40001A4A400010000001A /* Interface.metal in Copy Metal Sources */,
-				A4A40001A4A400010000001B /* FixedFunction.metal in Copy Metal Sources */,
-				A4A40001A4A400010000001C /* Goo.metal in Copy Metal Sources */,
-				A4A40001A4A400010000001D /* Tunnel.metal in Copy Metal Sources */,
-				A4A40001A4A4000100000031 /* GooBuild.metal in Copy Metal Sources */,
-				A4A40001A4A4000100000033 /* Soften.metal in Copy Metal Sources */,
-				A4A40001A4A4000100000035 /* ToneMap.metal in Copy Metal Sources */,
+				A4A40001A4A4000100000036 /* metal in Copy Metal Sources */,
 			);
 			name = "Copy Metal Sources";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -110,6 +98,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A4A40001A4A4000100000015 /* metal */ = {isa = PBXFileReference; lastKnownFileType = folder; path = metal; sourceTree = "<group>"; };
 		06F27B2DFFEEEFEF11CA0E56 /* ScreenSaver.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ScreenSaver.framework; path = /System/Library/Frameworks/ScreenSaver.framework; sourceTree = "<absolute>"; };
 		089C1672FE841209C02AAC07 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = /System/Library/Frameworks/Foundation.framework; sourceTree = "<absolute>"; };
 		089C167FFE841241C02AAC07 /* AppKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppKit.framework; path = /System/Library/Frameworks/AppKit.framework; sourceTree = "<absolute>"; };
@@ -196,13 +185,6 @@
 		A4A40001A4A400010000000F /* rendererMetal.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = rendererMetal.h; sourceTree = "<group>"; };
 		A4A40001A4A4000100000011 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		A4A40001A4A4000100000013 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
-		A4A40001A4A4000100000016 /* Interface.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = Interface.metal; sourceTree = "<group>"; };
-		A4A40001A4A4000100000017 /* FixedFunction.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = FixedFunction.metal; sourceTree = "<group>"; };
-		A4A40001A4A4000100000018 /* Goo.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = Goo.metal; sourceTree = "<group>"; };
-		A4A40001A4A4000100000019 /* Tunnel.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = Tunnel.metal; sourceTree = "<group>"; };
-		A4A40001A4A4000100000030 /* GooBuild.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = GooBuild.metal; sourceTree = "<group>"; };
-		A4A40001A4A4000100000032 /* Soften.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = Soften.metal; sourceTree = "<group>"; };
-		A4A40001A4A4000100000034 /* ToneMap.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = ToneMap.metal; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -402,20 +384,6 @@
 				E0AA3C9111E122EE00F84B8B /* impTorus.h */,
 			);
 			path = Implicit;
-			sourceTree = "<group>";
-		};
-		A4A40001A4A4000100000015 /* metal */ = {
-			isa = PBXGroup;
-			children = (
-				A4A40001A4A4000100000016 /* Interface.metal */,
-				A4A40001A4A4000100000017 /* FixedFunction.metal */,
-				A4A40001A4A4000100000018 /* Goo.metal */,
-				A4A40001A4A4000100000019 /* Tunnel.metal */,
-				A4A40001A4A4000100000030 /* GooBuild.metal */,
-				A4A40001A4A4000100000032 /* Soften.metal */,
-				A4A40001A4A4000100000034 /* ToneMap.metal */,
-			);
-			path = metal;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
