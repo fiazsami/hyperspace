@@ -2,6 +2,9 @@
 # backendcheck.sh judges each of them, and all its fixtures, against its
 # goldens (parity/golden/<pass>) instead of GL. One per line: the pass, then
 # why. A pass goes in here in the pull request that changes its look.
-stars    ss-ss8.2: no streak along a wrap (GL streaks a wrapping star for a frame); ss-ss8.3: 4x MSAA
-tunnel   ss-ss8.2: true cos and sin (GL's rsCosf tables lose the argument past ~400); ss-ss8.3: 4x MSAA; ss-ss8.4: 40 x 40
-sun      the stars pass with the sun in view: its stars, as stars
+stars    ss-ss8.2: no streak along a wrap (GL streaks a wrapping star for a frame); ss-ss8.3: 4x MSAA; ss-z8x: tone-mapped half-float scene
+tunnel   ss-ss8.2: true cos and sin (GL's rsCosf tables lose the argument past ~400); ss-ss8.3: 4x MSAA; ss-ss8.4: 40 x 40; ss-z8x: tone-mapped
+sun      the stars pass with the sun in view: its stars, as stars; ss-z8x: tone-mapped
+goo      ss-z8x: tone-mapped half-float scene (GL clips each blend at 8 bits; the goo's overlaps clip most)
+burst    ss-z8x: tone-mapped, as goo
+goosoft  ss-z8x: tone-mapped, as goo

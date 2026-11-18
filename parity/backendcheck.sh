@@ -12,7 +12,9 @@
 # parity/defects/<pass>_*.metal: a copy of the pass's shader file with one
 # translation defect, drawn through the backend from a copy of metal/ with it in
 # place. The goo pass also takes parity/defects/goobuild_*.metal, defects in
-# GooBuild.metal, the kernel the backend builds the goo's surface with. A
+# GooBuild.metal, the kernel the backend builds the goo's surface with, and
+# parity/defects/tonemap_*.metal, defects in ToneMap.metal (the goo's overlaps
+# are where the scene goes past the tone curve's knee). A
 # fixture that changes nothing is an error, not a survivor.
 #
 # textures and caustics are not passes but the same shape. `parity
@@ -74,7 +76,7 @@ for pass in "${passes[@]}"; do
     printf '%-10s %-25s %s\n' "$verdict" "$label" "$(tail -1 "$OUT/$pass.compare")"
 
     fixtures=(parity/defects/backend_"$pass"_*.sed parity/defects/"$pass"_*.metal)
-    [ "$pass" = goo ] && fixtures+=(parity/defects/goobuild_*.metal)
+    [ "$pass" = goo ] && fixtures+=(parity/defects/goobuild_*.metal parity/defects/tonemap_*.metal)
     if [ ${#fixtures[@]} -eq 0 ]; then
         printf 'NO FIXTURES %-25s parity/defects/backend_%s_*.sed and %s_*.metal match nothing\n' "$pass" "$pass" "$pass"; bad=1
     fi
@@ -83,7 +85,7 @@ for pass in "${passes[@]}"; do
             # A shader defect: the committed backend, drawing from a metal/ with
             # the defect in place of the pass's shader file.
             name=$(basename "$fixture" .metal); bin=.parity-build/parity; metal=$OUT/variants/$name-metal
-            case $name in goobuild_*) file=GooBuild.metal;; *)
+            case $name in goobuild_*) file=GooBuild.metal;; tonemap_*) file=ToneMap.metal;; *)
                 case $pass in goo|burst) file=Goo.metal;; goosoft) file=Soften.metal;; tunnel) file=Tunnel.metal;; *) file=FixedFunction.metal;; esac;;
             esac
             # Line 1 names the blob of metal/$file the fixture was made from. A
