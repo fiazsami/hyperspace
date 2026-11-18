@@ -3,7 +3,8 @@
  *
  * It draws the shaded look only: the shaders-off goo and tunnel are ss-5dl,
  * and asking for them throws HSRendererMetalError saying so.
- * parity/backendcheck.sh judges this backend against HSRendererGL.
+ * parity/backendcheck.sh judges it against its goldens (parity/gl-retired:
+ * every frame pass since the tone map, ss-z8x).
  */
 
 #ifndef HYPERSPACE_RENDERER_METAL_H
@@ -28,7 +29,8 @@ class HSRendererMetal : public HSRenderer{
 public:
 	// metalDir holds Interface.metal and the pass files, compiled at creation;
 	// device is an id<MTLDevice>. A missing file or a compile error throws
-	// HSRendererMetalError with the compiler's message.
+	// HSRendererMetalError with the compiler's message; so does a device that
+	// is not an Apple GPU, which the tone map needs.
 	HSRendererMetal(void *device, const char *metalDir);
 	~HSRendererMetal();
 
@@ -50,16 +52,18 @@ public:
 	// Whether the goo's field is drawn soft: into a target half the frame's
 	// width and height, then added over the frame blurred by a 3x3 tent
 	// (metal/Soften.metal). On from creation, which is the saver's look; parity
-	// turns it off to judge the goo against GL, which draws it sharp. The
+	// turns it off for its sharp goo pass. The
 	// starburst's sphere, drawn in the goo's look, is never softened. Between
 	// frames only, like setTarget. A frame whose soft target cannot be
 	// allocated draws the goo sharp.
 	void setSoftGoo(bool soft);
 	// Samples per pixel of the frame (ss-ss8.3): 4 from creation, which is
-	// the saver's look; parity sets 1 to judge the backend against GL, which
-	// draws aliased. The samples live in tile memory only (memoryless) and are
+	// the saver's look; parity sets 1 for its comparisons with GL, which draws
+	// aliased. The samples live in tile memory only (memoryless) and are
 	// resolved into the target as the frame ends. A count the device cannot
-	// draw at, or a memoryless texture it cannot make, is taken as 1. Between frames only, like setTarget.
+	// draw at, or a memoryless texture it cannot make, is taken as 1. The
+	// tone map reads the scene from tile memory, so the renderer needs an
+	// Apple GPU and fails at creation on any other. Between frames only, like setTarget.
 	void setSampleCount(int samples);
 	// How many times finer than GL's this backend builds the tunnel
 	// (HSRenderer::tunnelDetail, ss-ss8.4): 2 from creation, the saver's look.

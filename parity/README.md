@@ -359,6 +359,15 @@ gradient for normals, and this pass failed it at 98% lit>2 -- the reflections
 moved across the whole surface -- which is why it copies impCubeVolume's
 forward differences instead.
 
+**The tone map.** The backend accumulates the scene in half floats and
+tone-maps each sample before the resolve (`metal/ToneMap.metal`, ss-z8x): up
+to the knee at 0.85 it is the identity, above it a shoulder rolls off towards
+1 instead of clipping. `parity/defects/tonemap_<defect>.metal` is that shader
+with one defect, run under `goo`, whose overlaps go furthest past the knee.
+Killed: the shoulder replaced by clipping at 1, as the 8-bit frame did, and
+the knee at 0.90. Not made: once a pixel instead of per sample, which
+survived (worst_max 1), so per sample is a choice nothing here can see.
+
 **The soft goo.** `goosoft_tent15.metal` is `Soften.metal` with the tent
 divided by 15, `goosoft_flip.metal` adds the goo upside down, and
 `goosoft_shift2.metal` two pixels to the left; `backend_goosoft_nocomposite.sed`
@@ -433,26 +442,29 @@ profile that differs on another Mac does not shift every pixel.
 
 It proves it can fail, every run: `tunnel_fog110`, `stars_fog110` and
 `stars_jumpstreak` are drawn against the goldens and must come out DIFFERENT
-(narrowest: `tunnel_fog110`, 0.109% against 0.1%; the goldens are
+(narrowest: `tunnel_fog110`, 0.114% against 0.1% through the tone map; the goldens are
 deterministic for the tunnel, so that margin is stable). A fixture made from
 an older shader is STALE, as in the backend check.
 
 **Passes retired from GL.** A pass listed in `parity/gl-retired` draws
 differently from GL on purpose, and `backendcheck.sh` judges it, and every
 one of its fixtures, against its goldens as `goldencheck.sh` draws them,
-instead of against GL. The other passes are still judged against GL, drawn at
-1 sample (`parity`'s default), since GL draws aliased. Retired so far, at
-hyperspace ss-ss8.3:
+instead of against GL. The other checks are still judged against GL. Retired
+so far, at hyperspace ss-z8x:
 
 | pass | why | |
 |---|---|---|
-| `stars` | no streak along a wrap (ss-ss8.2), 4x MSAA (ss-ss8.3) | judged by goldens |
-| `tunnel` | true cos and sin (ss-ss8.2), 4x MSAA, built 40 x 40 rather than 20 x 20 (ss-ss8.4) | judged by goldens |
+| `stars` | no streak along a wrap (ss-ss8.2), 4x MSAA (ss-ss8.3), tone-mapped (ss-z8x) | judged by goldens |
+| `tunnel` | true cos and sin (ss-ss8.2), 4x MSAA, built 40 x 40 rather than 20 x 20 (ss-ss8.4), tone-mapped | judged by goldens |
 | `sun` | the stars pass with the sun in view | judged by goldens |
-| `goo`, `burst`, `goosoft`, `textures`, `caustics` | unchanged at 1 sample | still judged against GL |
+| `goo`, `burst`, `goosoft` | tone-mapped: GL clips each blend at 8 bits, and the goo's overlaps clip most | judged by goldens |
+| `textures`, `caustics` | not drawn through the frame | still judged against GL |
 
-With that, `backendcheck.sh` kills 78 fixtures. The narrowest against
-goldens are `tunnel_fog110` (0.109%) and `tunnel_radialfog` (0.118%).
+Every frame pass is now judged by goldens, whose first generation the backend
+drew when it was proven equal to GL; GL still judges textures and caustics. With
+that, `backendcheck.sh` kills 80 fixtures. The narrowest against
+goldens are `tunnel_fog110` (0.114%) and `tunnel_radialfog` (0.123%), re-measured
+through the tone map.
 
 The first goldens (hyperspace 460ddbb) were the backend as parity proved it
 equal to GL; ss-ss8.2 and ss-ss8.3 replaced them with the approved look. A
@@ -493,7 +505,7 @@ harness have no `look=saver` and are refused rather than approximated.
 
 **Cost** is `parity ... time` at 3440x1440 over each pass's own frames -- the
 footage its look shots come from, so the tunnel pass's cost includes the inside
-of a tunnel -- the sides alternated (ref new ref new): the GPU's milliseconds a frame (each command
+of a tunnel -- the sides alternated (ref new ref new ref new): the GPU's milliseconds a frame (each command
 buffer's GPU span, as their union -- the time the GPU was busy with the frame
 at all; median) and the process's CPU
 milliseconds a frame (`getrusage`, user and system, mean, less what reading
@@ -501,7 +513,7 @@ back and writing shots costs, which the saver never does). The process figure,
 not the drawing thread's, is the one that counts: Metal's driver threads and
 the kernel's submission work cost several times the drawing itself (0.14
 against 0.027 ms a frame for the goo, measured). A change is HIGHER only past
-the largest of twice the reference's run-to-run noise, 2% of the reference,
+the largest of twice the three reference runs' median distance from their median (one disturbed run moves nothing; with three runs that is small, so the 2% usually decides), 2% of the reference,
 and 0.003 ms a frame (0.2 ms a second at 60 fps, too little to matter) -- refcheck
 against itself, with nothing changed, measured GPU within 0.3% and CPU within
 2.5%, except the cheapest pass (sun, 0.04 ms) whose CPU once moved 6% -- inside

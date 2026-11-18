@@ -57,6 +57,8 @@ install)
         SYMROOT="$src/sym" OBJROOT="$src/obj" "PRODUCT_NAME=$NAME" PRODUCT_BUNDLE_IDENTIFIER=com.reallyslick.HyperspaceMetal \
         build > "$src/build.log" 2>&1) || { echo "build failed: $src/build.log" >&2; exit 2; }
     built="$src/sym/Release/$NAME.saver"
+    # This tree's check, against that commit's shaders: an older commit has none.
+    (here=$PWD; cd "$src" && "$here/parity/bundlecheck.sh" "$built") || exit 2
     [ "$(plutil -extract NSPrincipalClass raw "$built/Contents/Info.plist")" = HyperspaceMetalView ] ||
         { echo "the built bundle's class is not HyperspaceMetalView" >&2; exit 2; }
     # Settings are kept by bundle id: the user's own id would share theirs.
@@ -78,6 +80,9 @@ install)
     mkdir -p "$SAVERS" && rm -rf "$SAVERS/$NAME.saver" && cp -R "$built" "$SAVERS/" ||
         { echo "copying into $SAVERS failed: parity/test-saver.sh restore undoes it" >&2; exit 2; }
     pkill -x legacyScreenSaver
+    # The build is not needed once installed (the binary keeps its symbols, so
+    # profile names functions without a dSYM); a failed one stays, for its log.
+    rm -rf "$src"
     echo "installed $NAME at ${sha:0:12}"
     ;;
 restore)
@@ -95,6 +100,9 @@ restore)
         echo "restored $backup"
     fi
     rm -f "$STATE/last-backup"
+    # Only once the record is gone, so an interrupted delete is never
+    # restored; and only a backup this script made.
+    [ "$(dirname "$backup")" = "$STATE" ] && [[ $(basename "$backup") == backup-*.saver ]] && rm -rf "$backup"
     pkill -x legacyScreenSaver
     ;;
 profile)
@@ -109,7 +117,7 @@ profile)
         # still clears it. A System Settings preview loads the bundle too, so
         # of several the busiest is taken: full-screen out-draws a thumbnail.
         found=$(LC_ALL=C ps -Ao pid=,pcpu=,comm= | awk '/legacyScreenSaver/ && $2 + 0 > 1 {print $2, $1}' | sort -rn |
-            while read -r _ p; do lsof -p "$p" 2>/dev/null | grep -q "$NAME.saver/" && echo "$p"; done)
+            while read -r _ p; do lsof -p "$p" 2>/dev/null | grep "$NAME.saver/" > /dev/null && echo "$p"; done)
         cand=$(echo "$found" | head -1); count=$(echo "$found" | grep -c .)
         if [ -n "$cand" ]; then pid=$cand; hits=$((hits + 1)); else hits=0; fi
         [ $hits -ge 3 ] && break

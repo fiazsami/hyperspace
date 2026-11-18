@@ -162,6 +162,9 @@ jobs:
             if [ "$archs" != "arm64" ]; then
               echo "::error::$1 is built for '$archs', not arm64 only"; exit 1
             fi
+            # Every shader, byte for byte: the renderer compiles them from
+            # the bundle at run time (parity/bundlecheck.sh says why).
+            parity/bundlecheck.sh "$1" || { echo "::error::$1 does not hold metal/ as the tree does"; exit 1; }
           }
 
           for configuration in Release Debug; do
