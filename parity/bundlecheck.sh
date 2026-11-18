@@ -21,21 +21,18 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE   # git is asked about the tree in $P
 # Paths below are relative: from anywhere but a tree's root it would find
 # nothing and blame the project for a shader it never looked for.
 [ -d metal ] || { echo "parity/bundlecheck.sh: run it from a hyperspace tree's root (no metal/ in $PWD)" >&2; exit 2; }
-# What belongs: the files git tracks under metal/, or, in an archive with no
-# git (test-saver's), the files there, which are only tracked ones. Paths are
-# relative to metal/. -z, because git quotes a name holding a quote or a
+# What belongs. In a checkout (./.git, a directory or a submodule's file)
+# git's list is the answer, empty or not, and any git failure is an error:
+# listing metal/ instead would count an untracked file as belonging. With no
+# ./.git, as in test-saver's archive, metal/ is listed as it is, and holds only
+# what was tracked. -z, because git quotes a name holding a quote or a
 # backslash otherwise, whatever core.quotePath says.
-# Any other git failure is an error: the directory listing would count an
-# untracked file as belonging.
-tracked=
-if command -v git >/dev/null && gitdir=$(git rev-parse --git-dir 2>&1); then
+if [ -e .git ]; then
     tracked=$(git ls-files -z -- metal | tr '\0' '\n' | sed 's|^metal/||') ||
         { echo "git ls-files failed in $PWD" >&2; exit 2; }
-elif command -v git >/dev/null && [[ $gitdir != *"not a git repository"* ]]; then
-    echo "git failed in $PWD: $gitdir" >&2; exit 2
+else
+    tracked=$(cd metal && find . ! -type d | sed 's|^\./||')
 fi
-# Empty: no repository, or an archive inside one that git ignores (test-saver's).
-[ -n "$tracked" ] || tracked=$(cd metal && find . ! -type d | sed 's|^\./||')
 [ -d "$1/Contents/Resources/metal" ] || { echo "$1 has no Contents/Resources/metal" >&2; exit 1; }
 # Everything but directories, symlinks included: the folder reference copies a
 # link like any file.
