@@ -1,14 +1,14 @@
 #!/bin/bash
-# Judges the Metal backend (HSRendererMetal) against the GL renderer, and proves
-# the judgement can fail.
+# Judges the Metal backend (HSRendererMetal), and proves the judgement can fail.
 #
-# For each pass: one run through GL (its _gl.png), one through the backend
-# (renderer=metal, its _backend.png), then `parity --compare-backend` under the
-# pass's own rules. Both runs share the seed, so they draw the same frames.
+# Every frame pass is in parity/gl-retired since the tone map (ss-z8x), so each
+# is drawn through the backend (renderer=metal, its _backend.png) as
+# goldencheck draws it and judged against its goldens (`parity
+# --compare-golden`). GL judges only textures and caustics, below.
 #
 # Then every parity/defects/backend_<pass>_*.sed is applied to a copy of
 # Hyperspace/rendererMetal.mm, built into its own parity (build.sh --backend),
-# and must FAIL its pass against the same GL images. So must every
+# and must FAIL its pass against the same goldens. So must every
 # parity/defects/<pass>_*.metal: a copy of the pass's shader file with one
 # translation defect, drawn through the backend from a copy of metal/ with it in
 # place. The goo pass also takes parity/defects/goobuild_*.metal, defects in
@@ -44,6 +44,10 @@ set -uo pipefail
 shopt -s nullglob
 cd "$(dirname "$0")/.."
 passes=("$@"); [ ${#passes[@]} -gt 0 ] || passes=(stars goo tunnel burst sun goosoft textures caustics)
+for pass in "${passes[@]}"; do
+    case $pass in stars|goo|tunnel|burst|sun|goosoft|textures|caustics) ;;
+        *) echo "unknown pass $pass (stars goo tunnel burst sun goosoft textures caustics)" >&2; exit 2;; esac
+done
 retired=$(grep -v '^#' parity/gl-retired | awk 'NF {print $1}')
 GOLDEN_RUN=(shots=6 w=480 h=270 samples=4 tunneldetail=2)   # as parity/goldencheck.sh draws
 

@@ -7,7 +7,7 @@
 #   parity/basemac.sh final <ref>
 #
 # Builds parity at <ref> (parity/at-ref.sh), then times every pass as the saver
-# draws it (look=saver time) at 3440x1440 over the pass's own frames, twice, and writes
+# draws it (parity/timing.sh's TIME_ARGS) over the pass's own frames, twice, and writes
 # .parity-build/basemac/<mode>-<sha>.txt: the machine, the commit, and each
 # run's TIME line. Dividing its numbers by the same commit's on the reference
 # Mac gives that Mac's scale factor per pass. About a minute; keep other work

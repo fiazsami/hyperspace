@@ -663,6 +663,15 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 	st->viewport = vp;
 }
 
+// The frame is over, whether it drew or failed: its encoder (already ended)
+// and buffers go, so a caller that catches the failure can begin another
+// frame, and the destructor does not end the encoder twice.
+static void endedFrame(HSRendererMetalState *st){
+	st->encoder = nil;
+	st->commands = nil;
+	st->frameBuffers.clear();   // nothing kept alive past the frame
+}
+
 void HSRendererMetal::endFrame(){
 	if(!st->encoder)
 		fail("endFrame", "no frame was begun");
@@ -699,12 +708,25 @@ void HSRendererMetal::endFrame(){
 		// waiting on another, and so move with scheduling rather than with the work.
 		auto &spans = st->frameSpans;
 		spans.clear();
+		id<MTLCommandBuffer> failed = nil;
 		for(id<MTLCommandBuffer> cb : st->frameBuffers){
+			// Waiting on a buffer never committed would never return: refuse it.
+			if(cb.status < MTLCommandBufferStatusCommitted){
+				endedFrame(st);
+				fail("endFrame", [NSString stringWithFormat:@"%@ was never committed", cb.label].UTF8String);
+			}
 			[cb waitUntilCompleted];
-			if(cb.status == MTLCommandBufferStatusError)
-				fail([@"the GPU failed " stringByAppendingString:cb.label].UTF8String,
-					cb.error.localizedDescription.UTF8String);
+			// The frame's own buffer depends on the others and fails with them:
+			// name another one if it failed too, since that is the cause.
+			if(cb.status == MTLCommandBufferStatusError && (!failed || failed == st->commands))
+				failed = cb;
 			spans.push_back({cb.GPUStartTime, cb.GPUEndTime});
+		}
+		if(failed){
+			NSString *what = [NSString stringWithFormat:@"the GPU failed %@", failed.label];
+			NSString *why = failed.error.localizedDescription ?: @"no reason given";
+			endedFrame(st);
+			fail(what.UTF8String, why.UTF8String);
 		}
 		// A build that made no triangles drew nothing, which only a frame
 		// waited for can know: parity's check that the goo drew relies on it.
@@ -721,10 +743,8 @@ void HSRendererMetal::endFrame(){
 			reached = std::max(reached, span.second);
 		}
 		st->lastGPUms = seconds * 1000.0;
-		st->frameBuffers.clear();   // nothing kept alive past the frame
 	}
-	st->encoder = nil;
-	st->commands = nil;
+	endedFrame(st);
 }
 
 void HSRendererMetal::setFog(bool on){
