@@ -8,7 +8,8 @@
 #
 # Then every parity/defects/backend_<pass>_*.sed is applied to a copy of
 # Hyperspace/rendererMetal.mm, built into its own parity (build.sh --backend),
-# and must FAIL its pass against the same goldens. So must every
+# and must FAIL its pass against the same goldens (for textures and caustics,
+# against GL). So must every
 # parity/defects/<pass>_*.metal: a copy of the pass's shader file with one
 # translation defect, drawn through the backend from a copy of metal/ with it in
 # place. The goo pass also takes parity/defects/goobuild_*.metal, defects in

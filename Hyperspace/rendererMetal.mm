@@ -669,6 +669,8 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 static void endedFrame(HSRendererMetalState *st){
 	st->encoder = nil;
 	st->commands = nil;
+	st->gooBuildCommands = nil;
+	st->softCommands = nil;
 	st->frameBuffers.clear();   // nothing kept alive past the frame
 }
 
@@ -700,6 +702,15 @@ void HSRendererMetal::endFrame(){
 		st->target = nil;
 	}
 	else{
+		// Checked before the frame commits and before any wait: a buffer
+		// enqueued but never committed would hold the queue, and the frame
+		// behind it, forever.
+		for(id<MTLCommandBuffer> cb : st->frameBuffers)
+			if(cb != st->commands && cb.status < MTLCommandBufferStatusCommitted){
+				NSString *what = [NSString stringWithFormat:@"%@ was never committed", cb.label];
+				endedFrame(st);
+				fail("endFrame", what.UTF8String);
+			}
 		[st->commands commit];
 		// Every buffer the frame made (frameCommands) is waited for and checked
 		// here, one way, whatever made it. The union of their spans is the time
@@ -710,11 +721,6 @@ void HSRendererMetal::endFrame(){
 		spans.clear();
 		id<MTLCommandBuffer> failed = nil;
 		for(id<MTLCommandBuffer> cb : st->frameBuffers){
-			// Waiting on a buffer never committed would never return: refuse it.
-			if(cb.status < MTLCommandBufferStatusCommitted){
-				endedFrame(st);
-				fail("endFrame", [NSString stringWithFormat:@"%@ was never committed", cb.label].UTF8String);
-			}
 			[cb waitUntilCompleted];
 			// The frame's own buffer depends on the others and fails with them:
 			// name another one if it failed too, since that is the cause.
@@ -1026,12 +1032,16 @@ void HSRendererMetal::endOffscreen(unsigned char *rgb){
 		}
 	}
 	[st->offscreenEncoder endEncoding];
-	[st->offscreenCommands commit];
-	[st->offscreenCommands waitUntilCompleted];
-	if(st->offscreenCommands.status == MTLCommandBufferStatusError)
-		fail("the GPU failed the offscreen pass", st->offscreenCommands.error.localizedDescription.UTF8String);
+	id<MTLCommandBuffer> done = st->offscreenCommands;
+	[done commit];
+	// Cleared before any throw, as endFrame does: a caller can begin another,
+	// and the destructor does not end this encoder again.
 	st->offscreenEncoder = nil;
 	st->offscreenCommands = nil;
+	[done waitUntilCompleted];
+	if(done.status == MTLCommandBufferStatusError)
+		fail("the GPU failed the offscreen pass",
+			(done.error.localizedDescription ?: @"no reason given").UTF8String);
 	const int size = int(st->offscreenTarget.width);
 	std::vector<unsigned char> rgba(size_t(size) * size * 4);
 	[st->offscreenTarget getBytes:rgba.data() bytesPerRow:size_t(size) * 4 fromRegion:MTLRegionMake2D(0, 0, size, size) mipmapLevel:0];
@@ -1195,10 +1205,12 @@ void HSRendererMetal::drawGooField(const HSGooField &field){
 	[ce setBuffer:st->gooPeak offset:0 atIndex:6];
 	[ce dispatchThreads:MTLSizeMake(1, 1, 1) threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
 	[ce endEncoding];
-	[build addCompletedHandler:^(id<MTLCommandBuffer> done){
-		if(done.status == MTLCommandBufferStatusError)
-			NSLog(@"HSRendererMetal: the GPU failed the goo's build: %@", done.error.localizedDescription);
-	}];
+	// A target's frame is checked by endFrame; a drawable's is not waited for.
+	if(st->drawable)
+		[build addCompletedHandler:^(id<MTLCommandBuffer> done){
+			if(done.status == MTLCommandBufferStatusError)
+				NSLog(@"HSRendererMetal: the GPU failed the goo's build: %@", done.error.localizedDescription);
+		}];
 	[build commit];
 	st->gooBuildCommands = build;
 
@@ -1243,10 +1255,11 @@ void HSRendererMetal::drawGooField(const HSGooField &field){
 	bindGoo(st, se, model, st->gooVertices);
 	[se drawPrimitives:MTLPrimitiveTypeTriangle indirectBuffer:st->gooArgs indirectBufferOffset:0];
 	[se endEncoding];
-	[soft addCompletedHandler:^(id<MTLCommandBuffer> done){
-		if(done.status == MTLCommandBufferStatusError)
-			NSLog(@"HSRendererMetal: the GPU failed the soft goo: %@", done.error.localizedDescription);
-	}];
+	if(st->drawable)   // as the goo's build
+		[soft addCompletedHandler:^(id<MTLCommandBuffer> done){
+			if(done.status == MTLCommandBufferStatusError)
+				NSLog(@"HSRendererMetal: the GPU failed the soft goo: %@", done.error.localizedDescription);
+		}];
 	[soft commit];
 	st->softCommands = soft;
 

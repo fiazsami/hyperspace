@@ -19,17 +19,22 @@ set -uo pipefail
 # The glob below is relative: from anywhere but a tree's root it matches
 # nothing and would blame the project for a shader it never looked for.
 [ -d metal ] || { echo "parity/bundlecheck.sh: run it from a hyperspace tree's root (no metal/ in $PWD)" >&2; exit 2; }
-for m in metal/*.metal; do
-    b="$1/Contents/Resources/metal/$(basename "$m")"
-    [ -f "$b" ] || { echo "$1 lacks metal/$(basename "$m"): check the project's metal folder reference and its Copy Metal Sources phase" >&2; exit 1; }
-    cmp -s "$m" "$b" || { echo "$1 holds a different metal/$(basename "$m") from the tree's" >&2; exit 1; }
-done
-# What belongs: the files git tracks in metal/, or, in an archive with no git
-# (test-saver's), the directory as it is, which holds only tracked files.
-if tracked=$(git ls-files -- metal 2>/dev/null) && [ -n "$tracked" ]; then :; else
-    tracked=$(ls -1 metal | sed 's|^|metal/|')
+# What belongs: the files git tracks under metal/, or, in an archive with no
+# git (test-saver's), the files there, which are only tracked ones. Paths are
+# relative to metal/; unquoted, so a name git would escape compares as is.
+if tracked=$(git -c core.quotePath=off ls-files -- metal 2>/dev/null | sed 's|^metal/||') && [ -n "$tracked" ]; then :; else
+    tracked=$(cd metal && find . -type f | sed 's|^\./||')
 fi
-for b in "$1"/Contents/Resources/metal/*; do
-    grep -qxF "metal/$(basename "$b")" <<< "$tracked" ||
-        { echo "$1 holds metal/$(basename "$b"), which git does not track: a stray file in metal/ was bundled" >&2; exit 1; }
-done
+bundled=$(cd "$1/Contents/Resources/metal" 2>/dev/null && find . -type f | sed 's|^\./||')
+while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    b="$1/Contents/Resources/metal/$f"
+    [ -f "$b" ] || { echo "$1 lacks metal/$f: check the project's metal folder reference and its Copy Metal Sources phase" >&2; exit 1; }
+    cmp -s "metal/$f" "$b" || { echo "$1 holds a different metal/$f from the tree's" >&2; exit 1; }
+done <<< "$tracked"
+# find sees dotfiles (an editor's swap file) as well as subdirectories.
+while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    grep -qxF "$f" <<< "$tracked" ||
+        { echo "$1 holds metal/$f, which git does not track: a stray file in metal/ was bundled" >&2; exit 1; }
+done <<< "$bundled"

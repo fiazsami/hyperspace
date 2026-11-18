@@ -34,6 +34,7 @@ out=.parity-build/basemac/$mode-${sha:0:12}.txt
 rm -f "$out"   # written only when every run succeeds, so a file is a whole result
 {
     echo "basemac $mode ref=$ref sha=$sha date=$(date -u +%FT%TZ)"
+    echo "timing ${TIME_ARGS[*]}"   # the workload, so two Macs' files can be checked to match
     echo "machine $(sysctl -n hw.model) $(sysctl -n machdep.cpu.brand_string) macOS $(sw_vers -productVersion)"
     for run in 1 2; do
         for pass in stars goo tunnel burst sun; do
