@@ -16,6 +16,7 @@
 # Exit 0 = the bundle's metal/ is the tree's, 1 = not.
 set -uo pipefail
 unset CDPATH   # a cd under it prints the directory, which the listings below would read as a file
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE   # git is asked about the tree in $PWD, not one a caller pointed at
 [ $# -eq 1 ] || { echo "usage: parity/bundlecheck.sh <bundle.saver>" >&2; exit 2; }
 # Paths below are relative: from anywhere but a tree's root it would find
 # nothing and blame the project for a shader it never looked for.
