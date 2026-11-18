@@ -38,7 +38,9 @@ case ${1:-} in
 install)
     [ $# -eq 2 ] || { echo "usage: parity/test-saver.sh install <ref>" >&2; exit 2; }
     sha=$(git rev-parse --verify "$2^{commit}") || exit 2
-    src=$OUT/src-${sha:0:12}; rm -rf "$src"; mkdir -p "$src"
+    # Built aside and swapped in once installed: reinstalling the installed
+    # commit must not delete its build (and dSYM) before the new one exists.
+    final=$OUT/src-${sha:0:12}; src=$final.new; rm -rf "$src"; mkdir -p "$src"
     git archive "$sha" | tar -x -C "$src" || exit 2
     # The class is renamed in the view and its principal-class entry; the
     # header keeps its file name, so its import stays as it was.
@@ -80,6 +82,7 @@ install)
     pkill -x legacyScreenSaver
     # One build kept, the installed one: profile wants its dSYM for symbols.
     for d in "$OUT"/src-*; do [ "$d" = "$src" ] || rm -rf "$d"; done
+    mv "$src" "$final"
     echo "installed $NAME at ${sha:0:12}"
     ;;
 restore)
@@ -99,7 +102,7 @@ restore)
     rm -f "$STATE/last-backup"
     # Only once the record is gone, so an interrupted delete is never
     # restored; and only a backup this script made.
-    [[ $backup == "$STATE"/backup-*.saver ]] && rm -rf "$backup"
+    [ "$(dirname "$backup")" = "$STATE" ] && [[ $(basename "$backup") == backup-*.saver ]] && rm -rf "$backup"
     pkill -x legacyScreenSaver
     ;;
 profile)

@@ -59,8 +59,9 @@ public:
 	// the saver's look; parity sets 1 for its comparisons with GL, which draws
 	// aliased. The samples live in tile memory only (memoryless) and are
 	// resolved into the target as the frame ends. A count the device cannot
-	// draw at, or a memoryless texture it cannot make, is taken as 1; a scene
-	// it cannot make memoryless even then is kept in memory. Between frames only, like setTarget.
+	// draw at, or a memoryless texture it cannot make, is taken as 1. The
+	// tone map reads the scene from tile memory, so the renderer needs an
+	// Apple GPU and fails at creation on any other. Between frames only, like setTarget.
 	void setSampleCount(int samples);
 	// How many times finer than GL's this backend builds the tunnel
 	// (HSRenderer::tunnelDetail, ss-ss8.4): 2 from creation, the saver's look.

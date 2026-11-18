@@ -446,6 +446,10 @@ HSRendererMetal::HSRendererMetal(void *device, const char *metalDir) : st(new HS
 	st->multisample = nil;
 	st->gooTargetPipeline = nil;
 	st->softenLibrary = compilePass(st->device, metalDir, "Soften.metal");
+	// The tone map reads the scene from tile memory ([[color(0)]]), which
+	// only Apple GPUs do; anywhere else the renderer cannot draw a frame.
+	if(![st->device supportsFamily:MTLGPUFamilyApple1])
+		fail("HSRendererMetal", "the tone map needs an Apple GPU (it reads tile memory)");
 	st->toneMapLibrary = compilePass(st->device, metalDir, "ToneMap.metal");
 	st->softenPipeline = nil;
 	st->gooTarget = nil;
@@ -623,8 +627,9 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 		td.usage = MTLTextureUsageRenderTarget;
 		td.storageMode = MTLStorageModeMemoryless;
 		st->scene = [st->device newTextureWithDescriptor:td];
-		// As the multisample texture above: aliased before not at all, and
-		// in memory before not at all.
+		// As the multisample texture above: aliased before not at all. There is
+		// no fallback to memory: a GPU that cannot make it memoryless at 1
+		// sample cannot read it from tile memory either.
 		if(!st->scene && st->samples > 1){
 			NSLog(@"HSRendererMetal: no memoryless %lux scene; drawing with 1 sample", (unsigned long)st->samples);
 			st->samples = 1;
@@ -634,13 +639,8 @@ void HSRendererMetal::beginFrame(const HSFrame &frame){
 			td.sampleCount = 1;
 			st->scene = [st->device newTextureWithDescriptor:td];
 		}
-		if(!st->scene){
-			NSLog(@"HSRendererMetal: no memoryless scene; keeping it in memory");
-			td.storageMode = MTLStorageModePrivate;
-			st->scene = [st->device newTextureWithDescriptor:td];
-		}
 		if(!st->scene)
-			fail("beginFrame", "no scene texture");
+			fail("beginFrame", "no memoryless scene texture");
 	}
 	rp.colorAttachments[0].texture = st->scene;
 	rp.colorAttachments[0].loadAction = MTLLoadActionClear;
@@ -1205,8 +1205,7 @@ void HSRendererMetal::drawGooField(const HSGooField &field){
 	// that cannot be had draws the goo sharp rather than not at all.
 	const NSUInteger w = std::max<NSUInteger>(1, (st->target.width + 1) / 2);
 	const NSUInteger h = std::max<NSUInteger>(1, (st->target.height + 1) / 2);
-	if(st->softGoo && (!st->gooTarget || st->gooTarget.width != w || st->gooTarget.height != h ||
-		st->gooTarget.pixelFormat != kSoftGooFormat)){
+	if(st->softGoo && (!st->gooTarget || st->gooTarget.width != w || st->gooTarget.height != h)){
 		MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:kSoftGooFormat
 			width:w height:h mipmapped:NO];
 		td.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
