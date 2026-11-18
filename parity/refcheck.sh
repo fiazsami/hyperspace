@@ -11,7 +11,8 @@
 # median of three runs, the change, and the noise -- the reference runs'
 # median distance from their median. Only the reference's: the side being judged must not
 # set its own bar, or a change that made timings erratic would raise it. A change counts only past the larger of twice
-# that noise and 2% of the reference: with nothing changed the two sides'
+# that noise and 2% of the reference (with three runs the median distance is
+# small, often zero, so in practice the 2% decides): with nothing changed the two sides'
 # GPU differs by under 0.3% and CPU by up to a few percent on the cheapest
 # passes (measured, refcheck against itself), more than either side moves on
 # its own. Nor below 0.003 ms a frame (0.2 ms a second at 60 fps): the

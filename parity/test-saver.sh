@@ -38,7 +38,8 @@ case ${1:-} in
 install)
     [ $# -eq 2 ] || { echo "usage: parity/test-saver.sh install <ref>" >&2; exit 2; }
     sha=$(git rev-parse --verify "$2^{commit}") || exit 2
-    src=$OUT/src-${sha:0:12}; rm -rf "$src"; mkdir -p "$src"
+    # One build kept, the installed one: profile wants its dSYM for symbols.
+    src=$OUT/src-${sha:0:12}; rm -rf "$OUT"/src-*; mkdir -p "$src"
     git archive "$sha" | tar -x -C "$src" || exit 2
     # The class is renamed in the view and its principal-class entry; the
     # header keeps its file name, so its import stays as it was.
@@ -78,7 +79,6 @@ install)
     mkdir -p "$SAVERS" && rm -rf "$SAVERS/$NAME.saver" && cp -R "$built" "$SAVERS/" ||
         { echo "copying into $SAVERS failed: parity/test-saver.sh restore undoes it" >&2; exit 2; }
     pkill -x legacyScreenSaver
-    rm -rf "$src"   # the bundle is installed; its sources and build are not needed again
     echo "installed $NAME at ${sha:0:12}"
     ;;
 restore)
@@ -94,9 +94,10 @@ restore)
         rm -rf "$SAVERS/$NAME.saver" && cp -R "$backup" "$SAVERS/$NAME.saver" ||
             { echo "restoring $backup failed; run restore again" >&2; exit 2; }
         echo "restored $backup"
-        rm -rf "$backup"   # back in place; nothing points at it now
     fi
     rm -f "$STATE/last-backup"
+    # Only once the record is gone, so an interrupted delete is never restored.
+    [ "$backup" = none ] || rm -rf "$backup"
     pkill -x legacyScreenSaver
     ;;
 profile)

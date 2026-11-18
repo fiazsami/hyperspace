@@ -440,7 +440,7 @@ profile that differs on another Mac does not shift every pixel.
 
 It proves it can fail, every run: `tunnel_fog110`, `stars_fog110` and
 `stars_jumpstreak` are drawn against the goldens and must come out DIFFERENT
-(narrowest: `tunnel_fog110`, 0.109% against 0.1%; the goldens are
+(narrowest: `tunnel_fog110`, 0.114% against 0.1% through the tone map; the goldens are
 deterministic for the tunnel, so that margin is stable). A fixture made from
 an older shader is STALE, as in the backend check.
 
@@ -460,7 +460,8 @@ so far, at hyperspace ss-z8x:
 
 Every pass is now judged by goldens; the comparison with GL is history. With
 that, `backendcheck.sh` kills 79 fixtures. The narrowest against
-goldens are `tunnel_fog110` (0.109%) and `tunnel_radialfog` (0.118%).
+goldens are `tunnel_fog110` (0.114%) and `tunnel_radialfog` (0.123%), re-measured
+through the tone map.
 
 The first goldens (hyperspace 460ddbb) were the backend as parity proved it
 equal to GL; ss-ss8.2 and ss-ss8.3 replaced them with the approved look. A
@@ -509,7 +510,7 @@ back and writing shots costs, which the saver never does). The process figure,
 not the drawing thread's, is the one that counts: Metal's driver threads and
 the kernel's submission work cost several times the drawing itself (0.14
 against 0.027 ms a frame for the goo, measured). A change is HIGHER only past
-the largest of twice the three reference runs' median distance from their median (one disturbed run moves nothing), 2% of the reference,
+the largest of twice the three reference runs' median distance from their median (one disturbed run moves nothing; with three runs that is small, so the 2% usually decides), 2% of the reference,
 and 0.003 ms a frame (0.2 ms a second at 60 fps, too little to matter) -- refcheck
 against itself, with nothing changed, measured GPU within 0.3% and CPU within
 2.5%, except the cheapest pass (sun, 0.04 ms) whose CPU once moved 6% -- inside

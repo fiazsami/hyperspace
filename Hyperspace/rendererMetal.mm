@@ -260,10 +260,12 @@ struct HSRendererMetalState {
 	id<MTLCommandBuffer> gooBuildCommands;   // this frame's build, nil until drawGooField
 	// The soft goo (setSoftGoo): drawn into gooTarget, in the frame's format,
 	// in a command buffer of its own (softCommands) committed after the build
-	// and before the frame; then added over the frame by softenPipeline. The
-	// format is the frame's on purpose: a half-float target was measured
-	// brighter than GL (parity goosoft bias 3.07, faithful 8-bit 0.66), since
-	// it keeps light GL's 8-bit blending rounds away.
+	// and before the frame; then added over the frame by softenPipeline, into
+	// the half-float scene. The target stays 8-bit on purpose: in half float
+	// the goo's many faint layers keep the light 8-bit blending rounds away,
+	// and the soft goo comes out brighter than the saver's look (refcheck
+	// against master: mid-tone p99 28 against a limit of 8, clipped 1.28%
+	// where the 8-bit target gives 0.007% through the tone map).
 	bool softGoo;
 	id<MTLLibrary> softenLibrary;
 	id<MTLRenderPipelineState> softenPipeline;   // for pipelineFormat, rebuilt with the others
