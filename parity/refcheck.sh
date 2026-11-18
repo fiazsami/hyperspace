@@ -66,6 +66,12 @@ for pass in "${passes[@]}"; do
         "$(bin_for $side)" "$pass" "$(metal_for $side)" "$OUT/$side/$pass" renderer=metal look=saver shots=6 > "$OUT/$side-$pass.log" ||
             { echo "$side $pass run failed: $(tail -1 "$OUT/$side-$pass.log")" >&2; exit 2; }
     done
+    # Each side draws with its own commit's pass table; a different table is
+    # different footage, and no comparison of it would mean anything.
+    footage(){ grep '^config:' "$OUT/$1-$pass.log" | sed 's/ metal=.*//'; }
+    [ "$(footage ref)" = "$(footage new)" ] ||
+        { echo "$pass: the two commits draw different footage; refcheck needs the same pass table" >&2
+          echo "  ref: $(footage ref)" >&2; echo "  new: $(footage new)" >&2; exit 2; }
     .parity-build/parity --compare-look "$OUT/ref/$pass" "$OUT/new/$pass" > "$OUT/$pass.look"; code=$?
     [ $code -le 1 ] || { echo "compare $pass failed: $(tail -1 "$OUT/$pass.look")" >&2; exit 2; }
     [ $code -eq 0 ] || bad=1

@@ -56,6 +56,9 @@ install)
     built="$src/sym/Release/$NAME.saver"
     [ "$(plutil -extract NSPrincipalClass raw "$built/Contents/Info.plist")" = HyperspaceMetalView ] ||
         { echo "the built bundle's class is not HyperspaceMetalView" >&2; exit 2; }
+    # Settings are kept by bundle id: the user's own id would share theirs.
+    [ "$(plutil -extract CFBundleIdentifier raw "$built/Contents/Info.plist")" = com.reallyslick.HyperspaceMetal ] ||
+        { echo "the built bundle's id is not com.reallyslick.HyperspaceMetal" >&2; exit 2; }
     # restore goes back to what was there before the first install since the
     # last restore: that install backs it up (or records "none") before
     # touching it, and later installs leave the record alone.
@@ -92,6 +95,7 @@ restore)
     ;;
 profile)
     secs=${2:-5}
+    [[ $secs =~ ^[1-9][0-9]*$ ]] || { echo "profile takes whole seconds, not $secs" >&2; exit 2; }
     dir=$OUT/profile-$(date +%Y%m%d-%H%M%S); mkdir -p "$dir"
     echo "waiting for $NAME to run full-screen..."
     pid=; hits=0

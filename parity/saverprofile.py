@@ -87,7 +87,9 @@ def gpu(path, seconds):
 
 
 if __name__ == '__main__':
-    if sys.argv[1] == 'cpu':
+    if len(sys.argv) == 3 and sys.argv[1] == 'cpu':
         cpu(sys.argv[2])
-    else:
+    elif len(sys.argv) == 4 and sys.argv[1] == 'gpu':
         gpu(sys.argv[2], float(sys.argv[3]))
+    else:
+        sys.exit(__doc__)

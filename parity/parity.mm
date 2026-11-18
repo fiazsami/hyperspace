@@ -307,7 +307,12 @@ static double cpuSeconds(const rusage &u)
 // parity --compare-look <ref-dir> <new-dir>: two backend runs' _backend.png,
 // shot by shot, by what a change of look must keep (parity/refcheck.sh):
 //   mid-tones  pixels whose reference luminance is 16-200 move by a mean of at
-//              most 2 levels, and 99% of them by at most 8;
+//              most 2 levels, and 99% of them by at most 8; and no colour
+//              channel of theirs by a mean of more than 3 (luminance alone
+//              would pass a change of hue that kept brightness);
+//   highlights pixels over 200 are not judged one by one, on purpose: they
+//              are what a tone curve exists to change. Their clipping is
+//              reported; the brightness rule below still sees them;
 //   blacks     pixels whose reference luminance is under 16 rise by a mean of
 //              at most 2 levels, and at most 1% of them by more than 4 (a
 //              haze over the background, or light where there was none: the
@@ -325,13 +330,13 @@ static int compareLook(NSString *refDir, NSString *newDir)
     if (!frames) return 2;
     NSMutableArray<NSString *> *names = [NSMutableArray array];
     for (NSString *f in frames) [names addObject:[f stringByAppendingString:@"_backend.png"]];
-    bool kept = true; double worstMean = 0, worstRise = 0, worstLit = 0, worstDark = 0; int worstP99 = 0; size_t clipRef = 0, clipNew = 0, total = 0;
+    bool kept = true; double worstMean = 0, worstHue = 0, worstRise = 0, worstLit = 0, worstDark = 0; int worstP99 = 0; size_t clipRef = 0, clipNew = 0, total = 0;
     for (NSString *n in names) {
         int rw = 0, rh = 0, nw = 0, nh = 0;
         std::vector<uint8_t> a = readPNG([refDir stringByAppendingPathComponent:n], rw, rh);
         std::vector<uint8_t> b = readPNG([newDir stringByAppendingPathComponent:n], nw, nh);
         if (a.empty() || b.empty() || rw != nw || rh != nh) { printf("ERROR %s missing or a different size\n", n.UTF8String); return 2; }
-        size_t hist[256] = {0}, mids = 0, darks = 0, lit = 0, cr = 0, cn = 0; double sumD = 0, lift = 0, lumA = 0, lumB = 0;
+        size_t hist[256] = {0}, mids = 0, darks = 0, lit = 0, cr = 0, cn = 0; double chan[3] = {0, 0, 0}; double sumD = 0, lift = 0, lumA = 0, lumB = 0;
         for (size_t i = 0; i < (size_t)rw * rh; i++) {
             const uint8_t *p = &a[i * 4], *q = &b[i * 4];
             double la = 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2], lb = 0.2126 * q[0] + 0.7152 * q[1] + 0.0722 * q[2];
@@ -339,20 +344,25 @@ static int compareLook(NSString *refDir, NSString *newDir)
             cr += p[0] == 255 || p[1] == 255 || p[2] == 255;
             cn += q[0] == 255 || q[1] == 255 || q[2] == 255;
             if (la < 16) { lift += MAX(0.0, lb - la); darks++; lit += lb - la > 4; }
-            else if (la <= 200) { int d = (int)lround(fabs(lb - la)); hist[MIN(d, 255)]++; sumD += fabs(lb - la); mids++; }
+            else if (la <= 200) {
+                // Ceiling, so "at most 8" means at most 8.0, not 8.49.
+                int d = (int)ceil(fabs(lb - la)); hist[MIN(d, 255)]++; sumD += fabs(lb - la); mids++;
+                for (int c = 0; c < 3; c++) chan[c] += fabs(double(q[c]) - p[c]);
+            }
         }
         int p99 = 0;
         for (size_t c = 0, need = (size_t)ceil(0.99 * mids); p99 < 255 && (c += hist[p99]) < need; p99++) {}
         double mean = mids ? sumD / mids : 0, dark = lumA > 0 ? 100.0 * (lumA - lumB) / lumA : 0, rise = darks ? lift / darks : 0,
                litShare = darks ? 100.0 * lit / darks : 0;
-        bool ok = mean <= 2.0 && p99 <= 8 && rise <= 2.0 && litShare <= 1.0 && dark <= 2.0;
-        kept &= ok; worstMean = MAX(worstMean, mean); worstRise = MAX(worstRise, rise); worstLit = MAX(worstLit, litShare); worstP99 = MAX(worstP99, mids ? p99 : 0); worstDark = MAX(worstDark, dark);
+        const double hue = mids ? MAX(chan[0], MAX(chan[1], chan[2])) / mids : 0;
+        bool ok = mean <= 2.0 && p99 <= 8 && hue <= 3.0 && rise <= 2.0 && litShare <= 1.0 && dark <= 2.0;
+        kept &= ok; worstMean = MAX(worstMean, mean); worstHue = MAX(worstHue, hue); worstRise = MAX(worstRise, rise); worstLit = MAX(worstLit, litShare); worstP99 = MAX(worstP99, mids ? p99 : 0); worstDark = MAX(worstDark, dark);
         clipRef += cr; clipNew += cn; total += (size_t)rw * rh;
-        printf("%s  mid mean %5.2f p99 %3d  blacks %+5.2f lit %5.2f%%  darker %6.2f%%  clipped %6.3f%% -> %6.3f%%  %s\n", n.UTF8String, mean, mids ? p99 : 0,
+        printf("%s  mid mean %5.2f p99 %3d colour %5.2f  blacks %+5.2f lit %5.2f%%  darker %6.2f%%  clipped %6.3f%% -> %6.3f%%  %s\n", n.UTF8String, mean, mids ? p99 : 0, hue,
                rise, litShare, dark, 100.0 * cr / ((size_t)rw * rh), 100.0 * cn / ((size_t)rw * rh), ok ? "ok" : "CHANGED");
     }
-    printf("%s shots=%lu worst_mid_mean=%.2f worst_mid_p99=%d worst_black_rise=%.2f worst_black_lit=%.2f%% worst_darker=%.2f%% clipped=%.3f%%->%.3f%% (limits 2 / 8 / 2 / 1%% / 2%%)\n",
-           kept ? "KEPT" : "CHANGED", (unsigned long)names.count, worstMean, worstP99, worstRise, worstLit, worstDark,
+    printf("%s shots=%lu worst_mid_mean=%.2f worst_mid_p99=%d worst_mid_colour=%.2f worst_black_rise=%.2f worst_black_lit=%.2f%% worst_darker=%.2f%% clipped=%.3f%%->%.3f%% (limits 2 / 8 / 3 / 2 / 1%% / 2%%)\n",
+           kept ? "KEPT" : "CHANGED", (unsigned long)names.count, worstMean, worstP99, worstHue, worstRise, worstLit, worstDark,
            100.0 * clipRef / total, 100.0 * clipNew / total);
     return kept ? 0 : 1;
 }
@@ -585,8 +595,8 @@ int main(int argc, const char *argv[])
         initSaver(&s, renderer);   // which then owns it
         if (!s.readyToDraw) { printf("ERROR initSaver did not finish\n"); return 2; }
         printf("renderer: %s\n", backend ? "HSRendererMetal" : (const char *)glGetString(GL_RENDERER));
-        printf("config: pass=%s seed=%ld goo=%d tunnels=%d shaders=%d %dx%d frames=%d every=%d%s%s\n",
-               pass->name, (long)gSeed, s.dUseGoo, s.dUseTunnels, s.dShaders, w, h, frames, every,
+        printf("config: pass=%s seed=%ld goo=%d tunnels=%d shaders=%d %dx%d frames=%d every=%d burst=%d sun=%g%s%s\n",
+               pass->name, (long)gSeed, s.dUseGoo, s.dUseTunnels, s.dShaders, w, h, frames, every, pass->burstAt, pass->sunAhead,
                backend ? " metal=" : "", backend ? metalDir.UTF8String : "");
 
         size_t npx = (size_t)w * h;
@@ -661,12 +671,13 @@ int main(int argc, const char *argv[])
                     printf("ERROR the sun at depth %.2f is inside the fog's end (%.2f) at frame %d\n", depth, s.depth, f); return 2;
                 }
             }
+            rusage shot0 = {};   // from here a shot's work is not the saver's
+            if (shot && timed) getrusage(RUSAGE_SELF, &shot0);
             if (shot) glEndQuery(GL_PRIMITIVES_GENERATED_EXT);
             // The backend waits for its own frame; GL has nothing to finish
             // there but a shot's query, and its cost is not the saver's.
             if (!backend || shot) glFinish();
             if (!shot) continue;
-            rusage shot0; getrusage(RUSAGE_SELF, &shot0);
             auto shotDone = [&] {
                 if (!timed || f < warmup) return;
                 rusage shot1; getrusage(RUSAGE_SELF, &shot1);
