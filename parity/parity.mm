@@ -544,6 +544,7 @@ int main(int argc, const char *argv[])
         if (wantShots) every = MAX(1, frames / wantShots);
         if ((saverLook || timed) && !backend) { fprintf(stderr, "look=saver and time are the backend's: add renderer=metal\n"); return 2; }
         if (saverLook && settingsGiven) { fprintf(stderr, "look=saver draws with the backend's own samples and tunneldetail: drop them\n"); return 2; }
+        if (saverLook && pass->softGoo) { fprintf(stderr, "look=saver draws the goo as the saver does; %s is goo with that choice made: use goo\n", pass->name); return 2; }
         const float dt = 1.0f / 60.0f;
         [[NSFileManager defaultManager] createDirectoryAtPath:outdir withIntermediateDirectories:YES attributes:nil error:nil];
 

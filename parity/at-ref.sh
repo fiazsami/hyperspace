@@ -17,7 +17,7 @@ ref=$1; WT=$2
 sha=$(git rev-parse --verify "$ref^{commit}") || exit 2
 # <dir> may be deleted and remade, so it must be parity's scratch space.
 case $WT in .parity-build/?*) ;; *) echo "at-ref.sh: <dir> must be under .parity-build/, not $WT" >&2; exit 2;; esac
-case /$WT/ in */../*) echo "at-ref.sh: <dir> may not contain .." >&2; exit 2;; esac
+case /$WT/ in */../*|*/./*|*//*) echo "at-ref.sh: <dir> must be a plain path, without .. or . or //: $WT" >&2; exit 2;; esac
 # Inside a directory that is not (or no longer) a worktree, git answers for the
 # enclosing checkout instead, so the worktree's own top level is checked too.
 if [ "$(cd "$WT" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" != "$(cd "$WT" 2>/dev/null && pwd -P)" ] ||

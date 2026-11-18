@@ -28,6 +28,9 @@ fi
 [ -x "$DEVELOPER_DIR/usr/bin/xcodebuild" ] || { echo "no Xcode at $DEVELOPER_DIR: set DEVELOPER_DIR" >&2; exit 2; }
 export DEVELOPER_DIR
 OUT=$PWD/.parity-build/test-saver
+# What restore needs outlives the scratch tree: .parity-build is deleted
+# freely, and the backup in it would go with it.
+STATE="$HOME/Library/Application Support/HyperspaceMetal test-saver"
 SAVERS="$HOME/Library/Screen Savers"
 NAME="Hyperspace Metal"
 
@@ -62,14 +65,15 @@ install)
     # restore goes back to what was there before the first install since the
     # last restore: that install backs it up (or records "none") before
     # touching it, and later installs leave the record alone.
-    if [ ! -f "$OUT/last-backup" ]; then
+    mkdir -p "$STATE" || exit 2
+    if [ ! -f "$STATE/last-backup" ]; then
         backup=none
         if [ -d "$SAVERS/$NAME.saver" ]; then
-            backup=$OUT/backup-$(date +%Y%m%d-%H%M%S).saver
+            backup=$STATE/backup-$(date +%Y%m%d-%H%M%S).saver
             cp -R "$SAVERS/$NAME.saver" "$backup" || exit 2
             echo "backed up the installed copy to $backup"
         fi
-        echo "$backup" > "$OUT/last-backup" || exit 2
+        echo "$backup" > "$STATE/last-backup" || exit 2
     fi
     mkdir -p "$SAVERS" && rm -rf "$SAVERS/$NAME.saver" && cp -R "$built" "$SAVERS/" ||
         { echo "copying into $SAVERS failed: parity/test-saver.sh restore undoes it" >&2; exit 2; }
@@ -77,8 +81,8 @@ install)
     echo "installed $NAME at ${sha:0:12}"
     ;;
 restore)
-    [ -f "$OUT/last-backup" ] || { echo "nothing installed by this script to undo" >&2; exit 2; }
-    backup=$(cat "$OUT/last-backup")
+    [ -f "$STATE/last-backup" ] || { echo "nothing installed by this script to undo" >&2; exit 2; }
+    backup=$(cat "$STATE/last-backup")
     # The record goes only once the restore has worked, so a failed one can
     # be run again.
     if [ "$backup" = none ]; then
@@ -90,7 +94,7 @@ restore)
             { echo "restoring $backup failed; run restore again" >&2; exit 2; }
         echo "restored $backup"
     fi
-    rm -f "$OUT/last-backup"
+    rm -f "$STATE/last-backup"
     pkill -x legacyScreenSaver
     ;;
 profile)
@@ -129,7 +133,7 @@ profile)
     for t in cpu gpu; do
         grep -q '<row' "$dir/$t.xml" || { echo "the $t trace exported no rows: $dir/$t-export.log" >&2; exit 2; }
     done
-    echo "where the saver's CPU goes:"; python3 -I parity/saverprofile.py cpu "$dir/cpu.xml"
+    echo "where the saver's CPU goes:"; python3 -I parity/saverprofile.py cpu "$dir/cpu.xml" || exit 2
     echo "GPU, busiest first (the saver is legacyScreenSaver ($pid)):"
     python3 -I parity/saverprofile.py gpu "$dir/gpu.xml" "$secs" | awk -v p="($pid)" 'NR <= 8 || index($0, p) || /WindowServer/'
     echo "traces: $dir"

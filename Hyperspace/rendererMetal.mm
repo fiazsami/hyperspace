@@ -645,6 +645,8 @@ void HSRendererMetal::endFrame(){
 		spans.clear();
 		for(id<MTLCommandBuffer> cb : st->frameBuffers){
 			[cb waitUntilCompleted];   // all are, today; a buffer added later may not be
+			if(cb.status == MTLCommandBufferStatusError)
+				fail("the GPU failed a frame's command buffer", cb.error.localizedDescription.UTF8String);
 			spans.push_back({cb.GPUStartTime, cb.GPUEndTime});
 		}
 		std::sort(spans.begin(), spans.end());

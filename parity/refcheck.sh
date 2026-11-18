@@ -18,9 +18,14 @@
 # cheapest passes' CPU drifted up to 0.0026 ms against themselves. Timings are printed to 0.00001 ms, so rounding never
 # reaches that 2% (the cheapest passes are about 0.04 ms a frame).
 #
-# Look: six shots of each pass through `parity --compare-look` (mid-tones kept,
-# no shot darker, clipped pixels reported), and a page flipping between the
-# two sides at full size: .parity-build/ref/index.html.
+# Look: six shots of each pass through `parity --compare-look` (mid-tones and
+# their colour kept, no haze over the blacks, no shot darker, highlights'
+# clipping reported), and a page flipping between the two sides at full size:
+# .parity-build/ref/index.html.
+#
+# Each side runs its own commit's parity, so a change to parity's own frame
+# loop between the two would show as a change of cost: refcheck says so when
+# parity's sources differ, and the footage itself must match or it refuses.
 #
 # <ref> must have parity's look=saver and time (this harness, ss-z8x.1, on);
 # an older one is refused, not approximated.
@@ -79,6 +84,8 @@ for pass in "${passes[@]}"; do
 done
 
 echo "cost (3440x1440, each pass's own frames, ref new ref new)"
+git diff --quiet "$sha" -- parity/parity.mm parity/build.sh ||
+    echo "  note: parity itself differs from $ref's; a cost change may be the harness's, not the saver's"
 printf '  %-7s %26s %30s\n' "" "GPU ms/frame ref -> new" "process CPU ms/frame ref -> new"
 for pass in "${cost[@]}"; do
     for run in 1 2; do
@@ -88,6 +95,9 @@ for pass in "${cost[@]}"; do
                 { echo "$side $pass timing failed: $(tail -1 "$OUT/time-$side$run-$pass.log")" >&2; exit 2; }
         done
     done
+    tfootage(){ grep '^config:' "$OUT/time-${1}1-$pass.log" | sed 's/ metal=.*//'; }
+    [ "$(tfootage ref)" = "$(tfootage new)" ] ||
+        { echo "$pass: the two commits time different footage; refcheck needs the same pass table" >&2; exit 2; }
     line=$(for f in ref1 new1 ref2 new2; do grep '^TIME' "$OUT/time-$f-$pass.log"; done | awk '
         { for (i = 1; i <= NF; i++) { if ($i == "gpu_ms") g[NR] = substr($(i+1), 8); if ($i == "process_cpu_ms") c[NR] = substr($(i+1), 6) } }
         function abs(x) { return x < 0 ? -x : x }
