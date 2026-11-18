@@ -6,10 +6,10 @@
 #
 # Cost: `parity <pass> ... look=saver time` at 3440x1440 over the pass's own
 # frames (the footage its look shots come from: the tunnel pass is two minutes
-# because one rarely reaches the inside of a tunnel), the two sides alternated (ref new ref new) so drift lands on both. Reported per pass:
+# because one rarely reaches the inside of a tunnel), the two sides alternated (ref new ref new ref new) so drift lands on both. Reported per pass:
 # GPU ms a frame (median) and the process's CPU ms a frame (mean), each side's
-# two runs averaged, the change, and the noise -- the reference's own
-# run-to-run difference. Only the reference's: the side being judged must not
+# median of three runs, the change, and the noise -- the reference runs'
+# median distance from their median. Only the reference's: the side being judged must not
 # set its own bar, or a change that made timings erratic would raise it. A change counts only past the larger of twice
 # that noise and 2% of the reference: with nothing changed the two sides'
 # GPU differs by under 0.3% and CPU by up to a few percent on the cheapest
@@ -83,12 +83,12 @@ for pass in "${passes[@]}"; do
     printf '  %-7s %s\n' "$pass" "$(tail -1 "$OUT/$pass.look")"
 done
 
-echo "cost (3440x1440, each pass's own frames, ref new ref new)"
+echo "cost (3440x1440, each pass's own frames, ref new ref new ref new)"
 git diff --quiet "$sha" -- parity/parity.mm parity/build.sh ||
     echo "  note: parity itself differs from $ref's; a cost change may be the harness's, not the saver's"
 printf '  %-7s %26s %30s\n' "" "GPU ms/frame ref -> new" "process CPU ms/frame ref -> new"
 for pass in "${cost[@]}"; do
-    for run in 1 2; do
+    for run in 1 2 3; do
         for side in ref new; do
             "$(bin_for $side)" "$pass" "$(metal_for $side)" "$OUT/time/$side$run-$pass" renderer=metal look=saver time \
                 shots=1 w=3440 h=1440 > "$OUT/time-$side$run-$pass.log" ||
@@ -98,14 +98,19 @@ for pass in "${cost[@]}"; do
     tfootage(){ grep '^config:' "$OUT/time-${1}1-$pass.log" | sed 's/ metal=.*//'; }
     [ "$(tfootage ref)" = "$(tfootage new)" ] ||
         { echo "$pass: the two commits time different footage; refcheck needs the same pass table" >&2; exit 2; }
-    line=$(for f in ref1 new1 ref2 new2; do grep '^TIME' "$OUT/time-$f-$pass.log"; done | awk '
+    line=$(for f in ref1 new1 ref2 new2 ref3 new3; do grep '^TIME' "$OUT/time-$f-$pass.log"; done | awk '
         { for (i = 1; i <= NF; i++) { if ($i == "gpu_ms") g[NR] = substr($(i+1), 8); if ($i == "process_cpu_ms") c[NR] = substr($(i+1), 6) } }
         function abs(x) { return x < 0 ? -x : x }
+        function med(a, b, c) { a += 0; b += 0; c += 0; return a > b ? (b > c ? b : (a > c ? c : a)) : (a > c ? a : (b > c ? c : b)) }
+        function mad(a, b, c,   m) { m = med(a, b, c); return med(abs(a - m), abs(b - m), abs(c - m)) }
         END {
             # +0: substr() gives strings, and "0.00000" <= 0 compares as text.
-            for (i = 1; i <= 4; i++) if (NR != 4 || g[i] + 0 <= 0 || c[i] + 0 <= 0) { print "ERROR"; exit }
-            gr = (g[1] + g[3]) / 2; gn = (g[2] + g[4]) / 2; gnoise = abs(g[1] - g[3])
-            cr = (c[1] + c[3]) / 2; cn = (c[2] + c[4]) / 2; cnoise = abs(c[1] - c[3])
+            for (i = 1; i <= 6; i++) if (NR != 6 || g[i] + 0 <= 0 || c[i] + 0 <= 0) { print "ERROR"; exit }
+            # Odd runs are the reference, even the new side. Each side is its
+            # median and the noise the median distance of the reference runs from
+            # theirs, so one disturbed run moves neither the value nor the bar.
+            gr = med(g[1], g[3], g[5]); gn = med(g[2], g[4], g[6]); gnoise = mad(g[1], g[3], g[5])
+            cr = med(c[1], c[3], c[5]); cn = med(c[2], c[4], c[6]); cnoise = mad(c[1], c[3], c[5])
             gl = 2 * gnoise > 0.02 * gr ? 2 * gnoise : 0.02 * gr; cl = 2 * cnoise > 0.02 * cr ? 2 * cnoise : 0.02 * cr
             if (gl < 0.003) gl = 0.003; if (cl < 0.003) cl = 0.003
             higher = (gn - gr > gl) || (cn - cr > cl)

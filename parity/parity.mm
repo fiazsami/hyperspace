@@ -319,7 +319,8 @@ static double cpuSeconds(const rusage &u)
 //              share catches a faint one over part of a frame, which the
 //              mean, over a mostly black frame, would dilute). Only rises
 //              count, so pixels that darkened cannot cancel a haze;
-//   brightness no shot's mean luminance falls by more than 2%.
+//   brightness no shot's mean luminance falls by more than 2% and half a
+//              level both.
 // It also reports the pixels clipped (any channel 255) on each side, which a
 // change meant to soften highlights should lower; whether it must is the
 // caller's rule, not this one's. Luminance is Rec. 709 on the stored bytes.
@@ -355,7 +356,10 @@ static int compareLook(NSString *refDir, NSString *newDir)
         double mean = mids ? sumD / mids : 0, dark = lumA > 0 ? 100.0 * (lumA - lumB) / lumA : 0, rise = darks ? lift / darks : 0,
                litShare = darks ? 100.0 * lit / darks : 0;
         const double hue = mids ? MAX(chan[0], MAX(chan[1], chan[2])) / mids : 0;
-        bool ok = mean <= 2.0 && p99 <= 8 && hue <= 3.0 && rise <= 2.0 && litShare <= 1.0 && dark <= 2.0;
+        // Darker counts only past half a level as well as 2%: on the near-black
+        // stars and sun shots 2% is a few hundredths of a level, nothing seen.
+        const double darkLevels = (lumA - lumB) / ((double)rw * rh);
+        bool ok = mean <= 2.0 && p99 <= 8 && hue <= 3.0 && rise <= 2.0 && litShare <= 1.0 && (dark <= 2.0 || darkLevels <= 0.5);
         kept &= ok; worstMean = MAX(worstMean, mean); worstHue = MAX(worstHue, hue); worstRise = MAX(worstRise, rise); worstLit = MAX(worstLit, litShare); worstP99 = MAX(worstP99, mids ? p99 : 0); worstDark = MAX(worstDark, dark);
         clipRef += cr; clipNew += cn; total += (size_t)rw * rh;
         printf("%s  mid mean %5.2f p99 %3d colour %5.2f  blacks %+5.2f lit %5.2f%%  darker %6.2f%%  clipped %6.3f%% -> %6.3f%%  %s\n", n.UTF8String, mean, mids ? p99 : 0, hue,
