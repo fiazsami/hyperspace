@@ -37,6 +37,6 @@ done <<< "$tracked"
 # find sees dotfiles (an editor's swap file) as well as subdirectories.
 while IFS= read -r f; do
     [ -n "$f" ] || continue
-    grep -qxF "$f" <<< "$tracked" ||
+    grep -qxF -- "$f" <<< "$tracked" ||
         { echo "$1 holds metal/$f, which git does not track: a stray file in metal/ was bundled" >&2; exit 1; }
 done <<< "$bundled"
