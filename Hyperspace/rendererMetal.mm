@@ -702,15 +702,20 @@ void HSRendererMetal::endFrame(){
 		st->target = nil;
 	}
 	else{
-		// Checked before the frame commits and before any wait: a buffer
-		// enqueued but never committed would hold the queue, and the frame
-		// behind it, forever.
+		// A buffer never committed would never complete, so the wait below
+		// would never return: refused before anything is committed or waited
+		// for. (Nothing here enqueues a buffer ahead of committing it; one
+		// enqueued and left would hold the queue itself, which no check here
+		// could release.)
+		id<MTLCommandBuffer> uncommitted = nil;
 		for(id<MTLCommandBuffer> cb : st->frameBuffers)
-			if(cb != st->commands && cb.status < MTLCommandBufferStatusCommitted){
-				NSString *what = [NSString stringWithFormat:@"%@ was never committed", cb.label];
-				endedFrame(st);
-				fail("endFrame", what.UTF8String);
-			}
+			if(cb != st->commands && cb.status == MTLCommandBufferStatusNotEnqueued && !uncommitted)
+				uncommitted = cb;
+		if(uncommitted){
+			NSString *what = [NSString stringWithFormat:@"%@ was never committed", uncommitted.label];
+			endedFrame(st);
+			fail("endFrame", what.UTF8String);
+		}
 		[st->commands commit];
 		// Every buffer the frame made (frameCommands) is waited for and checked
 		// here, one way, whatever made it. The union of their spans is the time
