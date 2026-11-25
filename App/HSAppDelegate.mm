@@ -29,8 +29,8 @@ static const NSTimeInterval kCursorPoll = 0.5;
 	HyperspaceView *saverView;
 	id escapeMonitor;
 	NSTimer *cursorPoll;	// runs only in full screen, while the app is active
-	BOOL hidThisRest;	// hidden once since the last input
-	CFTimeInterval lastIdle;
+	NSTimeInterval pollStart;	// systemUptime the poll started
+	NSTimeInterval hiddenAt;	// systemUptime the pointer was last hidden; 0 = not yet
 }
 
 - (void)applicationWillFinishLaunching:(NSNotification *)notification
@@ -129,8 +129,10 @@ static const NSTimeInterval kCursorPoll = 0.5;
 // setHiddenUntilMouseMoves alone would show it for good after the first
 // nudge. The rest is the system's own count of seconds since the last input,
 // so a move between two polls, or a click on a sheet's button, is never
-// missed. The poll is a plain timer, so it waits while a menu is tracking;
-// the pointer is over the menu then anyway.
+// missed, however late a poll runs. Hardware input only, so a utility that
+// posts synthetic events cannot keep the pointer up. The poll is a plain
+// timer, so it waits while a menu is tracking; the pointer is over the menu
+// then anyway.
 - (void)windowDidEnterFullScreen:(NSNotification *)notification
 {
 	[self startCursorPoll];
@@ -155,8 +157,12 @@ static const NSTimeInterval kCursorPoll = 0.5;
 - (void)startCursorPoll
 {
 	[self stopCursorPoll];	// enter and exit are not guaranteed to pair
-	hidThisRest = NO;
-	lastIdle = 0;
+	// Full screen can finish after the app has resigned (cmd-tab during the
+	// animation); becoming active again starts the poll then.
+	if (!NSApp.active)
+		return;
+	pollStart = NSProcessInfo.processInfo.systemUptime;
+	hiddenAt = 0;
 	__weak HSAppDelegate *weakSelf = self;
 	cursorPoll = [NSTimer scheduledTimerWithTimeInterval:kCursorPoll repeats:YES block:^(NSTimer *timer) {
 		[weakSelf pollCursor];
@@ -164,30 +170,40 @@ static const NSTimeInterval kCursorPoll = 0.5;
 	cursorPoll.tolerance = 0.2;
 }
 
+// A rest qualifies once it has lasted kCursorIdle, has begun since the
+// pointer was last hidden (so one rest hides it once), and the poll itself has
+// run kCursorIdle (so coming to the front after a long idle does not hide the
+// pointer at once). The rest's start is a time, not a comparison between
+// polls, so a late poll cannot miss or merge rests.
 - (void)pollCursor
 {
-	CFTimeInterval idle = CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateCombinedSessionState, kCGAnyInputEventType);
-	if (idle < lastIdle)
-		hidThisRest = NO;	// there was input since the last poll
-	lastIdle = idle;
-	if (!hidThisRest && idle >= kCursorIdle && [self cursorMayHide])
+	NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+	CFTimeInterval idle = CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateHIDSystemState, kCGAnyInputEventType);
+	NSTimeInterval restBegan = now - idle;
+	if (idle >= kCursorIdle && now - pollStart >= kCursorIdle
+		&& restBegan > hiddenAt + 0.05	// the clocks are read a moment apart
+		&& [self cursorMayHide])
 	{
 		[NSCursor setHiddenUntilMouseMoves:YES];
-		hidThisRest = YES;
+		hiddenAt = now;
 	}
 }
 
-// Only over the scene itself, in full screen and with no sheet up. An open
-// menu, the menu bar and a sheet are windows above the scene, so the window
-// under the pointer rules them out.
+// Only over the scene itself, with the app in front, in full screen and with
+// no sheet up. An open menu, the menu bar and a sheet are windows above the
+// scene, so the window under the pointer rules them out.
 - (BOOL)cursorMayHide
 {
-	if (!(window.styleMask & NSWindowStyleMaskFullScreen) || window.attachedSheet)
+	if (!NSApp.active || !(window.styleMask & NSWindowStyleMaskFullScreen) || window.attachedSheet)
 		return NO;
-	// mouseLocation puts the top row at the screen's maxY, just outside every
-	// window's frame, so it is brought inside.
+	// Only on this window's screen. mouseLocation puts the top row at the
+	// screen's maxY -- just outside every window's frame -- so that row, and
+	// only that row, is brought inside; a pointer on a display above is left
+	// where it is.
 	NSPoint mouse = NSEvent.mouseLocation;
 	NSRect screen = window.screen.frame;
+	if (mouse.x < NSMinX(screen) || mouse.x >= NSMaxX(screen) || mouse.y < NSMinY(screen) || mouse.y > NSMaxY(screen))
+		return NO;
 	mouse.y = MIN(mouse.y, NSMaxY(screen) - 1);
 	return [NSWindow windowNumberAtPoint:mouse belowWindowWithWindowNumber:0] == window.windowNumber;
 }
@@ -219,13 +235,17 @@ static const NSTimeInterval kCursorPoll = 0.5;
 		NSBeep();
 		return;
 	}
-	[NSCursor setHiddenUntilMouseMoves:NO];	// the sheet's controls need a pointer
 	NSWindow *sheet = saverView.configureSheet;
 	if (sheet)
+	{
+		[NSCursor setHiddenUntilMouseMoves:NO];	// the sheet's controls need a pointer
 		[window beginSheet:sheet completionHandler:nil];
+	}
 	else
 	{
-		NSLog(@"Hyperspace: ConfigureSheet.nib did not load; the scene stops drawing (ss-23j.4)");
+		// configureSheet has logged a failed load itself; a nil return after a
+		// load is an unwired ibConfigureSheet outlet.
+		NSLog(@"Hyperspace: no Settings sheet (configureSheet returned nil); the scene stops drawing (ss-23j.4)");
 		NSBeep();
 	}
 }
