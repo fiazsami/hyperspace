@@ -14,14 +14,18 @@
 #import <Cocoa/Cocoa.h>
 #import "HSAppDelegate.h"
 
+// NSApplication holds its delegate weakly, and ARC may release a local after
+// its last use, so the strong reference lives here for the life of the app.
+static HSAppDelegate *gDelegate;
+
 // No MainMenu.xib: the delegate builds the menu and the window in code.
 int main(int argc, const char *argv[])
 {
 	@autoreleasepool
 	{
 		NSApplication *app = [NSApplication sharedApplication];
-		HSAppDelegate *delegate = [[HSAppDelegate alloc] init];
-		app.delegate = delegate;	// weak: delegate is kept alive by this frame
+		gDelegate = [[HSAppDelegate alloc] init];
+		app.delegate = gDelegate;
 		[app setActivationPolicy:NSApplicationActivationPolicyRegular];
 		[app run];
 	}

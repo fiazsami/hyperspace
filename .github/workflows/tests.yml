@@ -165,6 +165,12 @@ jobs:
             # Every shader, byte for byte: the renderer compiles them from
             # the bundle at run time (parity/bundlecheck.sh says why).
             parity/bundlecheck.sh "$1" || { echo "::error::$1 does not hold metal/ as the tree does"; exit 1; }
+            # The options sheet. Its nib failing to load leaves the view
+            # configuring for good -- every frame skipped -- so its absence is
+            # a broken bundle, not a missing nicety (hyperspace#61 review).
+            [ -e "$1/Contents/Resources/Base.lproj/ConfigureSheet.nib" ] || {
+              echo "::error::$1 has no Base.lproj/ConfigureSheet.nib"; exit 1
+            }
           }
 
           # The desktop app hosts the saver's own view and compiles the same

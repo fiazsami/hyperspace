@@ -14,6 +14,18 @@
 #import "HSAppDelegate.h"
 #import "HyperspaceView.h"
 
+// HyperspaceView sets its frame pacing from the screen it is on when it moves
+// to a window or starts (matchRefresh). A saver's window never changes screen;
+// this app's does, so the delegate asks again when it moves. Declared here
+// rather than in HyperspaceView.h to leave the saver's interface as it is;
+// checked with respondsToSelector:, so a rename logs instead of crashing.
+@interface HyperspaceView (HSAppPacing)
+- (void)matchRefresh;
+@end
+
+// How long the pointer may rest in full screen before it is hidden again.
+static const NSTimeInterval kCursorIdle = 2.0;
+
 // One window only. draw() keeps the camera and starburst timers in statics
 // that every view shares (ss-qlj), so a second view would speed up the scene
 // in both. A New Window command waits on that.
@@ -23,6 +35,8 @@
 	NSWindow *window;
 	HyperspaceView *saverView;
 	id escapeMonitor;
+	id mouseMonitor;
+	NSTimer *cursorTimer;
 }
 
 - (void)applicationWillFinishLaunching:(NSNotification *)notification
@@ -30,10 +44,14 @@
 	[self buildMenu];
 }
 
+- (BOOL)applicationSupportsSecureRestorableState:(NSApplication *)app
+{
+	return YES;
+}
+
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
-	NSRect frame = NSMakeRect(0, 0, 1280, 720);
-	window = [[NSWindow alloc] initWithContentRect:frame
+	window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1280, 720)
 		styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
 		backing:NSBackingStoreBuffered
 		defer:NO];
@@ -49,9 +67,10 @@
 
 	// isPreview:NO is the full saver: the preview never pauses an unseen
 	// window, and this one should (hsShouldDraw), as when it is minimized.
-	// The view is created at the content size, origin zero, which is what
-	// HyperspaceView takes as the main screen.
-	saverView = [[HyperspaceView alloc] initWithFrame:NSMakeRect(0, 0, frame.size.width, frame.size.height) isPreview:NO];
+	// The view is created at the content size (the autosaved one, if any),
+	// origin zero, which is what HyperspaceView takes as the main screen.
+	NSSize content = [window contentRectForFrameRect:window.frame].size;
+	saverView = [[HyperspaceView alloc] initWithFrame:NSMakeRect(0, 0, content.width, content.height) isPreview:NO];
 	saverView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
 	window.contentView = saverView;
 
@@ -81,6 +100,7 @@
 - (void)applicationWillTerminate:(NSNotification *)notification
 {
 	[self stopSaver];
+	[self stopCursorHiding];
 	if (escapeMonitor)
 	{
 		[NSEvent removeMonitor:escapeMonitor];
@@ -101,13 +121,51 @@
 	[self stopSaver];
 }
 
+- (void)windowDidChangeScreen:(NSNotification *)notification
+{
+	if ([saverView respondsToSelector:@selector(matchRefresh)])
+		[saverView matchRefresh];
+	else
+		NSLog(@"Hyperspace: HyperspaceView has no matchRefresh; pacing keeps the first screen's refresh");
+}
+
+// In full screen the pointer hides, and hides again each time it has rested
+// for kCursorIdle: setHiddenUntilMouseMoves alone shows it for good after the
+// first nudge.
 - (void)windowDidEnterFullScreen:(NSNotification *)notification
 {
+	window.acceptsMouseMovedEvents = YES;
+	__weak HSAppDelegate *weakSelf = self;
+	mouseMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskMouseMoved handler:^NSEvent *(NSEvent *event) {
+		[weakSelf scheduleCursorHide];
+		return event;
+	}];
 	[NSCursor setHiddenUntilMouseMoves:YES];
 }
 
 - (void)windowDidExitFullScreen:(NSNotification *)notification
 {
+	[self stopCursorHiding];
+}
+
+- (void)scheduleCursorHide
+{
+	[cursorTimer invalidate];
+	cursorTimer = [NSTimer scheduledTimerWithTimeInterval:kCursorIdle repeats:NO block:^(NSTimer *timer) {
+		[NSCursor setHiddenUntilMouseMoves:YES];
+	}];
+}
+
+- (void)stopCursorHiding
+{
+	[cursorTimer invalidate];
+	cursorTimer = nil;
+	if (mouseMonitor)
+	{
+		[NSEvent removeMonitor:mouseMonitor];
+		mouseMonitor = nil;
+	}
+	window.acceptsMouseMovedEvents = NO;
 	[NSCursor setHiddenUntilMouseMoves:NO];
 }
 
