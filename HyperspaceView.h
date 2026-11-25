@@ -69,4 +69,8 @@ class HSRendererMetal;
 - (IBAction)reset:(id)sender;
 - (IBAction)setValueForSender:(id)sender;
 
+// Paces frames to the refresh of the view's screen. Not a nib action: the
+// desktop app calls it when its window changes screen, which a saver's never does.
+- (void)matchRefresh;
+
 @end

@@ -81,6 +81,46 @@
 		A4A40001A4A4000100000010 /* rendererMetal.h in Headers */ = {isa = PBXBuildFile; fileRef = A4A40001A4A400010000000F /* rendererMetal.h */; };
 		A4A40001A4A4000100000012 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000011 /* Metal.framework */; };
 		A4A40001A4A4000100000014 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000013 /* QuartzCore.framework */; };
+		A4A40002A4A4000200000008 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = A4A40002A4A4000200000001 /* main.m */; };
+		A4A40002A4A4000200000009 /* HSAppDelegate.mm in Sources */ = {isa = PBXBuildFile; fileRef = A4A40002A4A4000200000003 /* HSAppDelegate.mm */; };
+		A4A40002A4A400020000000A /* HyperspaceView.mm in Sources */ = {isa = PBXBuildFile; fileRef = F500797A0118B23001CA0E54 /* HyperspaceView.mm */; };
+		A4A40002A4A400020000000B /* starBurst.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0CDA05809A8E5C00004FDE6 /* starBurst.cpp */; };
+		A4A40002A4A400020000000C /* stretchedParticle.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0CDA05909A8E5C00004FDE6 /* stretchedParticle.cpp */; };
+		A4A40002A4A400020000000D /* transform.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000001 /* transform.cpp */; };
+		A4A40002A4A400020000000E /* renderer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000005 /* renderer.cpp */; };
+		A4A40002A4A400020000000F /* rendererMetal.mm in Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A400010000000D /* rendererMetal.mm */; };
+		A4A40002A4A4000200000010 /* wavyNormalCubeMaps.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0CDA05A09A8E5C00004FDE6 /* wavyNormalCubeMaps.cpp */; };
+		A4A40002A4A4000200000011 /* splinePath.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0CDA05B09A8E5C00004FDE6 /* splinePath.cpp */; };
+		A4A40002A4A4000200000012 /* flare.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0CDA05D09A8E5C00004FDE6 /* flare.cpp */; };
+		A4A40002A4A4000200000013 /* goo.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0CDA05E09A8E5C00004FDE6 /* goo.cpp */; };
+		A4A40002A4A4000200000014 /* causticTextures.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0CDA05F09A8E5C00004FDE6 /* causticTextures.cpp */; };
+		A4A40002A4A4000200000015 /* Hyperspace.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0CDA06009A8E5C00004FDE6 /* Hyperspace.cpp */; };
+		A4A40002A4A4000200000016 /* tunnel.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0CDA06109A8E5C00004FDE6 /* tunnel.cpp */; };
+		A4A40002A4A4000200000017 /* Rgbhsl.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0CDA21309A900660004FDE6 /* Rgbhsl.cpp */; };
+		A4A40002A4A4000200000018 /* impCapsule.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0AA3C7B11E122ED00F84B8B /* impCapsule.cpp */; };
+		A4A40002A4A4000200000019 /* impCubeTables.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0AA3C7E11E122ED00F84B8B /* impCubeTables.cpp */; };
+		A4A40002A4A400020000001A /* impCubeVolume.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0AA3C8011E122ED00F84B8B /* impCubeVolume.cpp */; };
+		A4A40002A4A400020000001B /* impEllipsoid.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0AA3C8211E122ED00F84B8B /* impEllipsoid.cpp */; };
+		A4A40002A4A400020000001C /* impHexahedron.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0AA3C8411E122ED00F84B8B /* impHexahedron.cpp */; };
+		A4A40002A4A400020000001D /* impKnot.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0AA3C8611E122ED00F84B8B /* impKnot.cpp */; };
+		A4A40002A4A400020000001E /* impRoundedHexahedron.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0AA3C8811E122ED00F84B8B /* impRoundedHexahedron.cpp */; };
+		A4A40002A4A400020000001F /* impShape.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0AA3C8A11E122ED00F84B8B /* impShape.cpp */; };
+		A4A40002A4A4000200000020 /* impSphere.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0AA3C8C11E122ED00F84B8B /* impSphere.cpp */; };
+		A4A40002A4A4000200000021 /* impSurface.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0AA3C8E11E122ED00F84B8B /* impSurface.cpp */; };
+		A4A40002A4A4000200000022 /* impTorus.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0AA3C9011E122ED00F84B8B /* impTorus.cpp */; };
+		A4A40002A4A4000200000023 /* rsMatrix.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0657CFD11E1261800B061F8 /* rsMatrix.cpp */; };
+		A4A40002A4A4000200000024 /* rsQuat.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0657CFF11E1261800B061F8 /* rsQuat.cpp */; };
+		A4A40002A4A4000200000025 /* rsVec.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0657D0211E1261800B061F8 /* rsVec.cpp */; };
+		A4A40002A4A4000200000026 /* rsVec4.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0657D0411E1261800B061F8 /* rsVec4.cpp */; };
+		A4A40002A4A4000200000027 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 089C167DFE841241C02AAC07 /* InfoPlist.strings */; };
+		A4A40002A4A4000200000028 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = E042195909A973B500E46FE2 /* Localizable.strings */; };
+		A4A40002A4A4000200000029 /* ConfigureSheet.xib in Resources */ = {isa = PBXBuildFile; fileRef = E02D512B247B9108008561D1 /* ConfigureSheet.xib */; };
+		A4A40002A4A400020000002A /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = A4A40002A4A4000200000005 /* AppIcon.icns */; };
+		A4A40002A4A400020000002B /* metal in Copy Metal Sources */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000015 /* metal */; };
+		A4A40002A4A400020000002C /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1058C7ADFEA557BF11CA2CBB /* Cocoa.framework */; };
+		A4A40002A4A400020000002D /* ScreenSaver.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 06F27B2DFFEEEFEF11CA0E56 /* ScreenSaver.framework */; };
+		A4A40002A4A400020000002E /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000011 /* Metal.framework */; };
+		A4A40002A4A400020000002F /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4A40001A4A4000100000013 /* QuartzCore.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -91,6 +131,17 @@
 			dstSubfolderSpec = 7;
 			files = (
 				A4A40001A4A4000100000036 /* metal in Copy Metal Sources */,
+			);
+			name = "Copy Metal Sources";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A4A40002A4A4000200000032 /* Copy Metal Sources */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 7;
+			files = (
+				A4A40002A4A400020000002B /* metal in Copy Metal Sources */,
 			);
 			name = "Copy Metal Sources";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -185,6 +236,12 @@
 		A4A40001A4A400010000000F /* rendererMetal.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = rendererMetal.h; sourceTree = "<group>"; };
 		A4A40001A4A4000100000011 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		A4A40001A4A4000100000013 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		A4A40002A4A4000200000001 /* main.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
+		A4A40002A4A4000200000002 /* HSAppDelegate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = HSAppDelegate.h; sourceTree = "<group>"; };
+		A4A40002A4A4000200000003 /* HSAppDelegate.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = HSAppDelegate.mm; sourceTree = "<group>"; };
+		A4A40002A4A4000200000004 /* AppInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist; path = AppInfo.plist; sourceTree = "<group>"; };
+		A4A40002A4A4000200000005 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		A4A40002A4A4000200000006 /* Hyperspace.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Hyperspace.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -199,6 +256,17 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A4A40002A4A4000200000033 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A4A40002A4A400020000002C /* Cocoa.framework in Frameworks */,
+				A4A40002A4A400020000002D /* ScreenSaver.framework in Frameworks */,
+				A4A40002A4A400020000002E /* Metal.framework in Frameworks */,
+				A4A40002A4A400020000002F /* QuartzCore.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -206,6 +274,7 @@
 			isa = PBXGroup;
 			children = (
 				08FB77AFFE84173DC02AAC07 /* Classes */,
+				A4A40002A4A4000200000007 /* App */,
 				32DBCFA70370C4F300C91783 /* Other Sources */,
 				089C167CFE841241C02AAC07 /* Resources */,
 				A4A40001A4A4000100000015 /* metal */,
@@ -269,6 +338,7 @@
 			isa = PBXGroup;
 			children = (
 				8D255AD30486D3F9007BF209 /* Hyperspace.saver */,
+				A4A40002A4A4000200000006 /* Hyperspace.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -386,6 +456,18 @@
 			path = Implicit;
 			sourceTree = "<group>";
 		};
+		A4A40002A4A4000200000007 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				A4A40002A4A4000200000002 /* HSAppDelegate.h */,
+				A4A40002A4A4000200000003 /* HSAppDelegate.mm */,
+				A4A40002A4A4000200000001 /* main.m */,
+				A4A40002A4A4000200000004 /* AppInfo.plist */,
+				A4A40002A4A4000200000005 /* AppIcon.icns */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXHeadersBuildPhase section */
@@ -456,6 +538,25 @@
 			productReference = 8D255AD30486D3F9007BF209 /* Hyperspace.saver */;
 			productType = "com.apple.product-type.bundle";
 		};
+		A4A40002A4A4000200000037 /* Hyperspace Application */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A4A40002A4A4000200000036 /* Build configuration list for PBXNativeTarget "Hyperspace Application" */;
+			buildPhases = (
+				A4A40002A4A4000200000031 /* Resources */,
+				A4A40002A4A4000200000032 /* Copy Metal Sources */,
+				A4A40002A4A4000200000030 /* Sources */,
+				A4A40002A4A4000200000033 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Hyperspace Application";
+			productInstallPath = "$(HOME)/Applications";
+			productName = Hyperspace;
+			productReference = A4A40002A4A4000200000006 /* Hyperspace.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -479,6 +580,7 @@
 			projectRoot = "";
 			targets = (
 				8D255AC50486D3F9007BF209 /* Hyperspace */,
+				A4A40002A4A4000200000037 /* Hyperspace Application */,
 			);
 		};
 /* End PBXProject section */
@@ -492,6 +594,17 @@
 				E042195B09A973B500E46FE2 /* Localizable.strings in Resources */,
 				E02D5129247B9108008561D1 /* ConfigureSheet.xib in Resources */,
 				E04FD81D17DC286F00CDEC91 /* thumbnail.png in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A4A40002A4A4000200000031 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A4A40002A4A4000200000027 /* InfoPlist.strings in Resources */,
+				A4A40002A4A4000200000028 /* Localizable.strings in Resources */,
+				A4A40002A4A4000200000029 /* ConfigureSheet.xib in Resources */,
+				A4A40002A4A400020000002A /* AppIcon.icns in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -541,6 +654,44 @@
 				E0657D0911E1261800B061F8 /* rsQuat.cpp in Sources */,
 				E0657D0C11E1261800B061F8 /* rsVec.cpp in Sources */,
 				E0657D0E11E1261800B061F8 /* rsVec4.cpp in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A4A40002A4A4000200000030 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A4A40002A4A4000200000008 /* main.m in Sources */,
+				A4A40002A4A4000200000009 /* HSAppDelegate.mm in Sources */,
+				A4A40002A4A400020000000A /* HyperspaceView.mm in Sources */,
+				A4A40002A4A400020000000B /* starBurst.cpp in Sources */,
+				A4A40002A4A400020000000C /* stretchedParticle.cpp in Sources */,
+				A4A40002A4A400020000000D /* transform.cpp in Sources */,
+				A4A40002A4A400020000000E /* renderer.cpp in Sources */,
+				A4A40002A4A400020000000F /* rendererMetal.mm in Sources */,
+				A4A40002A4A4000200000010 /* wavyNormalCubeMaps.cpp in Sources */,
+				A4A40002A4A4000200000011 /* splinePath.cpp in Sources */,
+				A4A40002A4A4000200000012 /* flare.cpp in Sources */,
+				A4A40002A4A4000200000013 /* goo.cpp in Sources */,
+				A4A40002A4A4000200000014 /* causticTextures.cpp in Sources */,
+				A4A40002A4A4000200000015 /* Hyperspace.cpp in Sources */,
+				A4A40002A4A4000200000016 /* tunnel.cpp in Sources */,
+				A4A40002A4A4000200000017 /* Rgbhsl.cpp in Sources */,
+				A4A40002A4A4000200000018 /* impCapsule.cpp in Sources */,
+				A4A40002A4A4000200000019 /* impCubeTables.cpp in Sources */,
+				A4A40002A4A400020000001A /* impCubeVolume.cpp in Sources */,
+				A4A40002A4A400020000001B /* impEllipsoid.cpp in Sources */,
+				A4A40002A4A400020000001C /* impHexahedron.cpp in Sources */,
+				A4A40002A4A400020000001D /* impKnot.cpp in Sources */,
+				A4A40002A4A400020000001E /* impRoundedHexahedron.cpp in Sources */,
+				A4A40002A4A400020000001F /* impShape.cpp in Sources */,
+				A4A40002A4A4000200000020 /* impSphere.cpp in Sources */,
+				A4A40002A4A4000200000021 /* impSurface.cpp in Sources */,
+				A4A40002A4A4000200000022 /* impTorus.cpp in Sources */,
+				A4A40002A4A4000200000023 /* rsMatrix.cpp in Sources */,
+				A4A40002A4A4000200000024 /* rsQuat.cpp in Sources */,
+				A4A40002A4A4000200000025 /* rsVec.cpp in Sources */,
+				A4A40002A4A4000200000026 /* rsVec4.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -718,6 +869,59 @@
 			};
 			name = Release;
 		};
+		A4A40002A4A4000200000034 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				COPY_PHASE_STRIP = NO;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PRECOMPILE_PREFIX_HEADER = YES;
+				GCC_PREFIX_HEADER = Hyperspace_Prefix.pch;
+				HEADER_SEARCH_PATHS = "$(PROJECT_DIR)";
+				INFOPLIST_FILE = App/AppInfo.plist;
+				INSTALL_PATH = "$(HOME)/Applications";
+				PRODUCT_BUNDLE_IDENTIFIER = com.reallyslick.HyperspaceApp;
+				PRODUCT_NAME = Hyperspace;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		A4A40002A4A4000200000035 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				GCC_FAST_MATH = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_OPTIMIZATION_LEVEL = 3;
+				GCC_PRECOMPILE_PREFIX_HEADER = YES;
+				GCC_PREFIX_HEADER = Hyperspace_Prefix.pch;
+				HEADER_SEARCH_PATHS = "$(PROJECT_DIR)";
+				INFOPLIST_FILE = App/AppInfo.plist;
+				INSTALL_PATH = "$(HOME)/Applications";
+				PRODUCT_BUNDLE_IDENTIFIER = com.reallyslick.HyperspaceApp;
+				PRODUCT_NAME = Hyperspace;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -735,6 +939,15 @@
 			buildConfigurations = (
 				EF7AD73208BB986600CE4634 /* Debug */,
 				EF7AD73308BB986600CE4634 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A4A40002A4A4000200000036 /* Build configuration list for PBXNativeTarget "Hyperspace Application" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A4A40002A4A4000200000034 /* Debug */,
+				A4A40002A4A4000200000035 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

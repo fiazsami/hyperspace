@@ -73,7 +73,7 @@ jobs:
       # this project argues for -- explicit "-" seals the bundle, an emptied key
       # yields an unsealed linker-signed one -- produces ** BUILD SUCCEEDED **
       # either way. Only the signature tells them apart, so assert it.
-      - name: Build and verify the saver
+      - name: Build and verify the saver and the app
         run: |
           set -euo pipefail
 
@@ -165,9 +165,21 @@ jobs:
             # Every shader, byte for byte: the renderer compiles them from
             # the bundle at run time (parity/bundlecheck.sh says why).
             parity/bundlecheck.sh "$1" || { echo "::error::$1 does not hold metal/ as the tree does"; exit 1; }
+            # The options sheet. Its nib failing to load leaves the view
+            # configuring for good -- every frame skipped -- so its absence is
+            # a broken bundle, not a missing nicety (hyperspace#61 review).
+            for sheet in Base.lproj/ConfigureSheet.nib fr.lproj/ConfigureSheet.strings de.lproj/ConfigureSheet.strings; do
+              [ -e "$1/Contents/Resources/$sheet" ] || { echo "::error::$1 has no $sheet"; exit 1; }
+            done
           }
 
+          # The desktop app hosts the saver's own view and compiles the same
+          # sources, so it gets every check the saver does: signing, no GL,
+          # arm64 only, and a metal/ that matches the tree -- a missing Copy
+          # Metal Sources phase builds fine and fails at launch.
           for configuration in Release Debug; do
             xcodebuild -project Hyperspace.xcodeproj -target Hyperspace -configuration "$configuration" build
             verify "build/$configuration/Hyperspace.saver"
+            xcodebuild -project Hyperspace.xcodeproj -target "Hyperspace Application" -configuration "$configuration" build
+            verify "build/$configuration/Hyperspace.app"
           done
