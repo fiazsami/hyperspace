@@ -14,15 +14,6 @@
 #import "HSAppDelegate.h"
 #import "HyperspaceView.h"
 
-// HyperspaceView sets its frame pacing from the screen it is on when it moves
-// to a window or starts (matchRefresh). A saver's window never changes screen;
-// this app's does, so the delegate asks again when it moves. Declared here
-// rather than in HyperspaceView.h to leave the saver's interface as it is;
-// checked with respondsToSelector:, so a rename logs instead of crashing.
-@interface HyperspaceView (HSAppPacing)
-- (void)matchRefresh;
-@end
-
 // How long the pointer may rest in full screen before it is hidden again.
 static const NSTimeInterval kCursorIdle = 2.0;
 
@@ -121,12 +112,13 @@ static const NSTimeInterval kCursorIdle = 2.0;
 	[self stopSaver];
 }
 
+// HyperspaceView sets its frame pacing from its screen when it moves to a
+// window or starts. A saver's window never changes screen; this app's does.
+// The notification can come during setFrameUsingName:, before the view
+// exists, which is harmless: viewDidMoveToWindow paces it when it arrives.
 - (void)windowDidChangeScreen:(NSNotification *)notification
 {
-	if ([saverView respondsToSelector:@selector(matchRefresh)])
-		[saverView matchRefresh];
-	else
-		NSLog(@"Hyperspace: HyperspaceView has no matchRefresh; pacing keeps the first screen's refresh");
+	[saverView matchRefresh];
 }
 
 // In full screen the pointer hides, and hides again each time it has rested
@@ -134,13 +126,37 @@ static const NSTimeInterval kCursorIdle = 2.0;
 // first nudge.
 - (void)windowDidEnterFullScreen:(NSNotification *)notification
 {
+	[self stopCursorHiding];	// enter and exit are not guaranteed to pair
 	window.acceptsMouseMovedEvents = YES;
 	__weak HSAppDelegate *weakSelf = self;
 	mouseMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskMouseMoved handler:^NSEvent *(NSEvent *event) {
-		[weakSelf scheduleCursorHide];
+		HSAppDelegate *strongSelf = weakSelf;
+		if (strongSelf && event.window == strongSelf->window)
+			[strongSelf scheduleCursorHide];
 		return event;
 	}];
-	[NSCursor setHiddenUntilMouseMoves:YES];
+	[self scheduleCursorHide];
+}
+
+// Only over the scene, in full screen, with this app in front and no sheet
+// up: a pointer that vanished over the Settings sheet or another app would
+// be a bug, not a feature.
+- (BOOL)cursorMayHide
+{
+	return NSApp.active && (window.styleMask & NSWindowStyleMaskFullScreen) && window.attachedSheet == nil;
+}
+
+- (void)applicationDidResignActive:(NSNotification *)notification
+{
+	[cursorTimer invalidate];
+	cursorTimer = nil;
+	[NSCursor setHiddenUntilMouseMoves:NO];
+}
+
+- (void)applicationDidBecomeActive:(NSNotification *)notification
+{
+	if (mouseMonitor)
+		[self scheduleCursorHide];
 }
 
 - (void)windowDidExitFullScreen:(NSNotification *)notification
@@ -151,8 +167,13 @@ static const NSTimeInterval kCursorIdle = 2.0;
 - (void)scheduleCursorHide
 {
 	[cursorTimer invalidate];
+	cursorTimer = nil;
+	if (![self cursorMayHide])
+		return;
+	__weak HSAppDelegate *weakSelf = self;
 	cursorTimer = [NSTimer scheduledTimerWithTimeInterval:kCursorIdle repeats:NO block:^(NSTimer *timer) {
-		[NSCursor setHiddenUntilMouseMoves:YES];
+		if ([weakSelf cursorMayHide])
+			[NSCursor setHiddenUntilMouseMoves:YES];
 	}];
 }
 
@@ -178,9 +199,28 @@ static const NSTimeInterval kCursorIdle = 2.0;
 {
 	if (window.attachedSheet || !saverView.hasConfigureSheet)
 		return;
+	// configureSheet marks the view configuring -- every frame skipped --
+	// before it loads the nib, and nothing clears the mark if the load fails.
+	// So the nib is looked for first; CI asserts it is in the bundle too.
+	if ([[NSBundle mainBundle] pathForResource:@"ConfigureSheet" ofType:@"nib"] == nil)
+	{
+		NSLog(@"Hyperspace: ConfigureSheet.nib is missing from the app bundle");
+		NSBeep();
+		return;
+	}
+	[cursorTimer invalidate];
+	cursorTimer = nil;
+	[NSCursor setHiddenUntilMouseMoves:NO];
 	NSWindow *sheet = saverView.configureSheet;
 	if (sheet)
-		[window beginSheet:sheet completionHandler:nil];
+	{
+		__weak HSAppDelegate *weakSelf = self;
+		[window beginSheet:sheet completionHandler:^(NSModalResponse response) {
+			HSAppDelegate *strongSelf = weakSelf;
+			if (strongSelf && strongSelf->mouseMonitor)
+				[strongSelf scheduleCursorHide];
+		}];
+	}
 }
 
 - (BOOL)validateMenuItem:(NSMenuItem *)item

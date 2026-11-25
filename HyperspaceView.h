@@ -66,6 +66,9 @@ class HSRendererMetal;
 	IBOutlet NSButton *ibMainScreenOnlyCbx;
 }
 - (IBAction)closeSheet:(id)sender;
+// Paces frames to the refresh of the view's screen. The desktop app calls it
+// when its window changes screen, which a saver's never does.
+- (void)matchRefresh;
 - (IBAction)reset:(id)sender;
 - (IBAction)setValueForSender:(id)sender;
 

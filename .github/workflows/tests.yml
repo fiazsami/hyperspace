@@ -168,9 +168,9 @@ jobs:
             # The options sheet. Its nib failing to load leaves the view
             # configuring for good -- every frame skipped -- so its absence is
             # a broken bundle, not a missing nicety (hyperspace#61 review).
-            [ -e "$1/Contents/Resources/Base.lproj/ConfigureSheet.nib" ] || {
-              echo "::error::$1 has no Base.lproj/ConfigureSheet.nib"; exit 1
-            }
+            for sheet in Base.lproj/ConfigureSheet.nib fr.lproj/ConfigureSheet.strings de.lproj/ConfigureSheet.strings; do
+              [ -e "$1/Contents/Resources/$sheet" ] || { echo "::error::$1 has no $sheet"; exit 1; }
+            done
           }
 
           # The desktop app hosts the saver's own view and compiles the same
