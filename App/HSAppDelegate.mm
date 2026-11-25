@@ -30,7 +30,7 @@ static const NSTimeInterval kCursorPoll = 0.5;
 	id escapeMonitor;
 	NSTimer *cursorPoll;	// runs only in full screen, while the app is active
 	NSTimeInterval pollStart;	// systemUptime the poll started
-	NSTimeInterval hiddenAt;	// systemUptime the pointer was last hidden; 0 = not yet
+	NSTimeInterval hiddenRestBegan;	// systemUptime the last hidden rest began
 }
 
 - (void)applicationWillFinishLaunching:(NSNotification *)notification
@@ -129,8 +129,10 @@ static const NSTimeInterval kCursorPoll = 0.5;
 // setHiddenUntilMouseMoves alone would show it for good after the first
 // nudge. The rest is the system's own count of seconds since the last input,
 // so a move between two polls, or a click on a sheet's button, is never
-// missed, however late a poll runs. Hardware input only, so a utility that
-// posts synthetic events cannot keep the pointer up. The poll is a plain
+// missed, however late a poll runs. Input of every source counts, so Screen
+// Sharing, Universal Control and accessibility pointers keep the pointer up as
+// a mouse does; a utility posting synthetic events keeps it up too, which is
+// the lesser harm. The poll is a plain
 // timer, so it waits while a menu is tracking; the pointer is over the menu
 // then anyway.
 - (void)windowDidEnterFullScreen:(NSNotification *)notification
@@ -162,7 +164,7 @@ static const NSTimeInterval kCursorPoll = 0.5;
 	if (!NSApp.active)
 		return;
 	pollStart = NSProcessInfo.processInfo.systemUptime;
-	hiddenAt = 0;
+	hiddenRestBegan = -DBL_MAX;
 	__weak HSAppDelegate *weakSelf = self;
 	cursorPoll = [NSTimer scheduledTimerWithTimeInterval:kCursorPoll repeats:YES block:^(NSTimer *timer) {
 		[weakSelf pollCursor];
@@ -170,22 +172,26 @@ static const NSTimeInterval kCursorPoll = 0.5;
 	cursorPoll.tolerance = 0.2;
 }
 
-// A rest qualifies once it has lasted kCursorIdle, has begun since the
-// pointer was last hidden (so one rest hides it once), and the poll itself has
+// A rest qualifies once it has lasted kCursorIdle, is not the rest the pointer
+// was last hidden in (so one rest hides it once), and the poll itself has
 // run kCursorIdle (so coming to the front after a long idle does not hide the
 // pointer at once). The rest's start is a time, not a comparison between
 // polls, so a late poll cannot miss or merge rests.
 - (void)pollCursor
 {
 	NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
-	CFTimeInterval idle = CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateHIDSystemState, kCGAnyInputEventType);
+	CFTimeInterval idle = CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateCombinedSessionState, kCGAnyInputEventType);
 	NSTimeInterval restBegan = now - idle;
+	// The same rest, read again, gives a start that wobbles by however long
+	// the two clocks are read apart. A new rest starts at least kCursorIdle
+	// after the hidden one did (that one lasted kCursorIdle before it was
+	// hidden), so half of that separates the two cases with room to spare.
 	if (idle >= kCursorIdle && now - pollStart >= kCursorIdle
-		&& restBegan > hiddenAt + 0.05	// the clocks are read a moment apart
+		&& restBegan > hiddenRestBegan + kCursorIdle / 2
 		&& [self cursorMayHide])
 	{
 		[NSCursor setHiddenUntilMouseMoves:YES];
-		hiddenAt = now;
+		hiddenRestBegan = restBegan;
 	}
 }
 
@@ -197,12 +203,13 @@ static const NSTimeInterval kCursorPoll = 0.5;
 	if (!NSApp.active || !(window.styleMask & NSWindowStyleMaskFullScreen) || window.attachedSheet)
 		return NO;
 	// Only on this window's screen. mouseLocation puts the top row at the
-	// screen's maxY -- just outside every window's frame -- so that row, and
+	// screen's maxY, so its rows run (minY, maxY] and minY is the top row of a
+	// display below. maxY is just outside every window's frame, so that row, and
 	// only that row, is brought inside; a pointer on a display above is left
 	// where it is.
 	NSPoint mouse = NSEvent.mouseLocation;
 	NSRect screen = window.screen.frame;
-	if (mouse.x < NSMinX(screen) || mouse.x >= NSMaxX(screen) || mouse.y < NSMinY(screen) || mouse.y > NSMaxY(screen))
+	if (mouse.x < NSMinX(screen) || mouse.x >= NSMaxX(screen) || mouse.y <= NSMinY(screen) || mouse.y > NSMaxY(screen))
 		return NO;
 	mouse.y = MIN(mouse.y, NSMaxY(screen) - 1);
 	return [NSWindow windowNumberAtPoint:mouse belowWindowWithWindowNumber:0] == window.windowNumber;
