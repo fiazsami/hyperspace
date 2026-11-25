@@ -45,6 +45,13 @@ You need macOS 26 and Xcode, or the Xcode command-line tools for the tests alone
   ```
 
   Then double-click the built `Hyperspace.saver` to install it.
+- **Desktop app:**
+
+  ```sh
+  xcodebuild -project Hyperspace.xcodeproj -target "Hyperspace Application" -configuration Release build
+  ```
+
+  This builds `build/Release/Hyperspace.app`, which you open with a double-click. It shows the screen saver in a resizable window: Settings (⌘,) opens the saver's own options sheet, ⌃⌘F switches to full screen, and Esc switches back. The app keeps its settings apart from the installed saver's, under its own bundle identifier, `com.reallyslick.HyperspaceApp`. It is signed ad hoc, like the saver: it runs on the Mac that built it, and a downloaded copy would need a Developer ID and notarization.
 
 ## How the work was done
 

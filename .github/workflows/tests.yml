@@ -73,7 +73,7 @@ jobs:
       # this project argues for -- explicit "-" seals the bundle, an emptied key
       # yields an unsealed linker-signed one -- produces ** BUILD SUCCEEDED **
       # either way. Only the signature tells them apart, so assert it.
-      - name: Build and verify the saver
+      - name: Build and verify the saver and the app
         run: |
           set -euo pipefail
 
@@ -167,7 +167,13 @@ jobs:
             parity/bundlecheck.sh "$1" || { echo "::error::$1 does not hold metal/ as the tree does"; exit 1; }
           }
 
+          # The desktop app hosts the saver's own view and compiles the same
+          # sources, so it gets every check the saver does: signing, no GL,
+          # arm64 only, and a metal/ that matches the tree -- a missing Copy
+          # Metal Sources phase builds fine and fails at launch.
           for configuration in Release Debug; do
             xcodebuild -project Hyperspace.xcodeproj -target Hyperspace -configuration "$configuration" build
             verify "build/$configuration/Hyperspace.saver"
+            xcodebuild -project Hyperspace.xcodeproj -target "Hyperspace Application" -configuration "$configuration" build
+            verify "build/$configuration/Hyperspace.app"
           done
